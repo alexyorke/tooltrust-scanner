@@ -52,6 +52,21 @@ Each tool receives a **risk score** and a **grade**:
 | D | 51–75 | `REQUIRE_APPROVAL` |
 | F | 76+ | `BLOCK` |
 
+### Risk Scoring Model
+
+The score is a weighted sum across all findings detected by the analyzer:
+
+$$\text{RiskScore} = \sum_{i=1}^{n} \left( \text{SeverityWeight}_i \times \text{FindingCount}_i \right)$$
+
+| Severity | Weight | Trigger examples |
+|----------|--------|-----------------|
+| `CRITICAL` | 25 | Tool poisoning / prompt injection |
+| `HIGH` | 15 | `exec`, `network`, `db` permissions |
+| `MEDIUM` | 8 | Scope mismatch (name vs. permissions) |
+| `LOW` | 3 | Large input surface (> 10 schema properties) |
+
+A single prompt-injection finding (`CRITICAL × 1 = 25`) immediately pushes a tool into **Grade C** territory. Two high-risk permissions (`HIGH × 2 = 30`) land it at **Grade C**. Combining both crosses **Grade D** threshold at 55.
+
 ## Architecture
 
 ```
