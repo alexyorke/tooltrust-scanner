@@ -7,213 +7,125 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.24-00ADD8.svg)](go.mod)
 
-**Security scanner and trust gateway for AI agent tool ecosystems.**
+**The security trust layer for MCP servers, OpenAI tools, and AI Skills.**
 
-AgentSafe scans MCP servers, OpenAI function tools, and Markdown Skills before an AI agent runs them — detecting prompt injection, permission abuse, and scope mismatches. It also powers a public **MCP/Skills Security Directory** where anyone can look up the safety grade of a tool before installing it.
+AgentSafe scans tool definitions *before* an AI agent runs them — blocking prompt injection, over-permission, and scope mismatches at the source.
 
-## Why AgentSafe?
+---
 
-In 2026, AI agents routinely call external tools via MCP, Skills, and function-calling APIs. A single malicious or misconfigured tool definition can:
+## What we scan
 
-- **Hijack the agent** via prompt injection hidden in the tool description
-- **Escalate privileges** by declaring `exec` or `network` permissions far beyond the tool's stated purpose
-- **Exfiltrate data** through scope mismatches invisible to the end user
+| Rule | ID | Detects |
+|------|----|---------|
+| 🛡️ **Tool Poisoning** | AS-001 | Prompt injection hidden in tool descriptions (`ignore previous instructions`, `system:`, `<INST>`) |
+| 🔑 **Over-Permission** | AS-002 | Tools declaring `exec`, `network`, or `db` beyond their stated purpose |
+| 📐 **Scope Mismatch** | AS-004 | Name vs. permission contradictions (`read_config` + `exec` permission) |
+| 📦 **Large Attack Surface** | AS-003 | Input schemas exposing > 10 parameters |
 
-AgentSafe is the security layer that sits between the agent and its tools.
+## Risk grades
 
-## How it works
-
-```
-Tool definition (MCP / OpenAI / Skills)
-        │
-        ▼
-  ┌─────────────┐
-  │   Adapter   │  Normalises any protocol → UnifiedTool
-  └──────┬──────┘
-         │
-         ▼
-  ┌─────────────┐
-  │  Analyzer   │  Poisoning · Permission Surface · Scope Mismatch
-  └──────┬──────┘
-         │
-         ▼
-  ┌─────────────┐
-  │   Gateway   │  ALLOW · REQUIRE_APPROVAL · BLOCK + rate limits
-  └─────────────┘
-```
-
-Each tool receives a **risk score** and a **grade**:
-
-| Grade | Score | Gateway policy |
+| Grade | Score | Gateway action |
 |-------|-------|----------------|
-| A | 0–10 | `ALLOW` |
-| B | 11–25 | `ALLOW` + rate limit |
-| C | 26–50 | `REQUIRE_APPROVAL` |
-| D | 51–75 | `REQUIRE_APPROVAL` |
-| F | 76+ | `BLOCK` |
+| **A** | 0–10 | `ALLOW` |
+| **B** | 11–25 | `ALLOW` + rate limit |
+| **C** | 26–50 | `REQUIRE_APPROVAL` |
+| **D** | 51–75 | `REQUIRE_APPROVAL` |
+| **F** | 76+ | `BLOCK` |
 
-### Risk Scoring Model
+Score = `Σ (weight × findings)` — weights: Critical **25** · High **15** · Medium **8** · Low **3**
 
-The score is a weighted sum across all findings detected by the analyzer:
+---
 
-$$\text{RiskScore} = \sum_{i=1}^{n} \left( \text{SeverityWeight}_i \times \text{FindingCount}_i \right)$$
+## Quick integration
 
-| Severity | Weight | Trigger examples |
-|----------|--------|-----------------|
-| `CRITICAL` | 25 | Tool poisoning / prompt injection |
-| `HIGH` | 15 | `exec`, `network`, `db` permissions |
-| `MEDIUM` | 8 | Scope mismatch (name vs. permissions) |
-| `LOW` | 3 | Large input surface (> 10 schema properties) |
-
-A single prompt-injection finding (`CRITICAL × 1 = 25`) immediately pushes a tool into **Grade C** territory. Two high-risk permissions (`HIGH × 2 = 30`) land it at **Grade C**. Combining both crosses **Grade D** threshold at 55.
-
-## Architecture
-
-```
-agentsafe/
-├── cmd/
-│   ├── agentsafe/       # CLI — scan, version
-│   └── mcpserver/       # AgentSafe as an MCP tool (meta-scanner)
-├── pkg/
-│   ├── adapter/         # Protocol converters: MCP · OpenAI · Skills · A2A
-│   ├── analyzer/        # Scan engine: poisoning · permissions · scope mismatch
-│   ├── gateway/         # RiskScore → GatewayPolicy mapper
-│   ├── model/           # Core types: UnifiedTool · RiskScore · GatewayPolicy
-│   ├── sandbox/         # K8s + gVisor dynamic execution interface (reserved)
-│   ├── storage/         # Scan result persistence: SQLite / Postgres  (planned)
-│   └── report/          # Certified report generation: Markdown / JSON (planned)
-├── internal/
-│   ├── jsonschema/      # JSON Schema helpers
-│   └── mcp/             # AgentSafe MCP Server implementation
-├── web/                 # MCP/Skills Security Directory — Next.js (planned)
-├── .github/workflows/   # CI · Release · Security workflows
-├── .cursor/skills/      # Project TDD skill (red-green-refactor)
-├── Dockerfile
-├── Makefile
-└── go.mod
-```
-
-## Quick Start
-
-### Install (pre-built binary)
-
+**CLI**
 ```bash
-# macOS (Apple Silicon)
-curl -L https://github.com/AgentSafe-AI/agentsafe/releases/latest/download/agentsafe_darwin_arm64 \
+# install
+curl -L https://github.com/AgentSafe-AI/agentsafe/releases/latest/download/agentsafe_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed s/x86_64/amd64/) \
   -o /usr/local/bin/agentsafe && chmod +x /usr/local/bin/agentsafe
 
-# macOS (Intel)
-curl -L https://github.com/AgentSafe-AI/agentsafe/releases/latest/download/agentsafe_darwin_amd64 \
-  -o /usr/local/bin/agentsafe && chmod +x /usr/local/bin/agentsafe
-
-# Linux (amd64)
-curl -L https://github.com/AgentSafe-AI/agentsafe/releases/latest/download/agentsafe_linux_amd64 \
-  -o /usr/local/bin/agentsafe && chmod +x /usr/local/bin/agentsafe
-```
-
-### Build from source
-
-```bash
-git clone https://github.com/AgentSafe-AI/agentsafe.git
-cd agentsafe
-make build          # binaries in dist/
-```
-
-### Scan an MCP tool list
-
-```bash
 agentsafe scan --protocol mcp --input tools.json
 ```
 
-Example output:
+**GitHub Actions** — add one step to your CI:
+```yaml
+- name: AgentSafe scan
+  run: agentsafe scan --protocol mcp --input testdata/tools.json --fail-on block
+```
+
+**MCP meta-scanner** — let Claude scan tools for you:
+```bash
+agentsafe-mcp   # stdio transport, exposes agentsafe_scan to any MCP client
+```
+
+**Docker**
+```bash
+docker run --rm -v $(pwd)/tools.json:/tools.json \
+  ghcr.io/AgentSafe-AI/agentsafe:latest scan --protocol mcp --input /tools.json
+```
+
+---
+
+## Example output
 
 ```json
 {
   "policies": [
     {
       "ToolName": "run_shell",
-      "Action": "REQUIRE_APPROVAL",
-      "Score": { "Score": 60, "Grade": "D",
+      "Action": "BLOCK",
+      "Score": {
+        "Score": 80, "Grade": "F",
         "Issues": [
-          { "Severity": "CRITICAL", "Code": "TOOL_POISONING", ... },
-          { "Severity": "HIGH",     "Code": "HIGH_RISK_PERMISSION", ... }
+          { "RuleID": "AS-001", "Severity": "CRITICAL", "Code": "TOOL_POISONING" },
+          { "RuleID": "AS-002", "Severity": "HIGH",     "Code": "HIGH_RISK_PERMISSION" }
         ]
       }
     }
   ],
-  "summary": { "total": 2, "allowed": 1, "requireApproval": 1, "blocked": 0 }
+  "summary": { "total": 3, "allowed": 1, "requireApproval": 1, "blocked": 1 }
 }
 ```
 
-### Run as MCP Server (meta-scanner)
+---
 
-```bash
-agentsafe-mcp
-# Stdio transport — connect via any MCP client
-# Exposes: agentsafe_scan
+## Architecture
+
 ```
-
-### Docker
-
-```bash
-docker run --rm \
-  -v $(pwd)/tools.json:/tools.json \
-  ghcr.io/AgentSafe-AI/agentsafe:latest \
-  scan --protocol mcp --input /tools.json
+pkg/adapter/    Protocol converters → UnifiedTool  (MCP · OpenAI · Skills · A2A)
+pkg/analyzer/   Scan rules AS-001 – AS-004, Engine API, weighted scoring
+pkg/gateway/    RiskScore → GatewayPolicy  (ALLOW · REQUIRE_APPROVAL · BLOCK)
+pkg/model/      Core types: UnifiedTool · RiskScore · GatewayPolicy
+cmd/agentsafe/  CLI entry point
+cmd/mcpserver/  MCP meta-scanner server
 ```
 
 ## Development
 
 ```bash
-make test           # race detector, required before every commit
-make coverage       # coverage report (≥60% enforced on pkg/ + internal/)
-make coverage-html  # open HTML report in browser
+make test           # race detector — must pass before every commit
 make lint           # golangci-lint
-make fmt vet        # format + vet
-make cross-compile  # all 5 platform binaries
+make coverage       # ≥60% enforced on pkg/ + internal/
+make cross-compile  # linux · darwin · windows binaries in dist/
 ```
 
-### TDD Workflow
+TDD workflow: RED → GREEN → REFACTOR. See [`.cursor/skills/tdd-go/SKILL.md`](.cursor/skills/tdd-go/SKILL.md).
 
-This project follows strict **red-green-refactor** TDD.
-See [`.cursor/skills/tdd-go/SKILL.md`](.cursor/skills/tdd-go/SKILL.md) for the full guide.
-
-1. Write a failing `_test.go` (RED)
-2. Write minimal code to pass (GREEN)
-3. Refactor without breaking tests (REFACTOR)
-
-`make test` must exit 0 before every commit.
+---
 
 ## Roadmap
 
-### v0.2 — Protocol coverage
-- [ ] OpenAI Function Calling adapter
-- [ ] Markdown Skills adapter (`SKILL.md` frontmatter parsing)
-- [ ] A2A protocol support
+- **v0.2** — OpenAI Function Calling · Markdown Skills · A2A adapters
+- **v0.3** — SQLite scan history · certified JSON/PDF reports · REST API
+- **v0.4** — K8s + gVisor sandbox for dynamic behavioural analysis
+- **v0.5** — MCP/Skills Security Directory (public website, searchable by grade)
+- **v1.0** — Browser extension · webhook gateway · signed scan certificates
 
-### v0.3 — Storage & Reports
-- [ ] `pkg/storage` — persist scan results to SQLite / Postgres
-- [ ] `pkg/report` — generate certified Markdown / JSON / PDF reports
-- [ ] REST API for querying historical scan results
-
-### v0.4 — Dynamic Analysis
-- [ ] `pkg/sandbox` — K8s + gVisor dynamic execution
-- [ ] Syscall and network behaviour capture during sandbox runs
-
-### v0.5 — MCP/Skills Security Directory *(website)*
-- [ ] `web/` — Next.js public directory of scanned MCP servers and Skills
-- [ ] Search, filter, and browse tools by risk grade
-- [ ] One-click scan for any public MCP endpoint or GitHub-hosted Skill
-- [ ] Community-submitted tool submissions with automated re-scan on update
-
-### v1.0 — Production Gateway
-- [ ] Browser extension for real-time MCP tool inspection
-- [ ] Webhook-based gateway integration (block calls before they leave the agent)
-- [ ] Signed scan certificates for verified-safe tools
+---
 
 ## Contributing
 
-PRs welcome. Please follow the TDD workflow above and ensure `make test` passes.
+PRs welcome — run `make test` first. See [CONTRIBUTING](CONTRIBUTING.md) for the TDD contract.
 
 ## License
 
