@@ -203,8 +203,12 @@ jobs:
 
       - name: Install via Homebrew Formula
         run: |
-          # brew install <url> fetches and installs; --formula treats arg as name, so omit it
-          brew install "https://raw.githubusercontent.com/AgentSafe-AI/tooltrust-scanner/main/Formula/tooltrust-scanner.rb"
+          # Homebrew rejects direct URL install; create a local tap and install from it
+          brew tap-new --no-git AgentSafe-AI/tooltrust-scanner
+          TAP_DIR="$(brew --prefix)/Library/Taps/agentsafe-ai/homebrew-tooltrust-scanner"
+          mkdir -p "$TAP_DIR/Formula"
+          cp "$GITHUB_WORKSPACE/Formula/tooltrust-scanner.rb" "$TAP_DIR/Formula/"
+          brew install AgentSafe-AI/tooltrust-scanner/tooltrust-scanner
           tooltrust-scanner version
           tooltrust-scanner scan --protocol mcp --input testdata/tools.json -o /dev/null
           echo "✓ Homebrew install works"
