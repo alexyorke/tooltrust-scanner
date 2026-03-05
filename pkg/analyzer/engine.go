@@ -42,6 +42,7 @@ type Engine struct {
 //   - AS-003  Scope Mismatch           (ScopeChecker)
 //   - AS-004  Supply Chain CVE         (SupplyChainChecker)
 //   - AS-005  Privilege Escalation     (PrivilegeEscalationChecker)
+//   - AS-006  Arbitrary Code Execution (ArbitraryCodeChecker)
 //   - AS-010  Secret Handling          (SecretHandlingChecker)
 //   - AS-011  DoS Resilience           (DoSResilienceChecker)
 func NewEngine() *Engine {

@@ -126,6 +126,42 @@ func TestAdapter_Parse_PreservesRawSource(t *testing.T) {
 	assert.NotEmpty(t, tools[0].RawSource)
 }
 
+func TestAdapter_Parse_EvaluateScriptInfersExec(t *testing.T) {
+	// evaluate_script / execute javascript etc. must infer PermissionExec (AS-002)
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "evaluate_script",
+				Description: "Evaluates JavaScript in the browser context.",
+				InputSchema: mcp.InputSchema{
+					Type: "object",
+					Properties: map[string]mcp.SchemaProperty{
+						"expression": {Type: "string"},
+					},
+				},
+			},
+		},
+	})
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Permissions, model.PermissionExec, "evaluate_script must infer exec permission")
+}
+
+func TestAdapter_Parse_ExecuteJavascriptInDescInfersExec(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "run_in_page",
+				Description: "Execute JavaScript in the page to extract data.",
+			},
+		},
+	})
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	assert.Contains(t, tools[0].Permissions, model.PermissionExec)
+}
+
 func TestAdapter_Parse_DBTool(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{

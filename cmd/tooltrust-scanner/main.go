@@ -61,6 +61,15 @@ type ScanSummary struct {
 	ScannedAt       time.Time `json:"scanned_at"`
 }
 
+// severityWeight for verbose ptree output (matches analyzer).
+var severityWeight = map[model.Severity]int{
+	model.SeverityCritical: 25,
+	model.SeverityHigh:     15,
+	model.SeverityMedium:   8,
+	model.SeverityLow:      2,
+	model.SeverityInfo:     0,
+}
+
 func newScanCmd() *cobra.Command {
 	var (
 		inputFile  string
@@ -68,6 +77,7 @@ func newScanCmd() *cobra.Command {
 		outputFile string
 		failOn     string
 		dbPath     string
+		verbose    bool
 	)
 
 	cmd := &cobra.Command{
@@ -84,6 +94,7 @@ func newScanCmd() *cobra.Command {
 				outputFile: outputFile,
 				failOn:     failOn,
 				dbPath:     dbPath,
+				verbose:    verbose,
 			})
 		},
 	}
@@ -93,6 +104,7 @@ func newScanCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "write JSON report to file (default: stdout)")
 	cmd.Flags().StringVar(&failOn, "fail-on", "", "exit non-zero if any tool reaches this action: allow | approval | block")
 	cmd.Flags().StringVar(&dbPath, "db", "", "persist scan results to SQLite database at this path")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "print scan process tree to stderr (per-tool: permissions, findings, score breakdown)")
 	if err := cmd.MarkFlagRequired("input"); err != nil {
 		panic(err)
 	}
@@ -106,6 +118,7 @@ type scanOpts struct {
 	outputFile string
 	failOn     string
 	dbPath     string
+	verbose    bool
 }
 
 func runScan(ctx context.Context, opts scanOpts) error {
@@ -141,6 +154,10 @@ func runScan(ctx context.Context, opts scanOpts) error {
 			return fmt.Errorf("gateway evaluation failed for tool %q: %w", tools[i].Name, evalErr)
 		}
 		policies = append(policies, policy)
+
+		if opts.verbose {
+			printScanPtree(os.Stderr, tools[i], score, policy)
+		}
 
 		switch policy.Action {
 		case model.ActionAllow:
@@ -179,6 +196,32 @@ func runScan(ctx context.Context, opts scanOpts) error {
 	}
 
 	return checkFailOn(opts.failOn, summary)
+}
+
+// printScanPtree writes a tree view of the scan process to w (stderr).
+func printScanPtree(w *os.File, tool model.UnifiedTool, score model.RiskScore, policy model.GatewayPolicy) {
+	const tree, branch, last = "│  ", "├─ ", "└─ "
+	fmt.Fprintf(w, "\n┌─ %s\n", tool.Name)
+	var lines []string
+	if len(tool.Permissions) > 0 {
+		lines = append(lines, fmt.Sprintf("Permissions: %v", tool.Permissions))
+	}
+	if len(score.Issues) == 0 && len(lines) == 0 {
+		lines = append(lines, "(no findings)")
+	}
+	for _, iss := range score.Issues {
+		wt := severityWeight[iss.Severity]
+		lines = append(lines, fmt.Sprintf("%s %s (+%d): %s [%s]", iss.RuleID, iss.Severity, wt, iss.Description, iss.Location))
+	}
+	lines = append(lines, fmt.Sprintf("Score: %d → Grade %s → %s", score.Score, score.Grade, policy.Action))
+	for i, ln := range lines {
+		sep := branch
+		if i == len(lines)-1 {
+			sep = last
+		}
+		fmt.Fprintf(w, "%s%s%s\n", tree, sep, ln)
+	}
+	fmt.Fprintf(w, "└─\n")
 }
 
 func checkFailOn(failOn string, summary ScanSummary) error {

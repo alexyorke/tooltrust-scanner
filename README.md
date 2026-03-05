@@ -26,6 +26,7 @@ AI agents blindly trust the tools they call. A single poisoned tool definition c
 | 📐 **Scope Mismatch** | AS-003 | Tool names that contradict their permissions, confusing the agent about what a tool actually does (`read_config` secretly holding `exec`) |
 | 📦 **Supply Chain (CVE)** | AS-004 | Third-party libraries bundled by a tool that carry known CVE vulnerabilities — queried live from the [OSV database](https://osv.dev) |
 | 🔓 **Privilege Escalation** | AS-005 | OAuth/token scopes broader than the tool's stated purpose (`admin`, `:write` wildcards) or description-level escalation signals (`sudo`, `impersonate`) |
+| ⚡ **Arbitrary Code Execution** | AS-006 | Tools that can execute arbitrary script/code (`evaluate_script`, `execute javascript`, `eval`, `run script`, `browser injection`) — risk equivalent to exec |
 | 🗝️ **Secret Handling** | AS-010 | Input parameters that accept API keys, passwords, or tokens (leakage risk in agent traces) and descriptions that suggest credentials are logged or stored insecurely |
 | ⚡ **DoS Resilience** | AS-011 | Network or execution tools that declare no rate-limit, timeout, or retry configuration — creating runaway resource consumption risk |
 
@@ -35,7 +36,7 @@ $$\text{RiskScore} = \sum_{i=1}^{n} \left( \text{SeverityWeight}_i \times \text{
 
 | Weight | Severity | Example trigger |
 |--------|----------|-----------------|
-| **25** | CRITICAL | Prompt injection (AS-001) |
+| **25** | CRITICAL | Prompt injection (AS-001), arbitrary code execution (AS-006) |
 | **15** | HIGH | `exec` / `network` permission (AS-002), scope mismatch (AS-003), broad OAuth scope (AS-005) |
 | **8** | MEDIUM | Insecure secret handling (AS-010) |
 | **2** | LOW | Over-broad schema (AS-002), missing rate-limit (AS-011) |

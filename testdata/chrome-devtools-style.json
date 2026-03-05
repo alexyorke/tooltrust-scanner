@@ -1,0 +1,15 @@
+{
+  "tools": [
+    {
+      "name": "evaluate_script",
+      "description": "Evaluates JavaScript expression in the browser context. Enables direct inspection and manipulation of page state during debugging.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expression": { "type": "string", "description": "JavaScript expression to evaluate" }
+        },
+        "required": ["expression"]
+      }
+    }
+  ]
+}

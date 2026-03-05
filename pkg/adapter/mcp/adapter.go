@@ -67,6 +67,7 @@ func convertSchema(s InputSchema) jsonschema.Schema {
 type permissionRule struct {
 	propKeys     []string // property names that imply this permission
 	descKeywords []string // description substrings (lowercased) that imply it
+	nameKeywords []string // tool name substrings (lowercased) that imply it
 }
 
 var permissionRules = []struct {
@@ -91,7 +92,10 @@ var permissionRules = []struct {
 		model.PermissionExec,
 		permissionRule{
 			propKeys:     []string{"command", "cmd", "shell", "script"},
-			descKeywords: []string{"execute", "run command", "shell", "subprocess", "exec", "terminal"},
+			descKeywords: []string{"execute", "run command", "shell", "subprocess", "exec", "terminal",
+				"evaluate_script", "execute javascript", "eval", "run script", "execute script", "browser injection"},
+			nameKeywords: []string{"evaluate_script", "execute_javascript", "evaluatescript", "executejavascript",
+				"eval", "run_script", "runscript", "execute_script", "executescript", "browser_injection", "browserinjection"},
 		},
 	},
 	{
@@ -117,10 +121,11 @@ var permissionRules = []struct {
 	},
 }
 
-// inferPermissions inspects a tool's schema properties and description to
+// inferPermissions inspects a tool's schema properties, description, and name to
 // derive a best-effort list of Permissions.
 func inferPermissions(t Tool) []model.Permission {
 	descLower := strings.ToLower(t.Description)
+	nameLower := strings.ToLower(t.Name)
 
 	seen := map[model.Permission]bool{}
 	var perms []model.Permission
@@ -145,6 +150,12 @@ func inferPermissions(t Tool) []model.Permission {
 		// Check description keywords
 		for _, kw := range entry.rule.descKeywords {
 			if strings.Contains(descLower, kw) {
+				add(entry.permission)
+			}
+		}
+		// Check tool name keywords
+		for _, kw := range entry.rule.nameKeywords {
+			if strings.Contains(nameLower, kw) {
 				add(entry.permission)
 			}
 		}
