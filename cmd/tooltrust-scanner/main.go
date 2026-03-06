@@ -264,17 +264,20 @@ func printPtermUI(report ScanReport) error {
 	// ── Summary box ───────────────────────────────────────────────────────────
 	s := report.Summary
 	riskLine := buildRiskLine(report.Policies)
+	avgScore, avgGrade := avgRiskScore(report.Policies)
 	summaryContent := fmt.Sprintf(
 		"Total Scanned : %d\n"+
-			"  ✅ Allowed       : %d\n"+
-			"  ⚠️  Require Approval: %d\n"+
-			"  🚫 Blocked       : %d\n"+
-			"Risk Overview : %s\n"+
-			"Scanned At    : %s",
+			"  ✅ Allowed         : %d\n"+
+			"  ⚠️  Require Approval : %d\n"+
+			"  🚫 Blocked         : %d\n"+
+			"Avg Risk Score : %d (grade %s)\n"+
+			"Grade Breakdown: %s\n"+
+			"Scanned At     : %s",
 		s.Total,
 		s.Allowed,
 		s.RequireApproval,
 		s.Blocked,
+		avgScore, avgGrade,
 		riskLine,
 		s.ScannedAt.Format("2006-01-02 15:04:05 UTC"),
 	)
@@ -337,6 +340,19 @@ func buildRiskLine(policies []model.GatewayPolicy) string {
 		return "—"
 	}
 	return strings.Join(parts, "  ")
+}
+
+// avgRiskScore returns the mean risk score and its derived grade across all policies.
+func avgRiskScore(policies []model.GatewayPolicy) (int, model.Grade) {
+	if len(policies) == 0 {
+		return 0, model.GradeA
+	}
+	total := 0
+	for _, p := range policies {
+		total += p.Score.Score
+	}
+	avg := total / len(policies)
+	return avg, model.GradeFromScore(avg)
 }
 
 // printScanPtree writes a tree view of the scan process to w (stderr) during verbose scan.
