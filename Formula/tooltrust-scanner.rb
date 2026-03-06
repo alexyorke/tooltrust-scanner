@@ -7,7 +7,7 @@
 #   3. Update version and sha256 below
 
 class TooltrustScanner < Formula
-  desc "Security scanner and trust gateway for AI agent tool ecosystems"
+  desc "Security scanner for AI agent tool definitions"
   homepage "https://github.com/AgentSafe-AI/tooltrust-scanner"
   version "0.1.3"
   url "https://github.com/AgentSafe-AI/tooltrust-scanner/archive/refs/tags/v#{version}.tar.gz"

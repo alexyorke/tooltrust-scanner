@@ -29,8 +29,8 @@ func main() {
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "tooltrust-scanner",
-		Short: "AI Agent Tool Security Scanner",
-		Long:  "ToolTrust Scanner scans AI agent tool definitions for security risks and generates gateway policies.",
+		Short: "Security scanner for AI agent tool definitions",
+		Long:  "ToolTrust Scanner analyses AI agent tool definitions for security risks and produces gateway enforcement policies.",
 	}
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newScanCmd())
