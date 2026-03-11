@@ -151,6 +151,12 @@ func runScan(ctx context.Context, opts scanOpts) error {
 		return fmt.Errorf("exactly one of --input or --server must be provided")
 	}
 
+	if opts.deepScan {
+		if err := deepscan.EnsureModels(ctx); err != nil {
+			return fmt.Errorf("failed to prepare deep-scan models: %w", err)
+		}
+	}
+
 	var tools []model.UnifiedTool
 	var err error
 
@@ -181,12 +187,6 @@ func runScan(ctx context.Context, opts scanOpts) error {
 			}
 		default:
 			return fmt.Errorf("unsupported protocol %q (supported: mcp)", opts.protocol)
-		}
-	}
-
-	if opts.deepScan {
-		if err := deepscan.EnsureModels(ctx); err != nil {
-			return fmt.Errorf("failed to prepare deep-scan models: %w", err)
 		}
 	}
 
