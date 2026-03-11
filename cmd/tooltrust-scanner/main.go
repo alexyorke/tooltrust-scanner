@@ -152,8 +152,10 @@ func runScan(ctx context.Context, opts scanOpts) error {
 	}
 
 	if opts.deepScan {
-		if err := deepscan.EnsureModels(ctx); err != nil {
-			return fmt.Errorf("failed to prepare deep-scan models: %w", err)
+		if err := deepscan.Init(ctx); err != nil {
+			pterm.Warning.Printf("Deep scan initialization failed: %v\n", err)
+			pterm.Info.Println("Falling back to standard regex-based scanning.")
+			opts.deepScan = false
 		}
 	}
 
