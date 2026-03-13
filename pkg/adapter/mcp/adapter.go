@@ -85,7 +85,7 @@ var permissionRules = []struct {
 		model.PermissionNetwork,
 		permissionRule{
 			propKeys:     []string{"url", "uri", "endpoint", "host"},
-			descKeywords: []string{"url", "network", "http", "https", "fetch", "remote", "request", "download"},
+			descKeywords: []string{"url", "network", "http", "https", "fetch", "remote", "download"},
 		},
 	},
 	{
@@ -101,7 +101,7 @@ var permissionRules = []struct {
 	{
 		model.PermissionDB,
 		permissionRule{
-			propKeys:     []string{"query", "sql", "database"},
+			propKeys:     []string{"sql", "database"},
 			descKeywords: []string{"database", "sql", "query"},
 		},
 	},
