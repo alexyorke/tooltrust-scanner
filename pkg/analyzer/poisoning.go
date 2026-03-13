@@ -11,7 +11,7 @@ import (
 // injectionPatterns are compiled regexes that signal prompt injection attempts.
 var injectionPatterns = []*regexp.Regexp{
 	// "ignore previous instructions", "disregard your instructions", "bypass filters"
-	regexp.MustCompile(`(?i)(ignore|disregard|bypass)\s+(?:(?:your|all|previous|prior|any)\s+)*(instructions?|prompts?|context|rules?|guidelines?|restrictions?|filters?)`),
+	regexp.MustCompile(`(?i)(ignore|disregard|bypass)\s+(?:\w+\s+){0,3}(instructions?|prompts?|context|rules?|guidelines?|restrictions?|filters?)`),
 	regexp.MustCompile(`(?i)system\s*:`),
 	regexp.MustCompile(`(?i)<\s*INST\s*>`),
 	regexp.MustCompile(`(?i)\[INST\]`),
