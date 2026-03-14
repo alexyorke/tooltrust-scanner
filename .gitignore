@@ -32,3 +32,7 @@ go.work.sum
 Thumbs.db
 tooltrust-scanner
 *.sarif
+.clauderules
+.cursorrules
+AI_INSTRUCTIONS.md
+.cursor/
