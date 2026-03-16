@@ -79,6 +79,7 @@ var permissionRules = []struct {
 		permissionRule{
 			propKeys:     []string{"path", "filepath", "filename", "file", "dir", "directory"},
 			descKeywords: []string{"file", "filesystem", "directory", "folder", "read file", "write file"},
+			nameKeywords: []string{"create", "delete", "update", "push", "fork", "write", "upload", "remove"},
 		},
 	},
 	{
@@ -86,6 +87,7 @@ var permissionRules = []struct {
 		permissionRule{
 			propKeys:     []string{"url", "uri", "endpoint", "host"},
 			descKeywords: []string{"url", "network", "http", "https", "fetch", "remote", "download"},
+			nameKeywords: []string{"fetch", "scrape", "crawl", "download", "search", "query", "api", "request"},
 		},
 	},
 	{

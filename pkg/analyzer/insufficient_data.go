@@ -1,0 +1,34 @@
+package analyzer
+
+import (
+	"strings"
+
+	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
+)
+
+// InsufficientDataChecker detects if a tool lacks a description or schema,
+// hindering agents from reasoning about its purpose and limiting static
+// analysis coverage.
+//
+// Rule ID: AS-007
+// Severity: INFO.
+type InsufficientDataChecker struct{}
+
+func NewInsufficientDataChecker() *InsufficientDataChecker {
+	return &InsufficientDataChecker{}
+}
+
+func (c *InsufficientDataChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {
+	var issues []model.Issue
+
+	if strings.TrimSpace(tool.Description) == "" {
+		issues = append(issues, model.Issue{
+			RuleID:      "AS-007",
+			Severity:    model.SeverityInfo,
+			Code:        "INSUFFICIENT_TOOL_DATA",
+			Description: "tool has no description - agents cannot reason about its purpose, and static analysis coverage is limited",
+		})
+	}
+
+	return issues, nil
+}

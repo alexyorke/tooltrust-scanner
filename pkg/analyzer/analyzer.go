@@ -42,6 +42,7 @@ func NewScanner(enableDeepScan bool, rulesDir string) (*Scanner, error) {
 		NewSupplyChainChecker(),             // AS-004
 		NewPrivilegeEscalationChecker(),     // AS-005
 		NewArbitraryCodeChecker(),           // AS-006
+		NewInsufficientDataChecker(),        // AS-007
 		NewSecretHandlingChecker(),          // AS-010
 		NewDoSResilienceChecker(),           // AS-011
 	}

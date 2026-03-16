@@ -43,6 +43,7 @@ type Engine struct {
 //   - AS-004  Supply Chain CVE         (SupplyChainChecker)
 //   - AS-005  Privilege Escalation     (PrivilegeEscalationChecker)
 //   - AS-006  Arbitrary Code Execution (ArbitraryCodeChecker)
+//   - AS-007  Insufficient Tool Data   (InsufficientDataChecker)
 //   - AS-010  Secret Handling          (SecretHandlingChecker)
 //   - AS-011  DoS Resilience           (DoSResilienceChecker)
 func NewEngine(enableDeepScan bool, rulesDir string) (*Engine, error) {
