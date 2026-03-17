@@ -85,7 +85,14 @@ async function main() {
     console.log('Starts the ToolTrust Scanner as an MCP stdio server.\n');
     console.log('Options:');
     console.log('  -h, --help     Show this help message');
-    console.log('  -v, --version  Show version information\n');
+    console.log('  -v, --version  Show version information');
+    console.log('  -r, --rules    List all supported security rules (catalog)\n');
+    console.log('Configuration for Claude Desktop:');
+    console.log('  {"command": "npx", "args": ["-y", "@agentsafe/tooltrust-mcp"]}');
+    process.exit(0);
+  }
+
+  if (args.includes('--rules') || args.includes('-r')) {
     console.log('Supported Security Rules (Catalog):');
     console.log('  AS-001  Tool Poisoning / Prompt Injection (malicious instructions in tool descriptions)');
     console.log('  AS-002  Excessive Permission Surface (executing commands, file writes, network access)');
@@ -95,9 +102,7 @@ async function main() {
     console.log('  AS-006  Arbitrary Code Execution (eval, execute_script, sandbox escape patterns)');
     console.log('  AS-007  Insufficient Tool Data (missing description or input schema)');
     console.log('  AS-010  Secret Handling (tools requesting API keys, tokens, or credentials)');
-    console.log('  AS-011  DoS Resilience (missing rate-limit or timeout configuration)\n');
-    console.log('Configuration for Claude Desktop:');
-    console.log('  {"command": "npx", "args": ["-y", "@agentsafe/tooltrust-mcp"]}');
+    console.log('  AS-011  DoS Resilience (missing rate-limit or timeout configuration)');
     process.exit(0);
   }
 
