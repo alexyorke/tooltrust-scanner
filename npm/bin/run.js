@@ -61,8 +61,7 @@ function downloadFile(url, dest) {
   });
 }
 
-function runBinary() {
-  const args = process.argv.slice(2);
+function runBinary(args) {
   const child = spawn(binPath, args, { stdio: 'inherit' });
   child.on('error', (err) => {
     console.error(`Failed to start subprocess: ${err}`);
@@ -73,6 +72,18 @@ function runBinary() {
 }
 
 async function main() {
+  const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log('Usage: tooltrust-mcp [options]\n');
+    console.log('Starts the ToolTrust Scanner as an MCP stdio server.\n');
+    console.log('Options:');
+    console.log('  -h, --help    Show this help message\n');
+    console.log('The server communicates over stdin/stdout using the MCP protocol.');
+    console.log('Configure it in your MCP client (e.g. Claude Desktop) as:\n');
+    console.log('  {"command": "npx", "args": ["-y", "@agentsafe/tooltrust-mcp"]}');
+    process.exit(0);
+  }
+
   if (!fs.existsSync(binPath)) {
     console.error(`Downloading ToolTrust MCP binary for ${sysPlatform}-${sysArch}...`);
     fs.mkdirSync(cacheDir, { recursive: true });
@@ -85,7 +96,7 @@ async function main() {
     }
   }
   
-  runBinary();
+  runBinary(args);
 }
 
 main();
