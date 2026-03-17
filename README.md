@@ -9,7 +9,7 @@
 
 **Scan MCP servers for prompt injection, data exfiltration, and privilege escalation before your AI agent blindly trusts them.**
 
-[Insert Terminal GIF Here]
+![ToolTrust Scanner demo](docs/demo.gif)
 
 ## 🚀 Quick Start
 
