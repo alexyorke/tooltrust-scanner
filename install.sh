@@ -7,8 +7,8 @@ OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')"
 REPO="AgentSafe-AI/tooltrust-scanner"
 
-# Check if a version argument is provided (e.g. v1.0.0), default to latest if not
-TARGET_VERSION=${1:-"latest"}
+# Check if VERSION env var is provided, else fallback to argument 1, else "latest"
+TARGET_VERSION=${VERSION:-${1:-"latest"}}
 
 if [ "$TARGET_VERSION" = "latest" ]; then
     echo "🔍 Fetching latest release version..."

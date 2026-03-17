@@ -19,6 +19,16 @@ curl -sfL https://raw.githubusercontent.com/AgentSafe-AI/tooltrust-scanner/main/
 
 *(Alternatively, use `go install github.com/AgentSafe-AI/tooltrust-scanner/cmd/tooltrust-scanner@latest`)*
 
+**Verify Installation:**
+```bash
+tooltrust-scanner version
+```
+
+**Install a Specific Version (Optional):**
+```bash
+curl -sfL https://raw.githubusercontent.com/AgentSafe-AI/tooltrust-scanner/main/install.sh | VERSION=v0.1.6 bash
+```
+
 ## 💻 Usage
 
 Scan an MCP server directly by spinning it up:
