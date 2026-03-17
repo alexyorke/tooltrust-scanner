@@ -25,6 +25,7 @@ func TestInsufficientDataChecker_EmptyDescription(t *testing.T) {
 	assert.Equal(t, "AS-007", issues[0].RuleID)
 	assert.Equal(t, model.SeverityInfo, issues[0].Severity)
 	assert.Equal(t, "INSUFFICIENT_TOOL_DATA", issues[0].Code)
+	assert.Equal(t, "Tool 'test-tool' has no description - agents cannot reason about its purpose, and static analysis coverage is limited", issues[0].Description)
 }
 
 func TestInsufficientDataChecker_HasDescription(t *testing.T) {

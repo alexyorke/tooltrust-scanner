@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
@@ -26,7 +27,7 @@ func (c *InsufficientDataChecker) Check(tool model.UnifiedTool) ([]model.Issue, 
 			RuleID:      "AS-007",
 			Severity:    model.SeverityInfo,
 			Code:        "INSUFFICIENT_TOOL_DATA",
-			Description: "tool has no description - agents cannot reason about its purpose, and static analysis coverage is limited",
+			Description: fmt.Sprintf("Tool '%s' has no description - agents cannot reason about its purpose, and static analysis coverage is limited", tool.Name),
 		})
 	}
 
