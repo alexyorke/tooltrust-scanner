@@ -43,8 +43,10 @@ func NewScanner(enableDeepScan bool, rulesDir string) (*Scanner, error) {
 		NewPrivilegeEscalationChecker(),     // AS-005
 		NewArbitraryCodeChecker(),           // AS-006
 		NewInsufficientDataChecker(),        // AS-007
+		NewTyposquattingChecker(),           // AS-009
 		NewSecretHandlingChecker(),          // AS-010
 		NewDoSResilienceChecker(),           // AS-011
+		NewShadowingChecker(),               // AS-013
 	}
 
 	customCheckers, err := LoadCustomRules(rulesDir)
