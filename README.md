@@ -50,8 +50,10 @@ ToolTrust intercepts tool definitions *before* execution and blocks threats at t
 | 🔓&nbsp;**AS&#8209;005** | Privilege escalation (`admin` OAuth scopes, `sudo` keywords) |
 | ⚡&nbsp;**AS&#8209;006** | Arbitrary code execution (`evaluate_script`, `execute javascript`) |
 | ℹ️&nbsp;**AS&#8209;007** | Insufficient tool data (missing description or schema) |
+| 🔤&nbsp;**AS&#8209;009** | Typosquatting (tool name within edit-distance 2 of a well-known MCP tool) |
 | 🗝️&nbsp;**AS&#8209;010** | Insecure secret handling (params accepting keys/passwords) |
 | ⚡&nbsp;**AS&#8209;011** | DoS resilience (missing rate-limits or timeouts) |
+| 👥&nbsp;**AS&#8209;013** | Tool shadowing (duplicate/near-duplicate name hijacks calls to a trusted tool) |
 
 ## 🤝 GitHub Actions
 

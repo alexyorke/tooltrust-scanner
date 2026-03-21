@@ -482,8 +482,10 @@ var ruleHint = map[string]string{
 	"AS-005": "→ Narrow OAuth scopes. Remove admin/:write wildcards and sudo-style escalation.",
 	"AS-006": "→ This tool can execute arbitrary code. If not strictly needed, remove it. If required, you MUST set approval_required: true in your MCP client config to ensure human-in-the-loop confirmation.",
 	"AS-007": "→ Ask the tool author to add a description and input schema to this tool.",
+	"AS-009": "→ Rename the tool to a unique name. Typosquatting suggests impersonation of a well-known MCP tool.",
 	"AS-010": "→ Never pass raw credentials as tool inputs. Use a secret manager instead.",
 	"AS-011": "→ Add explicit timeout and rate-limit config to the tool before use in production.",
+	"AS-013": "→ Use a unique namespace prefix per server (e.g. github__search_repos) to prevent tool name collisions.",
 }
 
 // formatIssueLabel returns a coloured finding line with an actionable fix hint.
