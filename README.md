@@ -41,20 +41,20 @@ tooltrust-scanner scan --server "npx -y @modelcontextprotocol/server-filesystem 
 
 ToolTrust intercepts tool definitions *before* execution and blocks threats at the source.
 
-| ID | Detects |
-|----|---------|
-| 🛡️&nbsp;**AS&#8209;001** | Prompt poisoning (`ignore previous instructions`, `system:`) |
-| 🔑&nbsp;**AS&#8209;002** | Excessive permissions (`exec`, `network`, `db`, `fs` beyond stated purpose) |
-| 📐&nbsp;**AS&#8209;003** | Scope mismatch (e.g. `read_config` secretly holding `exec`) |
-| 📦&nbsp;**AS&#8209;004** | Supply chain vulnerabilities (CVEs in dependencies via OSV) |
-| 🔓&nbsp;**AS&#8209;005** | Privilege escalation (`admin` OAuth scopes, `sudo` keywords) |
-| ⚡&nbsp;**AS&#8209;006** | Arbitrary code execution (`evaluate_script`, `execute javascript`) |
-| ℹ️&nbsp;**AS&#8209;007** | Insufficient tool data (missing description or schema) |
-| 🔤&nbsp;**AS&#8209;009** | Typosquatting (tool name within edit-distance 2 of a well-known MCP tool) |
-| 🗝️&nbsp;**AS&#8209;010** | Insecure secret handling (params accepting keys/passwords) |
-| ⚡&nbsp;**AS&#8209;011** | DoS resilience (missing rate-limits or timeouts) |
-| 🔄&nbsp;**AS&#8209;012** | Rug-pull / silent update (tool set changed between versions without a version bump) ⚠️ *directory pipeline only — requires historical scan data* |
-| 👥&nbsp;**AS&#8209;013** | Tool shadowing (duplicate/near-duplicate name hijacks calls to a trusted tool) |
+| ID | Severity | Detects |
+|----|:--------:|---------|
+| 🛡️&nbsp;**AS&#8209;001** | `Critical` | Prompt poisoning (`ignore previous instructions`, `system:`) |
+| 🔑&nbsp;**AS&#8209;002** | `High`/`Low` | Excessive permissions (`exec`, `network`, `db`, `fs` beyond stated purpose) |
+| 📐&nbsp;**AS&#8209;003** | `High` | Scope mismatch (e.g. `read_config` secretly holding `exec`) |
+| 📦&nbsp;**AS&#8209;004** | `High`/`Critical` | Supply chain vulnerabilities (CVEs in dependencies via OSV) |
+| 🔓&nbsp;**AS&#8209;005** | `High` | Privilege escalation (`admin` OAuth scopes, `sudo` keywords) |
+| ⚡&nbsp;**AS&#8209;006** | `Critical` | Arbitrary code execution (`evaluate_script`, `execute javascript`) |
+| ℹ️&nbsp;**AS&#8209;007** | `Info` | Insufficient tool data (missing description or schema) |
+| 🔤&nbsp;**AS&#8209;009** | `Medium` | Typosquatting (tool name within edit-distance 2 of a well-known MCP tool) |
+| 🗝️&nbsp;**AS&#8209;010** | `Medium` | Insecure secret handling (params accepting keys/passwords) |
+| ⚡&nbsp;**AS&#8209;011** | `Low` | DoS resilience (missing rate-limits or timeouts) |
+| 🔄&nbsp;**AS&#8209;012** | `High` | Rug-pull / silent update (tool set changed without version bump) ⚠️ *directory pipeline only* |
+| 👥&nbsp;**AS&#8209;013** | `High`/`Medium` | Tool shadowing (duplicate/near-duplicate name hijacks calls to a trusted tool) |
 
 ## 🤝 GitHub Actions
 
