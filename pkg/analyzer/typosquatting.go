@@ -140,7 +140,22 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 			continue
 		}
 		dist := levenshtein(normName, normKnown)
-		if dist >= 1 && dist <= 2 {
+		if dist < 1 {
+			continue
+		}
+		// Distance-2 matching on short names produces too many false positives:
+		// generic verb+noun patterns (list_pages vs list_tags, get_user vs
+		// get_users) coincidentally collide within edit distance 2.  Only allow
+		// distance-2 when both normalised names are long enough (≥10 chars) to
+		// provide meaningful entropy.  Distance-1 matches are always flagged.
+		shorter := len(normName)
+		if len(normKnown) < shorter {
+			shorter = len(normKnown)
+		}
+		if dist == 2 && shorter < 10 {
+			continue
+		}
+		if dist <= 2 {
 			return []model.Issue{{
 				RuleID:   "AS-009",
 				ToolName: tool.Name,

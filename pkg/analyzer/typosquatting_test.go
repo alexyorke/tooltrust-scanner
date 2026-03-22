@@ -37,11 +37,29 @@ func TestTyposquattingChecker_EditDistance1_Triggers(t *testing.T) {
 	}
 }
 
-func TestTyposquattingChecker_EditDistance2_Triggers(t *testing.T) {
-	tool := model.UnifiedTool{Name: "list_fils", Description: "file listing"} // 2 edits from list_files
+func TestTyposquattingChecker_EditDistance2_LongName_Triggers(t *testing.T) {
+	// Long names (normalised ≥ 10 chars) must still trigger at distance 2.
+	// "playwright_naviage" is 2 edits from "playwright_navigate" (drop 't', 'e' transposed).
+	tool := model.UnifiedTool{Name: "playwright_naviage", Description: "browser tool"}
 	eng, _ := NewEngine(false, "")
 	report := eng.Scan(tool)
-	assert.True(t, report.HasFinding("AS-009"))
+	assert.True(t, report.HasFinding("AS-009"), "long-name distance-2 typosquat must trigger AS-009")
+}
+
+func TestTyposquattingChecker_EditDistance2_ShortName_NoFinding(t *testing.T) {
+	// Short names (normalised < 10 chars) must NOT trigger at distance 2 —
+	// generic verb+noun patterns coincidentally collide (list_pages vs list_tags).
+	cases := []string{
+		"list_pages", // browser DevTools tool — 2 edits from list_tags (p→t, delete e)
+		"get_users",  // 2 edits from get_issue
+	}
+	for _, name := range cases {
+		tool := model.UnifiedTool{Name: name, Description: "legitimate tool"}
+		eng, _ := NewEngine(false, "")
+		report := eng.Scan(tool)
+		assert.False(t, report.HasFinding("AS-009"),
+			"short-name %q must not trigger AS-009 at distance 2", name)
+	}
 }
 
 func TestTyposquattingChecker_EditDistance3_NoFinding(t *testing.T) {
