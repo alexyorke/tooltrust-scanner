@@ -139,20 +139,36 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 		if diff > 2 {
 			continue
 		}
+		// Skip singular/plural and prefix-extension variants (e.g.
+		// create_relation vs create_relations).  These are legitimate tool
+		// families, not impersonations.
+		if strings.HasPrefix(normName, normKnown) || strings.HasPrefix(normKnown, normName) {
+			continue
+		}
 		dist := levenshtein(normName, normKnown)
 		if dist < 1 {
 			continue
 		}
-		// Distance-2 matching on short names produces too many false positives:
-		// generic verb+noun patterns (list_pages vs list_tags, get_user vs
-		// get_users) coincidentally collide within edit distance 2.  Only allow
-		// distance-2 when both normalised names are long enough (≥10 chars) to
-		// provide meaningful entropy.  Distance-1 matches are always flagged.
 		shorter := len(normName)
 		if len(normKnown) < shorter {
 			shorter = len(normKnown)
 		}
-		if dist == 2 && shorter < 10 {
+		// Distance-2 matching on short/medium names produces too many false
+		// positives: generic verb+noun patterns (list_pages vs list_tags,
+		// list_comments vs list_commits, pg_describe_table vs describe_table)
+		// coincidentally collide at distance 2.  Only flag distance-2 when
+		// both normalised names are long (≥15 chars), providing enough entropy
+		// to be meaningful.
+		if dist == 2 && shorter < 15 {
+			continue
+		}
+		// Distance-1 substitutions (same normalised length) on short names are
+		// also noisy: git_tag vs get_tag, git_commit vs get_commit,
+		// search_notes vs search_nodes.  Only flag same-length dist-1 when
+		// both names are long enough (≥12 chars).  Insertion/deletion typos
+		// (different lengths) are always flagged — list_fles vs list_files,
+		// brave_web_searrch vs brave_web_search.
+		if dist == 1 && len(normName) == len(normKnown) && shorter < 12 {
 			continue
 		}
 		if dist <= 2 {

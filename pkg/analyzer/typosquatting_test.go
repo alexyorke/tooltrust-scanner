@@ -89,6 +89,39 @@ func TestTyposquattingChecker_UnrelatedName_NoFinding(t *testing.T) {
 	}
 }
 
+func TestTyposquattingChecker_RealWorldFalsePositives_NoFinding(t *testing.T) {
+	// Regression test: these are all legitimate tools from real MCP servers
+	// that were incorrectly flagged as AS-009 due to incidental edit-distance
+	// proximity to popular tool names.
+	cases := []struct {
+		name   string
+		reason string
+	}{
+		// Dist-2 FPs — generic verb+noun patterns collide at distance 2
+		{"create_field", "Airtable MCP — field ≠ file"},
+		{"list_pages", "browser DevTools MCP — pages ≠ tags"},
+		{"get_task", "task manager MCP — task ≠ tag"},
+		{"pg_describe_table", "PostgreSQL MCP — prefixed variant of describe_table"},
+		{"list_comments", "GitHub/GitLab MCP — comments ≠ commits"},
+		{"list_teams", "GitHub/Slack MCP — teams ≠ tags"},
+		{"get_team", "GitHub/Slack MCP — team ≠ tag"},
+		{"list_tasks", "task manager MCP — tasks ≠ tags"},
+		// Dist-1 prefix-extension (singular/plural)
+		{"create_relation", "knowledge-graph MCP — singular of create_relations"},
+		// Dist-1 same-length substitutions on short names
+		{"search_notes", "Obsidian/notes MCP — notes ≠ nodes"},
+		{"git_commit", "git MCP server — git_ ≠ get_"},
+		{"git_tag", "git MCP server — git_ ≠ get_"},
+	}
+	for _, tc := range cases {
+		tool := model.UnifiedTool{Name: tc.name, Description: "legitimate tool"}
+		eng, _ := NewEngine(false, "")
+		report := eng.Scan(tool)
+		assert.False(t, report.HasFinding("AS-009"),
+			"%q must not trigger AS-009 (%s)", tc.name, tc.reason)
+	}
+}
+
 func TestTyposquattingChecker_LegitimateGitHubTools_NoFinding(t *testing.T) {
 	// These are canonical GitHub MCP server tools — they must not trigger AS-009
 	// even though some are within edit-distance 2 of other list entries

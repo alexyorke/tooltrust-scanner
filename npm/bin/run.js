@@ -101,8 +101,10 @@ async function main() {
     console.log('  AS-005  Privilege Escalation (tools that acquire elevated access at runtime)');
     console.log('  AS-006  Arbitrary Code Execution (eval, execute_script, sandbox escape patterns)');
     console.log('  AS-007  Insufficient Tool Data (missing description or input schema)');
+    console.log('  AS-009  Typosquatting (tool name closely resembles a known legitimate tool)');
     console.log('  AS-010  Secret Handling (tools requesting API keys, tokens, or credentials)');
     console.log('  AS-011  DoS Resilience (missing rate-limit or timeout configuration)');
+    console.log('  AS-013  Tool Shadowing (tool name duplicates another in the same tool set)');
     process.exit(0);
   }
 

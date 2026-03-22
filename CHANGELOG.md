@@ -5,6 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.1.15] - 2026-03-21
+
+### Fixed
+- **AS-013**: Removed near-duplicate (`TOOL_SHADOWING_NEAR`) detection, which
+  had a 13/13 false-positive rate in production. Intra-server near-duplicates
+  are intentional API design — get/set pairs (`get-active-layer`/`set-active-layer`),
+  data-granularity variants (`getCryptocurrency5MinuteData`/`getCryptocurrency1MinuteData`),
+  and indicator variants (`getEMA`/`getSMA`/`getWMA`) all differ by exactly
+  one edit and are not attacks. AS-013 now fires only on exact normalized-name
+  duplicates, which are unambiguously problematic. Typo-based impersonation
+  is handled by AS-009 (Typosquatting), which has a purpose-built corpus.
+- Regression tests added for all 13 false positive cases.
+
+---
+
+## [0.1.14] - 2026-03-21
+
+### Fixed
+- **AS-009**: Eliminated 12/12 false positives observed in production scans.
+  Three targeted heuristic improvements:
+  1. **Prefix-extension skip**: if one normalized name is a prefix of the other
+     (e.g. `create_relation` / `create_relations`), skip — these are legitimate
+     singular/plural tool families, not impersonations.
+  2. **Distance-2 length floor raised** from 10 to 15 normalized chars: generic
+     `verb_noun` patterns (`list_comments` vs `list_commits`, `pg_describe_table`
+     vs `describe_table`, `create_field` vs `create_file`) no longer trigger.
+  3. **Same-length distance-1 threshold**: substitution-type typos on short names
+     (`git_tag` vs `get_tag`, `git_commit` vs `get_commit`, `search_notes` vs
+     `search_nodes`) are now skipped when both names normalize to fewer than 12
+     chars. Insertion/deletion typos (different lengths) are always flagged.
+- Regression tests added for all 12 false positive cases.
+
+---
+
 ## [0.1.13] - 2026-03-21
 
 ### Fixed
