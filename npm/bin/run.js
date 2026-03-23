@@ -75,36 +75,10 @@ async function main() {
   const pkg = require('../package.json');
   const args = process.argv.slice(2);
 
+  // --version is the only flag handled by the wrapper (shows npm package version).
+  // All other flags (--help, --rules) pass through to the Go binary.
   if (args.includes('--version') || args.includes('-v')) {
     console.log(pkg.version);
-    process.exit(0);
-  }
-
-  if (args.includes('--help') || args.includes('-h')) {
-    console.log(`ToolTrust MCP Server (${pkg.version})\n`);
-    console.log('Starts the ToolTrust Scanner as an MCP stdio server.\n');
-    console.log('Options:');
-    console.log('  -h, --help     Show this help message');
-    console.log('  -v, --version  Show version information');
-    console.log('  -r, --rules    List all supported security rules (catalog)\n');
-    console.log('Configuration for Claude Desktop:');
-    console.log('  {"command": "npx", "args": ["-y", "@agentsafe/tooltrust-mcp"]}');
-    process.exit(0);
-  }
-
-  if (args.includes('--rules') || args.includes('-r')) {
-    console.log('Supported Security Rules (Catalog):');
-    console.log('  AS-001  Tool Poisoning / Prompt Injection (malicious instructions in tool descriptions)');
-    console.log('  AS-002  Excessive Permission Surface (executing commands, file writes, network access)');
-    console.log('  AS-003  Scope Mismatch (tool name implies read-only but requests write permissions)');
-    console.log('  AS-004  Supply Chain CVE (known vulnerabilities in declared package dependencies)');
-    console.log('  AS-005  Privilege Escalation (tools that acquire elevated access at runtime)');
-    console.log('  AS-006  Arbitrary Code Execution (eval, execute_script, sandbox escape patterns)');
-    console.log('  AS-007  Insufficient Tool Data (missing description or input schema)');
-    console.log('  AS-009  Typosquatting (tool name closely resembles a known legitimate tool)');
-    console.log('  AS-010  Secret Handling (tools requesting API keys, tokens, or credentials)');
-    console.log('  AS-011  DoS Resilience (missing rate-limit or timeout configuration)');
-    console.log('  AS-013  Tool Shadowing (tool name duplicates another in the same tool set)');
     process.exit(0);
   }
 
