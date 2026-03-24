@@ -1,0 +1,68 @@
+cmd/tooltrust-scanner/gate.go:270:10: Error return value of `(github.com/pterm/pterm.InteractiveConfirmPrinter).Show` is not checked (errcheck)
+	result, _ := pterm.DefaultInteractiveConfirm.
+	        ^
+cmd/tooltrust-scanner/gate.go:247:1: paramTypeCombine: func(worst model.Grade, blockOn model.Grade, force bool) bool could be replaced with func(worst, blockOn model.Grade, force bool) bool (gocritic)
+func gateDecision(worst model.Grade, blockOn model.Grade, force bool) bool {
+^
+cmd/tooltrust-scanner/gate.go:195:1: Comment should end in a period (godot)
+// "some-package" → "some-package"
+^
+cmd/tooltrust-scanner/gate.go:160:5: shadow: declaration of "err" shadows declaration at line 113 (govet)
+	if err := printPtermUI(report); err != nil {
+	   ^
+cmd/tooltrust-scanner/gate.go:328:6: shadow: declaration of "err" shadows declaration at line 318 (govet)
+		if err := json.Unmarshal(data, &cfg); err != nil {
+		   ^
+cmd/tooltrust-scanner/gate_test.go:102:5: shadow: declaration of "err" shadows declaration at line 98 (govet)
+	if err := os.WriteFile(configPath, encoded, 0o644); err != nil {
+	   ^
+cmd/tooltrust-scanner/gate_test.go:152:5: shadow: declaration of "err" shadows declaration at line 148 (govet)
+	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+	   ^
+cmd/tooltrust-scanner/gate_test.go:162:5: shadow: declaration of "err" shadows declaration at line 148 (govet)
+	if err := json.Unmarshal(readData, &cfg); err != nil {
+	   ^
+cmd/tooltrust-scanner/gate_test.go:175:5: shadow: declaration of "err" shadows declaration at line 148 (govet)
+	if err := os.WriteFile(configPath, encoded, 0o644); err != nil {
+	   ^
+cmd/tooltrust-scanner/gate.go:310:21: os/exec.Command must not be called. use os/exec.CommandContext (noctx)
+	cmd := exec.Command(claudePath, args...)
+	                   ^
+cmd/tooltrust-mcp/main.go:641:3: QF1012: Use fmt.Fprintf(...) instead of WriteString(fmt.Sprintf(...)) (staticcheck)
+		b.WriteString(fmt.Sprintf("%s Tool: %s  [%s]  score=%d grade=%s\n",
+		^
+cmd/tooltrust-mcp/main.go:651:4: QF1012: Use fmt.Fprintf(...) instead of WriteString(fmt.Sprintf(...)) (staticcheck)
+			b.WriteString(fmt.Sprintf("%s  └─ ✅ Pass\n", childPrefix))
+			^
+cmd/tooltrust-mcp/main.go:659:5: QF1012: Use fmt.Fprintf(...) instead of WriteString(fmt.Sprintf(...)) (staticcheck)
+				b.WriteString(fmt.Sprintf("%s  %s %s [%s] %s (+%d): %s\n",
+				^
+cmd/tooltrust-mcp/main.go:683:2: QF1012: Use fmt.Fprintf(...) instead of WriteString(fmt.Sprintf(...)) (staticcheck)
+	b.WriteString(fmt.Sprintf("│ Total Scanned : %-20d │\n", result.Summary.Total))
+	^
+cmd/tooltrust-mcp/main.go:684:2: QF1012: Use fmt.Fprintf(...) instead of WriteString(fmt.Sprintf(...)) (staticcheck)
+	b.WriteString(fmt.Sprintf("│   ✅ Allowed         : %-13d │\n", result.Summary.Allowed))
+	^
+cmd/tooltrust-mcp/main.go:685:2: QF1012: Use fmt.Fprintf(...) instead of WriteString(fmt.Sprintf(...)) (staticcheck)
+	b.WriteString(fmt.Sprintf("│   ⚠️  Require Approval : %-11d │\n", result.Summary.Approval))
+	^
+cmd/tooltrust-mcp/main.go:686:2: QF1012: Use fmt.Fprintf(...) instead of WriteString(fmt.Sprintf(...)) (staticcheck)
+	b.WriteString(fmt.Sprintf("│   🚫 Blocked         : %-13d │\n", result.Summary.Blocked))
+	^
+cmd/tooltrust-mcp/main.go:697:3: QF1012: Use fmt.Fprintf(...) instead of WriteString(fmt.Sprintf(...)) (staticcheck)
+		b.WriteString(fmt.Sprintf("│ Findings: %-26s │\n", strings.Join(sevParts, " ")))
+		^
+cmd/tooltrust-mcp/main.go:716:2: QF1012: Use fmt.Fprintf(...) instead of WriteString(fmt.Sprintf(...)) (staticcheck)
+	b.WriteString(fmt.Sprintf("│ Grade Breakdown: %-19s │\n", gradeBreakdown))
+	^
+cmd/tooltrust-scanner/gate.go:313:9: error returned from external package is unwrapped: sig: func (*os/exec.Cmd).Run() error (wrapcheck)
+	return cmd.Run()
+	       ^
+20 issues:
+* errcheck: 1
+* gocritic: 1
+* godot: 1
+* govet: 6
+* noctx: 1
+* staticcheck: 9
+* wrapcheck: 1

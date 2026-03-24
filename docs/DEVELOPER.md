@@ -12,7 +12,7 @@
 github.com/AgentSafe-AI/tooltrust-scanner
 │
 ├── cmd/
-│   ├── tooltrust-scanner/  CLI — scan, version
+│   ├── tooltrust-scanner/  CLI — scan, gate, version
 │   └── mcpserver/          MCP meta-scanner (exposes tooltrust_scanner_scan to AI agents)
 │
 ├── pkg/

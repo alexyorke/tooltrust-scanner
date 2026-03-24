@@ -18,7 +18,7 @@ If you believe you have found a security vulnerability in ToolTrust Scanner:
 
 1. **Email** the maintainers with details. You can reach us via:
    - Open an issue with the `security` label and mark it as **private** if your GitHub org supports it, or
-   - Email the repository owner (see the [AgentSafe-AI organization](https://github.com/AgentSafe-AI) profile for contact options).
+   - Email us at **contact@tooltrust.dev**
 
 2. **Include**:
    - Description of the vulnerability

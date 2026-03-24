@@ -562,7 +562,161 @@ func processTools(ctx context.Context, tools []model.UnifiedTool) (*mcplib.CallT
 	if err != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("failed to serialize result: %v", err)), nil
 	}
-	return mcplib.NewToolResultText(string(encoded)), nil
+
+	formatted := renderFormattedReport(result)
+
+	return &mcplib.CallToolResult{
+		Content: []mcplib.Content{
+			mcplib.TextContent{
+				Annotated: mcplib.Annotated{},
+				Type:      "text",
+				Text:      formatted,
+			},
+			mcplib.TextContent{
+				Annotated: mcplib.Annotated{},
+				Type:      "text",
+				Text:      string(encoded),
+			},
+		},
+	}, nil
+}
+
+// severityWeight mirrors the CLI scanner weights for display.
+var severityWeight = map[model.Severity]int{
+	model.SeverityCritical: 25,
+	model.SeverityHigh:     15,
+	model.SeverityMedium:   8,
+	model.SeverityLow:      2,
+	model.SeverityInfo:     0,
+}
+
+// severityEmoji returns the emoji prefix for a finding severity.
+func severityEmoji(s model.Severity) string {
+	switch s {
+	case model.SeverityCritical:
+		return "🚨"
+	case model.SeverityHigh:
+		return "🔴"
+	case model.SeverityMedium:
+		return "⚠️ "
+	case model.SeverityLow:
+		return "🔵"
+	default:
+		return "ℹ️ "
+	}
+}
+
+// actionEmoji returns the emoji for a gateway action.
+func actionEmoji(a model.Action) string {
+	switch a {
+	case model.ActionAllow:
+		return "✅"
+	case model.ActionRequireApproval:
+		return "⚠️"
+	case model.ActionBlock:
+		return "🚫"
+	default:
+		return "❓"
+	}
+}
+
+// renderFormattedReport builds a unicode-formatted scan report with emojis and
+// box-drawing characters, suitable for display in MCP clients that render
+// monospace text (e.g. Claude Code).
+func renderFormattedReport(result *ScanResult) string {
+	var b strings.Builder
+
+	b.WriteString("Scan Results\n")
+
+	for i, policy := range result.Policies {
+		// Tree connector
+		connector := "├─"
+		childPrefix := "│  "
+		if i == len(result.Policies)-1 {
+			connector = "└─"
+			childPrefix = "   "
+		}
+
+		// Tool header
+		fmt.Fprintf(&b, "%s Tool: %s  [%s]  score=%d grade=%s\n",
+			connector,
+			policy.ToolName,
+			policy.Action,
+			policy.Score.Score,
+			policy.Score.Grade,
+		)
+
+		// Findings or pass
+		if len(policy.Score.Issues) == 0 {
+			fmt.Fprintf(&b, "%s  └─ ✅ Pass\n", childPrefix)
+		} else {
+			for j, issue := range policy.Score.Issues {
+				wt := severityWeight[issue.Severity]
+				issueConnector := "├─"
+				if j == len(policy.Score.Issues)-1 {
+					issueConnector = "└─"
+				}
+				fmt.Fprintf(&b, "%s  %s %s [%s] %s (+%d): %s\n",
+					childPrefix,
+					issueConnector,
+					severityEmoji(issue.Severity),
+					issue.RuleID,
+					issue.Severity,
+					wt,
+					issue.Description,
+				)
+			}
+		}
+	}
+
+	// Collect finding severity counts across all tools.
+	severityCounts := map[model.Severity]int{}
+	for _, p := range result.Policies {
+		for _, issue := range p.Score.Issues {
+			severityCounts[issue.Severity]++
+		}
+	}
+
+	// Summary box
+	b.WriteString("\n")
+	b.WriteString("┌──────────── Scan Summary ────────────┐\n")
+	fmt.Fprintf(&b, "│ Total Scanned : %-20d │\n", result.Summary.Total)
+	fmt.Fprintf(&b, "│   ✅ Allowed         : %-13d │\n", result.Summary.Allowed)
+	fmt.Fprintf(&b, "│   ⚠️  Require Approval : %-11d │\n", result.Summary.Approval)
+	fmt.Fprintf(&b, "│   🚫 Blocked         : %-13d │\n", result.Summary.Blocked)
+
+	// Findings breakdown by severity
+	sevOrder := []model.Severity{model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityInfo}
+	var sevParts []string
+	for _, s := range sevOrder {
+		if n := severityCounts[s]; n > 0 {
+			sevParts = append(sevParts, fmt.Sprintf("%s %s×%d", severityEmoji(s), s, n))
+		}
+	}
+	if len(sevParts) > 0 {
+		fmt.Fprintf(&b, "│ Findings: %-26s │\n", strings.Join(sevParts, " "))
+	}
+
+	// Grade breakdown
+	counts := map[model.Grade]int{}
+	for _, p := range result.Policies {
+		counts[p.Score.Grade]++
+	}
+	grades := []model.Grade{model.GradeA, model.GradeB, model.GradeC, model.GradeD, model.GradeF}
+	var parts []string
+	for _, g := range grades {
+		if n := counts[g]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s×%d", g, n))
+		}
+	}
+	gradeBreakdown := "—"
+	if len(parts) > 0 {
+		gradeBreakdown = strings.Join(parts, "  ")
+	}
+	fmt.Fprintf(&b, "│ Grade Breakdown: %-19s │\n", gradeBreakdown)
+	b.WriteString("└──────────────────────────────────────┘\n")
+
+	return b.String()
 }
 
 // processToolsRaw runs the scanner and returns raw results (used by both

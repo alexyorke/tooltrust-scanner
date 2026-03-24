@@ -27,9 +27,15 @@ func TestHandleScanJSON_ValidInput(t *testing.T) {
 	require.NotNil(t, result)
 	assert.False(t, result.IsError)
 
-	// Should contain a valid ScanResult JSON.
+	// Content[0] is the formatted report, Content[1] is the JSON.
+	require.GreaterOrEqual(t, len(result.Content), 2)
+
+	formatted := result.Content[0].(mcplib.TextContent).Text
+	assert.Contains(t, formatted, "Scan Results")
+	assert.Contains(t, formatted, "Scan Summary")
+
 	var sr ScanResult
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := result.Content[1].(mcplib.TextContent).Text
 	require.NoError(t, json.Unmarshal([]byte(text), &sr))
 	assert.Equal(t, 1, sr.Summary.Total)
 }
@@ -83,8 +89,10 @@ func TestHandleScanJSON_EmptyToolsList(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
+	require.GreaterOrEqual(t, len(result.Content), 2)
+
 	var sr ScanResult
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := result.Content[1].(mcplib.TextContent).Text
 	require.NoError(t, json.Unmarshal([]byte(text), &sr))
 	assert.Equal(t, 0, sr.Summary.Total)
 }
