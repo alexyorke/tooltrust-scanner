@@ -650,16 +650,21 @@ func renderFormattedReport(result *ScanResult) string {
 		if len(policy.Score.Issues) == 0 {
 			fmt.Fprintf(&b, "%s  └─ ✅ Pass\n", childPrefix)
 		} else {
+			muted := policy.Action == model.ActionAllow
 			for j, issue := range policy.Score.Issues {
 				wt := severityWeight[issue.Severity]
 				issueConnector := "├─"
 				if j == len(policy.Score.Issues)-1 {
 					issueConnector = "└─"
 				}
+				emoji := severityEmoji(issue.Severity)
+				if muted {
+					emoji = "ℹ️ "
+				}
 				fmt.Fprintf(&b, "%s  %s %s [%s] %s (+%d): %s\n",
 					childPrefix,
 					issueConnector,
-					severityEmoji(issue.Severity),
+					emoji,
 					issue.RuleID,
 					issue.Severity,
 					wt,
@@ -680,17 +685,17 @@ func renderFormattedReport(result *ScanResult) string {
 	// Summary box
 	b.WriteString("\n")
 	b.WriteString("┌──────────── Scan Summary ────────────┐\n")
-	fmt.Fprintf(&b, "│ Total Scanned : %-20d │\n", result.Summary.Total)
-	fmt.Fprintf(&b, "│   ✅ Allowed         : %-13d │\n", result.Summary.Allowed)
-	fmt.Fprintf(&b, "│   ⚠️  Require Approval : %-11d │\n", result.Summary.Approval)
-	fmt.Fprintf(&b, "│   🚫 Blocked         : %-13d │\n", result.Summary.Blocked)
+	fmt.Fprintf(&b, "│ Total Scanned      : %-15d │\n", result.Summary.Total)
+	fmt.Fprintf(&b, "│   Allowed          : %-15d │\n", result.Summary.Allowed)
+	fmt.Fprintf(&b, "│   Require Approval : %-15d │\n", result.Summary.Approval)
+	fmt.Fprintf(&b, "│   Blocked          : %-15d │\n", result.Summary.Blocked)
 
-	// Findings breakdown by severity
+	// Findings breakdown by severity (no emoji — emoji width breaks %-Ns padding)
 	sevOrder := []model.Severity{model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityInfo}
 	var sevParts []string
 	for _, s := range sevOrder {
 		if n := severityCounts[s]; n > 0 {
-			sevParts = append(sevParts, fmt.Sprintf("%s %s×%d", severityEmoji(s), s, n))
+			sevParts = append(sevParts, fmt.Sprintf("%s×%d", s, n))
 		}
 	}
 	if len(sevParts) > 0 {
