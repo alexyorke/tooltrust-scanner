@@ -282,6 +282,9 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 
 // printPtermUI renders the scan report as a pterm tree + summary box.
 func printPtermUI(report ScanReport) error {
+	// ── Emergency alert for AS-008 BLOCK findings ─────────────────────────────
+	printSupplyChainAlert(report.Policies)
+
 	// ── Build the tree ────────────────────────────────────────────────────────
 	var rootChildren []pterm.TreeNode
 
@@ -347,6 +350,50 @@ func printPtermUI(report ScanReport) error {
 	printGradeGuide(worstGrade(report.Policies))
 
 	return nil
+}
+
+// printSupplyChainAlert scans all findings for AS-008 BLOCK issues and prints a
+// high-visibility ANSI red emergency banner when confirmed malware is detected.
+// This runs BEFORE the main scan tree to ensure it is never scrolled past.
+func printSupplyChainAlert(policies []model.GatewayPolicy) {
+	type alert struct {
+		pkg  string
+		desc string
+	}
+	var alerts []alert
+
+	for _, policy := range policies {
+		for _, issue := range policy.Score.Issues {
+			if issue.RuleID == "AS-008" && issue.Code == "SUPPLY_CHAIN_BLOCK" {
+				alerts = append(alerts, alert{pkg: issue.Location, desc: issue.Description})
+			}
+		}
+	}
+	if len(alerts) == 0 {
+		return
+	}
+
+	redBold := pterm.NewStyle(pterm.FgRed, pterm.Bold)
+	red := pterm.NewStyle(pterm.FgRed)
+
+	pterm.Println()
+	redBold.Println("╔══════════════════════════════════════════════════════════════╗")
+	redBold.Println("║  🚨  SUPPLY CHAIN ATTACK DETECTED — IMMEDIATE ACTION NEEDED  ║")
+	redBold.Println("╚══════════════════════════════════════════════════════════════╝")
+	pterm.Println()
+
+	for _, a := range alerts {
+		redBold.Printf("  ✗  %s\n", a.pkg)
+		red.Printf("     %s\n", a.desc)
+		pterm.Println()
+	}
+
+	redBold.Println("  WHAT TO DO NOW:")
+	red.Println("  1. Remove the package from your environment immediately.")
+	red.Println("  2. Rotate ALL credentials (SSH keys, AWS/GCP tokens, API keys, .env).")
+	red.Println("  3. Check for persistence: ~/.config/sysmon/ and systemd user services.")
+	red.Println("  4. Audit recent agent actions — your environment may be compromised.")
+	pterm.Println()
 }
 
 // worstGrade returns the highest-risk grade across all policies.
@@ -484,6 +531,7 @@ var ruleHint = map[string]string{
 	"AS-005": "→ Narrow OAuth scopes. Remove admin/:write wildcards and sudo-style escalation.",
 	"AS-006": "→ This tool can execute arbitrary code. If not strictly needed, remove it. If required, you MUST set approval_required: true in your MCP client config to ensure human-in-the-loop confirmation.",
 	"AS-007": "→ Ask the tool author to add a description and input schema to this tool.",
+	"AS-008": "→ REMOVE THIS PACKAGE IMMEDIATELY. This version is confirmed malware/compromised. Rotate all credentials on affected machines.",
 	"AS-009": "→ Rename the tool to a unique name. Typosquatting suggests impersonation of a well-known MCP tool.",
 	"AS-010": "→ Never pass raw credentials as tool inputs. Use a secret manager instead.",
 	"AS-011": "→ Add explicit timeout and rate-limit config to the tool before use in production.",

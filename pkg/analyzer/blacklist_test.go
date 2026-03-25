@@ -41,10 +41,11 @@ func TestBlacklist_LiteLLM_ExactVersion_Hit(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, issues, 1)
 	assert.Equal(t, "AS-008", issues[0].RuleID)
-	assert.Equal(t, "KNOWN_COMPROMISED_VERSION", issues[0].Code)
+	assert.Equal(t, "SUPPLY_CHAIN_BLOCK", issues[0].Code)
 	assert.Equal(t, model.SeverityCritical, issues[0].Severity)
 	assert.Contains(t, issues[0].Description, "litellm@1.82.8")
 	assert.Contains(t, issues[0].Description, "SNYK-PYTHON-LITELLM-15762713")
+	assert.Contains(t, issues[0].Description, "[BLOCK]")
 }
 
 func TestBlacklist_LiteLLM_OtherAffectedVersion_Hit(t *testing.T) {
@@ -138,12 +139,26 @@ func TestBlacklist_FindingContainsLink(t *testing.T) {
 
 func TestBlacklist_HighSeverityEntry(t *testing.T) {
 	bc := analyzer.NewBlacklistChecker()
-	// trivy-action < v0.35.0 is HIGH severity
+	// trivy-action < v0.35.0 is HIGH severity and WARN action
 	tool := toolWithDep("trivy-action", "v0.34.0", "github-actions")
 	issues, err := bc.Check(tool)
 	require.NoError(t, err)
 	require.Len(t, issues, 1)
 	assert.Equal(t, model.SeverityHigh, issues[0].Severity)
+	assert.Equal(t, "SUPPLY_CHAIN_WARN", issues[0].Code)
+	assert.Contains(t, issues[0].Description, "[WARN]")
+}
+
+func TestBlacklist_SetupTrivy_WildcardMatch(t *testing.T) {
+	bc := analyzer.NewBlacklistChecker()
+	// setup-trivy with any version should produce a WARN
+	for _, ver := range []string{"v1.0.0", "0.0.1", "99.99.99", "latest"} {
+		tool := toolWithDep("setup-trivy", ver, "github-actions")
+		issues, err := bc.Check(tool)
+		require.NoError(t, err, "version %s", ver)
+		require.Len(t, issues, 1, "version %s should match wildcard", ver)
+		assert.Equal(t, "SUPPLY_CHAIN_WARN", issues[0].Code)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +168,7 @@ func TestBlacklist_HighSeverityEntry(t *testing.T) {
 func TestBlacklist_CustomJSON_ExactMatch(t *testing.T) {
 	data := []byte(`[
 	  {"id":"TEST-001","component":"badpkg","ecosystem":"npm",
-	   "affected_versions":["1.0.0"],"severity":"CRITICAL",
+	   "affected_versions":["1.0.0"],"action":"BLOCK","severity":"CRITICAL",
 	   "reason":"Test","link":"https://example.com"}
 	]`)
 	bc := newBlacklistFromJSON(t, data)
@@ -161,6 +176,7 @@ func TestBlacklist_CustomJSON_ExactMatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, issues, 1)
 	assert.Equal(t, model.SeverityCritical, issues[0].Severity)
+	assert.Equal(t, "SUPPLY_CHAIN_BLOCK", issues[0].Code)
 }
 
 func TestBlacklist_CustomJSON_LessEqualRange(t *testing.T) {

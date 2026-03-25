@@ -20,7 +20,8 @@ type blacklistEntry struct {
 	Component        string   `json:"component"`
 	Ecosystem        string   `json:"ecosystem"`
 	AffectedVersions []string `json:"affected_versions"`
-	Severity         string   `json:"severity"`
+	Action           string   `json:"action"`   // "BLOCK" | "WARN"
+	Severity         string   `json:"severity"` // "CRITICAL" | "HIGH" | ...
 	Reason           string   `json:"reason"`
 	Link             string   `json:"link"`
 }
@@ -35,9 +36,10 @@ func buildBlacklistIndex(data []byte) (blacklistIndex, error) {
 		return nil, fmt.Errorf("blacklist: unmarshal: %w", err)
 	}
 	idx := make(blacklistIndex, len(entries))
-	for _, e := range entries {
+	for i := range entries {
+		e := &entries[i]
 		key := strings.ToLower(e.Ecosystem) + ":" + strings.ToLower(e.Component)
-		idx[key] = append(idx[key], e)
+		idx[key] = append(idx[key], *e)
 	}
 	return idx, nil
 }
@@ -50,6 +52,11 @@ func buildBlacklistIndex(data []byte) (blacklistIndex, error) {
 //   - Less-equal: "<= 1.9.0"       → semver(version) <= semver(bound)
 func matchesVersion(version, expr string) bool {
 	expr = strings.TrimSpace(expr)
+
+	// Wildcard: matches any version.
+	if expr == "*" {
+		return true
+	}
 
 	// Range: "< X" or "<= X"
 	if strings.HasPrefix(expr, "<=") {
@@ -150,11 +157,12 @@ func (c *BlacklistChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 		if !ok {
 			continue
 		}
-		for _, entry := range entries {
+		for i := range entries {
+			entry := &entries[i]
 			for _, expr := range entry.AffectedVersions {
 				if matchesVersion(dep.Version, expr) {
-					issues = append(issues, buildBlacklistIssue(entry, dep, tool.Name))
-					break // one finding per entry per dep is enough
+					issues = append(issues, buildBlacklistIssue(*entry, dep, tool.Name))
+					break
 				}
 			}
 		}
@@ -163,17 +171,24 @@ func (c *BlacklistChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 }
 
 // buildBlacklistIssue constructs an AS-008 finding from a blacklist entry.
+// BLOCK entries get code SUPPLY_CHAIN_BLOCK; WARN entries get SUPPLY_CHAIN_WARN.
 func buildBlacklistIssue(entry blacklistEntry, dep Dependency, toolName string) model.Issue {
 	sev := blacklistSeverity(entry.Severity)
+
+	code := "SUPPLY_CHAIN_WARN"
+	if strings.EqualFold(entry.Action, "BLOCK") {
+		code = "SUPPLY_CHAIN_BLOCK"
+	}
+
 	desc := fmt.Sprintf(
-		"%s: %s@%s is a known-compromised version. %s See: %s",
-		entry.ID, dep.Name, dep.Version, entry.Reason, entry.Link,
+		"%s [%s]: %s@%s is a known-compromised version. %s See: %s",
+		entry.ID, entry.Action, dep.Name, dep.Version, entry.Reason, entry.Link,
 	)
 	return model.Issue{
 		RuleID:      "AS-008",
 		ToolName:    toolName,
 		Severity:    sev,
-		Code:        "KNOWN_COMPROMISED_VERSION",
+		Code:        code,
 		Description: desc,
 		Location:    fmt.Sprintf("dependency:%s@%s", dep.Name, dep.Version),
 	}

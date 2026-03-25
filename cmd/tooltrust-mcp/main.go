@@ -598,74 +598,35 @@ func severityEmoji(s model.Severity) string {
 	case model.SeverityHigh:
 		return "🔴"
 	case model.SeverityMedium:
-		return "⚠️ "
+		return "⚠️"
 	case model.SeverityLow:
 		return "🔵"
 	default:
-		return "ℹ️ "
+		return "ℹ️"
 	}
 }
 
-// boxLine builds a fixed-width summary box line (40 display cols including │…│).
-// It pads content to 38 display columns, correctly handling double-width emoji.
-func boxLine(content string) string {
-	dw := 0
-	for _, r := range content {
-		if r == 0xFE0F || r == 0x200D { // zero-width variation selector / joiner
-			continue
-		}
-		if r >= 0x1F000 || // Supplementary Multilingual Plane (most emoji)
-			(r >= 0x2600 && r <= 0x27BF) || // Misc symbols & dingbats
-			r == 0x2705 || r == 0x26A0 || r == 0x2714 { // ✅ ⚠ ✔
-			dw += 2
-		} else {
-			dw++
-		}
-	}
-	pad := 38 - dw
-	if pad < 0 {
-		pad = 0
-	}
-	return "│" + content + strings.Repeat(" ", pad) + "│\n"
-}
-
-// actionEmoji returns the emoji for a gateway action.
-func actionEmoji(a model.Action) string {
-	switch a {
-	case model.ActionAllow:
-		return "✅"
-	case model.ActionRequireApproval:
-		return "⚠️"
-	case model.ActionBlock:
-		return "🚫"
-	default:
-		return "❓"
-	}
-}
-
-// renderFormattedReport builds a unicode-formatted scan report with emojis and
-// box-drawing characters, suitable for display in MCP clients that render
-// monospace text (e.g. Claude Code).
-// renderSummaryLine builds a compact 2-line scan summary for MCP clients.
-// The detailed per-tool breakdown is in the JSON content block.
+// renderSummaryLine builds a compact scan summary for MCP clients.
+// Includes: counts with emojis, findings with severity emojis, and flagged tools.
 func renderSummaryLine(result *ScanResult) string {
+	var lines []string
+
+	// Line 1: tool counts by action
+	lines = append(lines, fmt.Sprintf("Scan Summary: %d tools | ✅ %d allowed  ⚠️ %d req approval  🚫 %d blocked",
+		result.Summary.Total, result.Summary.Allowed, result.Summary.Approval, result.Summary.Blocked))
+
+	// Line 2: findings with severity emojis + grades
 	severityCounts := map[model.Severity]int{}
 	for _, p := range result.Policies {
 		for _, issue := range p.Score.Issues {
 			severityCounts[issue.Severity]++
 		}
 	}
-
-	// Line 1: tool counts by action
-	line1 := fmt.Sprintf("Scan Summary: %d tools | ✅ %d allowed  ⚠️ %d req approval  🚫 %d blocked",
-		result.Summary.Total, result.Summary.Allowed, result.Summary.Approval, result.Summary.Blocked)
-
-	// Line 2: findings + grades
 	sevOrder := []model.Severity{model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityInfo}
 	var sevParts []string
 	for _, s := range sevOrder {
 		if n := severityCounts[s]; n > 0 {
-			sevParts = append(sevParts, fmt.Sprintf("%s×%d", s, n))
+			sevParts = append(sevParts, fmt.Sprintf("%s %s×%d", severityEmoji(s), s, n))
 		}
 	}
 	counts := map[model.Grade]int{}
@@ -673,16 +634,31 @@ func renderSummaryLine(result *ScanResult) string {
 		counts[p.Score.Grade]++
 	}
 	grades := []model.Grade{model.GradeA, model.GradeB, model.GradeC, model.GradeD, model.GradeF}
-	var parts []string
+	var gradeParts []string
 	for _, g := range grades {
 		if n := counts[g]; n > 0 {
-			parts = append(parts, fmt.Sprintf("%s×%d", g, n))
+			gradeParts = append(gradeParts, fmt.Sprintf("%s×%d", g, n))
 		}
 	}
-	line2 := fmt.Sprintf("Findings: %s | Grades: %s",
-		strings.Join(sevParts, "  "), strings.Join(parts, "  "))
+	lines = append(lines, fmt.Sprintf("Findings: %s | Grades: %s",
+		strings.Join(sevParts, "  "), strings.Join(gradeParts, "  ")))
 
-	return line1 + "\n" + line2
+	// Lines 3+: flagged tools (non-ALLOW) with their findings
+	for _, p := range result.Policies {
+		if p.Action == model.ActionAllow {
+			continue
+		}
+		var findings []string
+		for _, issue := range p.Score.Issues {
+			findings = append(findings, fmt.Sprintf("%s %s %s: %s",
+				severityEmoji(issue.Severity), issue.RuleID, issue.Severity, issue.Description))
+		}
+		lines = append(lines, fmt.Sprintf("⚠️ %s [%s] grade=%s score=%d:\n   %s",
+			p.ToolName, p.Action, p.Score.Grade, p.Score.Score,
+			strings.Join(findings, "\n   ")))
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // processToolsRaw runs the scanner and returns raw results (used by both
