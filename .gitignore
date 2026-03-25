@@ -30,8 +30,8 @@ go.work.sum
 # OS
 .DS_Store
 Thumbs.db
-tooltrust-scanner
-tooltrust-mcp
+/tooltrust-scanner
+/tooltrust-mcp
 *.sarif
 .clauderules
 .cursorrules
