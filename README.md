@@ -11,7 +11,7 @@
 > **🚨 Urgent Security Update (March 24, 2026)**
 > ToolTrust now detects and blocks the LiteLLM / TeamPCP supply chain exploit. If you are adding MCP servers that rely on litellm (v1.82.7/8), ToolTrust will trigger a CRITICAL Grade F warning and block installation to protect your SSH/AWS keys.
 
-![ToolTrust Scanner demo](docs/demo.gif)
+![ToolTrust MCP demo](docs/mcp-demo.gif)
 
 ## 🤖 Let your AI agent scan its own tools
 
@@ -39,6 +39,8 @@ Then ask your agent to run `tooltrust_scan_config` — it reads your MCP config 
 | `tooltrust_list_rules` | List all 12 security rules with IDs and descriptions |
 
 ## 💻 CLI
+
+![ToolTrust Scanner CLI demo](docs/demo.gif)
 
 ```bash
 # Install
