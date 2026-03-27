@@ -15,6 +15,7 @@
     "type": "git",
     "url": "https://github.com/AgentSafe-AI/tooltrust-scanner"
   },
+  "homepage": "https://www.tooltrust.dev/",
   "license": "MIT",
   "bin": {
     "tooltrust-mcp": "bin/run.js"
