@@ -10,7 +10,7 @@ AI agents are powerful — but every tool they call is an attack surface. Prompt
 
 ### ToolTrust Scanner
 
-Open-source security scanner for MCP tool definitions. 13 rules. Tested against 207+ production servers. Each tool gets a trust grade (A–F) and a gateway policy.
+Open-source security scanner for MCP tool definitions. 12 rules. Tested against 207+ production servers. Each tool gets a trust grade (A–F) and a gateway policy.
 
 ```json
 {

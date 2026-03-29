@@ -58,13 +58,13 @@ tooltrust-scanner scan --server "npx -y @modelcontextprotocol/server-filesystem 
 | Total security findings | 3,613 |
 | Servers with at least one finding | 145 (70%) |
 | Servers with a clean Grade A | 22 (10%) |
-| Critical findings (arbitrary code execution) | 16 |
+| Servers with arbitrary code execution | 16 |
 
 **Only 10% of MCP servers get a clean bill of health.** [Read the full analysis →](docs/blog-post-draft.md)
 
 ## What it catches
 
-ToolTrust runs 13 static analysis rules against every tool definition:
+ToolTrust runs 12 static analysis rules against every tool definition:
 
 | Threat | Rule | What it detects |
 |--------|------|-----------------|
@@ -86,7 +86,7 @@ Full rule details: [docs/RULES.md](docs/RULES.md)
 ## How it works
 
 1. **Parse** — Connects to a live MCP server (or reads a JSON file) and extracts every tool definition
-2. **Analyze** — Runs all 13 rules against each tool's name, description, schema, and permissions
+2. **Analyze** — Runs all 12 rules against each tool's name, description, schema, and permissions
 3. **Grade** — Assigns a numeric risk score and letter grade (A–F) per tool
 4. **Enforce** — Maps each grade to a gateway policy: `ALLOW`, `REQUIRE_APPROVAL`, or `BLOCK`
 

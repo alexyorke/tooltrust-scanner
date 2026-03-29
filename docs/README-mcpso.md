@@ -42,7 +42,7 @@ It reads your MCP config, connects to each server in parallel, scans every tool,
 | Secret leakage | API keys or passwords accepted as plaintext parameters |
 | Missing rate limits | Tools with no timeout or rate-limit configuration |
 
-13 rules total. Full catalog: [docs/RULES.md](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/RULES.md)
+12 rules total. Full catalog: [docs/RULES.md](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/RULES.md)
 
 ## Key numbers
 
@@ -53,7 +53,7 @@ It reads your MCP config, connects to each server in parallel, scans every tool,
 | Total security findings | 3,613 |
 | Servers with at least one finding | 145 (70%) |
 | Clean Grade A | 22 (10%) |
-| Critical findings (code execution) | 16 |
+| Servers with arbitrary code execution | 16 |
 
 ## Live Directory
 
