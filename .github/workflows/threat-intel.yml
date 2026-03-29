@@ -41,14 +41,10 @@ jobs:
           STATE_FILE = ".github/threat-intel-state.json"
 
           FEEDS = [
-              # Tier 1 — Active MCP threat research (confirmed feeds)
-              {"source": "Koi Security",              "url": "https://www.koi.security/blog/index.xml"},
-              {"source": "Invariant Labs",            "url": "https://invariantlabs.ai/blog/index.xml"},
-              {"source": "Embrace The Red",           "url": "https://embracethered.com/blog/index.xml"},
-              {"source": "Pillar Security",           "url": "https://www.pillarsecurity.com/blog/rss.xml"},
-              # Tier 2 — Broader AI agent security
-              {"source": "Trail of Bits",             "url": "https://blog.trailofbits.com/feed"},
-              {"source": "Wiz Research",              "url": "https://www.wiz.io/blog/rss.xml"},
+              # Confirmed working feeds
+              {"source": "Embrace The Red",  "url": "https://embracethered.com/blog/index.xml"},
+              {"source": "Trail of Bits",    "url": "https://blog.trailofbits.com/index.xml"},
+              # No RSS feeds found: Koi Security, Invariant Labs, Pillar Security, Wiz Research
           ]
 
           # Load last-seen timestamps
