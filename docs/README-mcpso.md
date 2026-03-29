@@ -1,21 +1,14 @@
 # ToolTrust Scanner
 
-**Scan MCP servers for prompt injection, data exfiltration, and privilege escalation before your AI agent trusts them.**
+**We scanned 207 MCP servers. 70% have security issues.** Your AI agent trusts them all.
 
-> **Urgent security update**
-> ToolTrust detects and blocks known compromised MCP-related package versions, including the LiteLLM / TeamPCP supply-chain exploit.
+ToolTrust scans MCP tool definitions for prompt injection, data exfiltration, privilege escalation, and supply-chain attacks — then assigns a trust grade (A–F) so you know the risk before your agent calls anything.
+
+> Pure static analysis. No LLM calls. No data leaves your machine. Runs in milliseconds.
 
 ![ToolTrust MCP demo](https://raw.githubusercontent.com/AgentSafe-AI/tooltrust-scanner/main/docs/mcp-demo.gif)
 
-## Live UI
-
-![ToolTrust Directory UI](https://raw.githubusercontent.com/AgentSafe-AI/tooltrust-scanner/main/docs/tooltrust-ui.png)
-
-- Browse the public registry: [https://www.tooltrust.dev/](https://www.tooltrust.dev/)
-- Review findings in the browser before trusting or installing a server
-- Compare grades across popular MCP servers
-
-## Use with Claude Code / Cursor / Claude Desktop
+## Scan your setup in 30 seconds
 
 Add ToolTrust as an MCP server:
 
@@ -30,30 +23,56 @@ Add ToolTrust as an MCP server:
 }
 ```
 
-Then ask your agent to:
+Then ask your agent: *"Run tooltrust_scan_config"*
 
-- `tooltrust_scan_config` to scan all configured MCP servers
-- `tooltrust_scan_server` to scan one specific MCP server
-- Full MCP tool list: [Usage Guide](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/USAGE.md#mcp-tools)
+It reads your MCP config, connects to each server in parallel, scans every tool, and returns a risk report with grades and enforcement decisions.
 
-## What It Catches
+## What it catches
 
-- Prompt injection and tool poisoning hidden in descriptions
-- Excessive permissions such as `exec`, `network`, `db`, and `fs`
-- Supply-chain CVEs and known compromised package versions
-- Privilege escalation and arbitrary code execution patterns
-- Typosquatting, tool shadowing, and insecure secret handling
-- Missing rate-limit, timeout, or retry configuration on risky tools
+| Threat | What it detects |
+|--------|-----------------|
+| Prompt injection | Malicious instructions hidden in tool descriptions |
+| Arbitrary code execution | Tools that run `eval()`, `exec()`, or arbitrary scripts |
+| Data exfiltration | Tools that send data to external endpoints |
+| Privilege escalation | Tools requesting admin/sudo/root access |
+| Supply-chain CVEs | Known vulnerabilities in server dependencies |
+| Known malware | Confirmed compromised package versions (LiteLLM, Trivy, Langflow) |
+| Typosquatting | Tool names impersonating legitimate tools |
+| Tool shadowing | Duplicate tool names designed to hijack agent behavior |
+| Secret leakage | API keys or passwords accepted as plaintext parameters |
+| Missing rate limits | Tools with no timeout or rate-limit configuration |
 
-Full rule catalog: [Developer Guide](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/DEVELOPER.md) · [tooltrust.dev](https://www.tooltrust.dev/)
+13 rules total. Full catalog: [docs/RULES.md](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/RULES.md)
 
-## More Ways to Use ToolTrust
+## Key numbers
 
-- [Usage Guide](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/USAGE.md)
-- [Developer Guide](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/DEVELOPER.md)
-- [Security Docs](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/SECURITY.md)
+| Metric | Count |
+|--------|-------|
+| MCP servers scanned | 207 |
+| Individual tools analyzed | 3,235 |
+| Total security findings | 3,613 |
+| Servers with at least one finding | 145 (70%) |
+| Clean Grade A | 22 (10%) |
+| Critical findings (code execution) | 16 |
+
+## Live Directory
+
+Browse trust grades for popular MCP servers before you install them: **[tooltrust.dev](https://www.tooltrust.dev/)**
+
+![ToolTrust Directory UI](https://raw.githubusercontent.com/AgentSafe-AI/tooltrust-scanner/main/docs/tooltrust-ui.png)
+
+## More ways to use ToolTrust
+
+- **CLI**: `tooltrust-scanner scan --server "npx -y @modelcontextprotocol/server-filesystem /tmp"`
+- **Scan-before-install gate**: `tooltrust-scanner gate @modelcontextprotocol/server-memory -- /tmp`
+- **GitHub Actions**: block risky servers in CI
+- **Pre-commit hook**: auto-scan `.mcp.json` on every commit
+
+Full docs: [Usage Guide](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/USAGE.md) · [Developer Guide](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/DEVELOPER.md)
 
 ## Links
 
 - GitHub: [AgentSafe-AI/tooltrust-scanner](https://github.com/AgentSafe-AI/tooltrust-scanner)
-- Live UI: [tooltrust.dev](https://www.tooltrust.dev/)
+- Live Directory: [tooltrust.dev](https://www.tooltrust.dev/)
+- Security: [SECURITY.md](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/SECURITY.md)
+- MIT Licensed

@@ -2,20 +2,17 @@
 
 # AgentSafe AI
 
-**Making AI agents safe to use.**
+**We scanned 207 MCP servers. 70% have security issues.**
 
-AI agents are powerful — but every tool they call is an attack surface. Prompt injection, data exfiltration, privilege escalation, and supply chain attacks hide in tool descriptions that agents blindly trust.
-
-We build open-source tools that let you see the risks before your agent acts on them.
+AI agents are powerful — but every tool they call is an attack surface. Prompt injection, data exfiltration, privilege escalation, and supply-chain backdoors hide in tool descriptions that agents blindly trust. We build open-source tools that expose the risks before your agent acts on them.
 
 ---
 
 ### ToolTrust Scanner
 
-Static security scanner for MCP server tool definitions. 11 security rules. Battle-tested against 400+ production servers.
+Open-source security scanner for MCP tool definitions. 13 rules. Tested against 207+ production servers. Each tool gets a trust grade (A–F) and a gateway policy.
 
-```bash
-# Add to your .mcp.json — your agent scans its own tools
+```json
 {
   "mcpServers": {
     "tooltrust": {
@@ -32,7 +29,7 @@ Then ask your agent: *"Run tooltrust_scan_config"*
 
 ### ToolTrust Directory
 
-Public security registry for MCP servers. Every server gets a trust grade (A–F) based on automated scanning. Browse reports, check grades, and verify servers before you install them.
+Public trust registry for MCP servers. Every server gets a grade based on automated scanning. Browse reports, compare grades, and verify servers before you install them.
 
 [www.tooltrust.dev →](https://www.tooltrust.dev)
 
@@ -40,14 +37,22 @@ Public security registry for MCP servers. Every server gets a trust grade (A–F
 
 ### What we detect
 
-| Threat | Example |
-|--------|---------|
-| Prompt injection | Malicious instructions hidden in tool descriptions |
-| Arbitrary code execution | Tools that run `eval()`, `exec()`, or arbitrary scripts |
-| Data exfiltration | Tools that send data to external endpoints |
-| Privilege escalation | Tools requesting admin/sudo/root access |
-| Supply chain CVEs | Known vulnerabilities in server dependencies |
-| Tool shadowing | Duplicate tool names designed to hijack agent behavior |
+| Threat | What happens |
+|--------|-------------|
+| Prompt injection | Malicious instructions hidden in tool descriptions hijack your agent |
+| Arbitrary code execution | Tools run `eval()`, `exec()`, or scripts on your machine |
+| Data exfiltration | Tools send your data to external endpoints |
+| Privilege escalation | Tools grab admin/sudo/root access beyond their stated purpose |
+| Supply-chain attacks | Known compromised packages (LiteLLM, Trivy, Langflow) |
+| Tool shadowing | Duplicate tool names hijack agent behavior |
+
+### The numbers
+
+| | |
+|-|-|
+| 3,235 tools analyzed | 3,613 security findings |
+| 70% of servers have issues | Only 10% get a clean Grade A |
+| 16 servers allow arbitrary code execution | 97 tools leak secrets through plaintext params |
 
 ### Get involved
 
