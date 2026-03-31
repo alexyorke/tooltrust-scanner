@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -14,6 +15,36 @@ import (
 	"github.com/AgentSafe-AI/tooltrust-scanner/internal/jsonschema"
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
+
+// redirectUserHomeDirForTest makes os.UserHomeDir() resolve to dir.
+// Windows uses USERPROFILE; Unix uses HOME — tests must set both.
+func redirectUserHomeDirForTest(t *testing.T, dir string) {
+	t.Helper()
+	was := map[string]string{
+		"HOME":        os.Getenv("HOME"),
+		"USERPROFILE": os.Getenv("USERPROFILE"),
+		"HOMEDRIVE":   os.Getenv("HOMEDRIVE"),
+		"HOMEPATH":    os.Getenv("HOMEPATH"),
+	}
+	t.Cleanup(func() {
+		for k, v := range was {
+			if v == "" {
+				_ = os.Unsetenv(k)
+			} else {
+				_ = os.Setenv(k, v)
+			}
+		}
+	})
+	require.NoError(t, os.Setenv("HOME", dir))
+	require.NoError(t, os.Setenv("USERPROFILE", dir))
+	if vol := filepath.VolumeName(dir); vol != "" {
+		require.NoError(t, os.Setenv("HOMEDRIVE", vol))
+		require.NoError(t, os.Setenv("HOMEPATH", strings.TrimPrefix(dir, vol)))
+	} else {
+		_ = os.Unsetenv("HOMEDRIVE")
+		_ = os.Unsetenv("HOMEPATH")
+	}
+}
 
 // ── tooltrust_scanner_scan tests ────────────────────────────────────────────
 
@@ -253,10 +284,7 @@ func TestLoadMCPConfig_NoConfigFound(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
 
-	// Override HOME to prevent finding real ~/.claude.json.
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", dir)
-	defer os.Setenv("HOME", origHome)
+	redirectUserHomeDirForTest(t, dir)
 
 	_, _, err := loadMCPConfig()
 	require.Error(t, err)
@@ -318,9 +346,7 @@ func TestHandleScanConfig_NoConfigFile(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
 
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", dir)
-	defer os.Setenv("HOME", origHome)
+	redirectUserHomeDirForTest(t, dir)
 
 	req := mcplib.CallToolRequest{}
 	req.Params.Arguments = map[string]any{}
