@@ -41,3 +41,23 @@ ToolTrust Scanner is a static analysis tool that scans tool definitions. Areas o
 ## Dependencies
 
 We use `govulncheck` in CI and keep dependencies up to date. Report any dependency-level vulnerabilities through the same channels above.
+
+## Operating MCP servers safely
+
+General guidance for teams running **any** MCP server (not specific to ToolTrust Scanner’s implementation):
+
+- **Redirect URI validation** — Use exact string matching for OAuth `redirect_uri` values to reduce token theft.
+- **Tokens and scopes** — Prefer **narrow OAuth scopes**, **short-lived tokens**, and **RFC 8693** (token exchange) / **RFC 8707** (resource indicators) where your stack supports them to limit confused-deputy risk.
+- **Secrets** — Do not pass long-lived PATs or API keys as **tool arguments**; use environment variables or a secret store.
+- **Network exposure** — Bind admin or debug interfaces to **loopback** unless you intend public exposure; document firewall rules for remote MCP over HTTP/SSE.
+- **Isolation** — Run untrusted or high-risk servers in containers or dedicated hosts according to your org policy.
+
+## What ToolTrust Scanner does not do
+
+ToolTrust Scanner performs **static analysis** on tool definitions (and optional live `tools/list` via subprocess). It does **not**:
+
+- Execute or sandbox arbitrary third-party MCP server code at runtime.
+- Enforce OAuth, network binding, or OS-level policies on other processes.
+- Replace EDR, SIEM, or organizational approval workflows.
+
+Use scan output and gateway-style grades as **inputs** to your governance process, not as sole proof of safety.

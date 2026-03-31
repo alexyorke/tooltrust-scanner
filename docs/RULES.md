@@ -1,7 +1,9 @@
 # Security Rules
 
-ToolTrust Scanner checks every MCP tool against 13 built-in rules.
+ToolTrust Scanner checks every MCP tool against **12 built-in rules** (AS-001 through AS-011 and AS-013).
 Each rule fires independently; a tool can trigger multiple rules.
+
+**Note:** AS-012 (Tool Drift) is described below as **planned**—it is **not** executed by the engine yet (`pkg/analyzer` has no AS-012 checker).
 
 ---
 
@@ -99,11 +101,13 @@ Tools that perform network or execution operations without declaring rate-limit,
 
 ---
 
-## 🔄 AS-012 — Tool Drift
+## 🔄 AS-012 — Tool Drift (planned, not implemented)
 
-**Severity:** Medium
+**Severity:** Medium (proposed)
 
-Detects tools whose definition has changed since the last scan — new parameters added, descriptions modified, or permissions expanded. Drift can indicate a supply chain compromise or unreviewed update.
+**Status:** Not shipped. The scanner does not emit AS-012 findings today. This section documents the intended future rule for supply-chain and compliance workflows (detecting definition changes between scans).
+
+When implemented, it would flag tools whose definitions change between scans—new parameters, modified descriptions, or expanded permissions—so teams can require human review (drift as a governance signal).
 
 ---
 
