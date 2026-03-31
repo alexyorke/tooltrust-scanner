@@ -308,10 +308,17 @@ func printPtermUI(report ScanReport) error {
 				Text: pterm.FgGreen.Sprint("✅ Pass"),
 			})
 		} else {
+			if reason := summarizeToolReason(policy); reason != "" {
+				children = append(children, pterm.TreeNode{
+					Text: pterm.FgGray.Sprint(toolReasonLabel(policy) + reason),
+				})
+			}
+			shownHints := map[string]bool{}
 			for _, issue := range policy.Score.Issues {
 				children = append(children, pterm.TreeNode{
-					Text: formatIssueLabel(issue),
+					Text: formatIssueLabel(issue, policy, !shownHints[issue.RuleID]),
 				})
+				shownHints[issue.RuleID] = true
 			}
 		}
 
@@ -519,6 +526,66 @@ func printGradeGuide(grade model.Grade) {
 		Println(pterm.NewStyle(g.color).Sprint(content))
 }
 
+func summarizeToolReason(policy model.GatewayPolicy) string {
+	if policy.Action == model.ActionAllow {
+		return ""
+	}
+
+	parts := make([]string, 0, 3)
+	seen := map[string]bool{}
+	for _, issue := range policy.Score.Issues {
+		part := summarizeIssueReason(issue)
+		if part == "" || seen[part] {
+			continue
+		}
+		seen[part] = true
+		parts = append(parts, part)
+		if len(parts) == 3 {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " + ")
+}
+
+func toolReasonLabel(policy model.GatewayPolicy) string {
+	switch policy.Action {
+	case model.ActionRequireApproval:
+		return "Why approval: "
+	case model.ActionBlock:
+		return "Why blocked: "
+	default:
+		return "Why flagged: "
+	}
+}
+
+func summarizeIssueReason(issue model.Issue) string {
+	switch issue.RuleID {
+	case "AS-002":
+		for _, evidence := range issue.Evidence {
+			if evidence.Kind == "permission" {
+				return evidence.Value + " permission"
+			}
+		}
+	case "AS-011":
+		return "missing rate-limit/timeout"
+	case "AS-001":
+		return "prompt-injection wording"
+	case "AS-006":
+		return "code execution signal"
+	case "AS-008":
+		return "known compromised package"
+	}
+
+	desc := strings.TrimSpace(issue.Description)
+	if desc == "" {
+		return ""
+	}
+	return desc
+}
+
 // formatToolLabel returns a coloured "Tool: <name>  [ACTION]" label.
 func formatToolLabel(policy model.GatewayPolicy) string {
 	name := fmt.Sprintf("Tool: %s", policy.ToolName)
@@ -531,8 +598,11 @@ func formatToolLabel(policy model.GatewayPolicy) string {
 	case model.ActionBlock:
 		badge = pterm.FgRed.Sprint("[BLOCK]")
 	}
-	scoreStr := fmt.Sprintf("score=%d grade=%s", policy.Score.Score, policy.Score.Grade)
-	return fmt.Sprintf("%s  %s  %s", pterm.Bold.Sprint(name), badge, pterm.FgGray.Sprint(scoreStr))
+	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA {
+		return fmt.Sprintf("%s  %s", pterm.Bold.Sprint(name), badge)
+	}
+	gradeStr := fmt.Sprintf("grade=%s", policy.Score.Grade)
+	return fmt.Sprintf("%s  %s  %s", pterm.Bold.Sprint(name), badge, pterm.FgGray.Sprint(gradeStr))
 }
 
 // ruleHint returns a short, specific fix hint for each rule ID.
@@ -551,35 +621,87 @@ var ruleHint = map[string]string{
 	"AS-013": "→ Use a unique namespace prefix per server (e.g. github__search_repos) to prevent tool name collisions.",
 }
 
-// formatIssueLabel returns a coloured finding line with an actionable fix hint.
-func formatIssueLabel(issue model.Issue) string {
-	wt := severityWeight[issue.Severity]
-	main := fmt.Sprintf("[%s] %s (+%d): %s", issue.RuleID, issue.Severity, wt, issue.Description)
-	hint := ruleHint[issue.RuleID]
+// formatIssueLabel returns a coloured finding line with optional evidence and fix hint.
+func formatIssueLabel(issue model.Issue, policy model.GatewayPolicy, showHint bool) string {
+	main := fmt.Sprintf("• [%s] %s: %s", issue.RuleID, issue.Severity, issue.Description)
+	hint := ""
+	if showHint {
+		hint = ruleHint[issue.RuleID]
+	}
+	mainLine := pterm.Sprint(main)
+	hintLine := pterm.FgGray.Sprint(hint)
 
-	var coloredMain, coloredHint string
-	switch issue.Severity {
-	case model.SeverityCritical:
-		coloredMain = "🚨 " + pterm.FgRed.Sprint(main)
-		coloredHint = pterm.FgRed.Sprint(hint)
-	case model.SeverityHigh:
-		coloredMain = "🔴 " + pterm.FgLightRed.Sprint(main)
-		coloredHint = pterm.FgLightRed.Sprint(hint)
-	case model.SeverityMedium:
-		coloredMain = "⚠️  " + pterm.FgYellow.Sprint(main)
-		coloredHint = pterm.FgYellow.Sprint(hint)
-	case model.SeverityLow:
-		coloredMain = "🔵 " + pterm.FgBlue.Sprint(main)
-		coloredHint = pterm.FgBlue.Sprint(hint)
-	default:
-		coloredMain = "ℹ️  " + pterm.FgGray.Sprint(main)
-		coloredHint = pterm.FgGray.Sprint(hint)
+	evidenceLines := []string(nil)
+	if shouldShowIssueEvidence(issue, policy) {
+		evidenceLines = issueEvidenceLines(issue)
+	}
+	if shouldSuppressIssueDetail(issue, policy) {
+		evidenceLines = nil
+		hint = ""
 	}
 
 	if hint == "" {
-		return coloredMain
+		return joinIssueDetailLines(mainLine, evidenceLines)
 	}
-	return coloredMain + "\n       " + coloredHint
+	return joinIssueDetailLines(mainLine, evidenceLines, []string{hintLine})
+}
+
+func issueEvidenceLines(issue model.Issue) []string {
+	if len(issue.Evidence) == 0 {
+		return nil
+	}
+
+	maxEvidence := 1
+	lines := make([]string, 0, maxEvidence+1)
+	for i, evidence := range issue.Evidence {
+		if i >= maxEvidence {
+			remaining := len(issue.Evidence) - maxEvidence
+			lines = append(lines, pterm.FgGray.Sprint(fmt.Sprintf("… %d more evidence item(s)", remaining)))
+			break
+		}
+		lines = append(lines, pterm.FgGray.Sprint(fmt.Sprintf("Evidence: %s=%s", evidence.Kind, evidence.Value)))
+	}
+	return lines
+}
+
+func shouldSuppressIssueDetail(issue model.Issue, policy model.GatewayPolicy) bool {
+	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA {
+		return true
+	}
+	return false
+}
+
+func shouldShowIssueEvidence(issue model.Issue, policy model.GatewayPolicy) bool {
+	if policy.Action != model.ActionAllow || policy.Score.Grade != model.GradeA {
+		return !isRedundantPermissionEvidence(issue)
+	}
+	return false
+}
+
+func isRedundantPermissionEvidence(issue model.Issue) bool {
+	if issue.RuleID != "AS-002" || len(issue.Evidence) != 1 {
+		return false
+	}
+	evidence := issue.Evidence[0]
+	if evidence.Kind != "permission" {
+		return false
+	}
+	switch evidence.Value {
+	case "fs", "network", "db", "exec":
+		return strings.Contains(issue.Description, evidence.Value+" permission")
+	default:
+		return false
+	}
+}
+
+func joinIssueDetailLines(main string, groups ...[]string) string {
+	lines := []string{main}
+	for _, group := range groups {
+		for _, line := range group {
+			lines = append(lines, "       "+line)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // buildRiskLine builds a compact risk summary string e.g. "A×3  B×1  F×1".

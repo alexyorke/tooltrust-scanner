@@ -42,7 +42,7 @@ It reads your MCP config, connects to each server in parallel, scans every tool,
 | Secret leakage | API keys or passwords accepted as plaintext parameters |
 | Missing rate limits | Tools with no timeout or rate-limit configuration |
 
-12 rules total. Full catalog: [docs/RULES.md](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/RULES.md)
+**12** built-in rules run today (AS-001–AS-011, AS-013). **AS-012** is documented as planned, not yet enforced — see [docs/RULES.md](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/RULES.md). Full catalog · [tooltrust.dev](https://www.tooltrust.dev/)
 
 ## Key numbers
 
