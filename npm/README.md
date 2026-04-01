@@ -13,7 +13,7 @@ Scan MCP servers for prompt injection, data exfiltration, risky permissions, sup
 - Excessive permissions such as `exec`, `network`, `db`, and `fs`
 - Supply-chain CVEs and known compromised package versions
 - Suspicious npm lifecycle scripts that execute during install
-- Suspicious npm IOC dependencies such as `plain-crypto-js` referenced from published package metadata
+- Suspicious npm IOC dependencies and indicators such as `plain-crypto-js`, reviewed install-script patterns, malicious domains, and URLs referenced from published package metadata
 - Dependency visibility gaps when an MCP server does not expose dependency metadata
 - Privilege escalation and arbitrary code execution patterns
 - Typosquatting, tool shadowing, and insecure secret handling
@@ -59,6 +59,12 @@ ToolTrust reports how much dependency evidence it could recover:
 For local scans, ToolTrust will also try to inspect nearby `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `go.sum`, and `requirements.txt` files when it can infer the project root from the launch command.
 
 For GitHub-backed `repo_url` scans, ToolTrust also inspects remote `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `go.sum`, and `requirements.txt` files to recover transitive dependency evidence.
+
+Recent supply-chain incident coverage includes:
+
+- LiteLLM `1.82.7` / `1.82.8` and related TeamPCP compromise indicators
+- Axios `1.14.1` / `0.30.4` malicious npm publish
+- npm IOC helpers such as `plain-crypto-js`
 
 ## Example output
 

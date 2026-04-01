@@ -11,8 +11,8 @@
 
 **Scan MCP servers for prompt injection, data exfiltration, and privilege escalation before your AI agent blindly trusts them.**
 
-> **🚨 Urgent Security Update (March 24, 2026)**
-> ToolTrust now detects and blocks the LiteLLM / TeamPCP supply chain exploit. If you are adding MCP servers that rely on litellm (v1.82.7/8), ToolTrust will trigger a CRITICAL Grade F warning and block installation to protect your SSH/AWS keys.
+> **🚨 Supply-Chain Incident Coverage (March 2026)**
+> ToolTrust now detects and blocks confirmed supply-chain incidents including the LiteLLM / TeamPCP compromise and the malicious axios npm publish (`axios@1.14.1`, `axios@0.30.4`). For npm-backed MCP servers, ToolTrust now combines blacklist matches, lifecycle-script review, transitive lockfile recovery, and IOC matching such as `plain-crypto-js` to surface suspicious releases earlier.
 
 ![ToolTrust MCP demo](docs/mcp-demo.gif)
 
@@ -67,7 +67,7 @@ Then ask your agent to run:
 - Excessive permissions such as `exec`, `network`, `db`, and `fs`
 - Supply-chain CVEs and known compromised package versions
 - Suspicious npm lifecycle scripts that execute during install
-- Suspicious npm IOC dependencies such as `plain-crypto-js` referenced from published package metadata
+- Suspicious npm IOC dependencies and indicators such as `plain-crypto-js`, reviewed install-script patterns, malicious domains, and URLs referenced from published package metadata
 - Dependency visibility gaps when an MCP server does not expose enough metadata for supply-chain analysis
 - Privilege escalation and arbitrary code execution patterns
 - Typosquatting, tool shadowing, and insecure secret handling
@@ -96,6 +96,12 @@ For remote GitHub repos exposed via `repo_url`, ToolTrust also inspects common l
 - `yarn.lock`
 - `go.sum`
 - `requirements.txt`
+
+Recent incident coverage includes:
+
+- LiteLLM `1.82.7` / `1.82.8` and related TeamPCP compromise indicators
+- Axios `1.14.1` / `0.30.4` malicious npm publish
+- npm metadata IOC detection for helper packages such as `plain-crypto-js`
 
 Full rule catalog: [docs/RULES.md](docs/RULES.md) · [tooltrust.dev](https://www.tooltrust.dev/)
 
