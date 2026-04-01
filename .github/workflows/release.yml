@@ -296,10 +296,18 @@ jobs:
           sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/tooltrust-scanner.rb
           sed -i "s/sha256 \".*\"/sha256 \"${SHA256}\"/" Formula/tooltrust-scanner.rb
 
-      - name: Commit and push updated formula
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/tooltrust-scanner.rb
-          git diff --staged --quiet || git commit -m "chore: update Homebrew formula to ${GITHUB_REF_NAME}"
-          git push
+      - name: Create PR for updated formula
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update Homebrew formula to ${{ github.ref_name }}"
+          branch: "ci/update-homebrew-formula-${{ github.ref_name }}"
+          delete-branch: true
+          title: "Update Homebrew formula for ${{ github.ref_name }}"
+          body: |
+            Updates `Formula/tooltrust-scanner.rb` for release `${{ github.ref_name }}`.
+
+            - bumps the formula version
+            - refreshes the source tarball SHA256
+          add-paths: |
+            Formula/tooltrust-scanner.rb
