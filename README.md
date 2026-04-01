@@ -100,6 +100,7 @@ For remote GitHub repos exposed via `repo_url`, ToolTrust also inspects common l
 Full rule catalog: [docs/RULES.md](docs/RULES.md) · [tooltrust.dev](https://www.tooltrust.dev/)
 
 Threat-intel and IOC promotion flow: [docs/IOC_PIPELINE.md](docs/IOC_PIPELINE.md)
+Scanner scope guardrails: [docs/SCANNER_SCOPE.md](docs/SCANNER_SCOPE.md)
 
 ## More ways to use ToolTrust
 

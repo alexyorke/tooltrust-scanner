@@ -3,6 +3,7 @@
 This guide is for people changing ToolTrust internals: analyzers, adapters, output formats, and core data structures.
 
 For local setup, branch / PR flow, and required checks, use [Contributing](./CONTRIBUTING.md).
+For feature-boundary decisions, use [Scanner Scope Guardrails](./SCANNER_SCOPE.md).
 
 ## Architecture
 
