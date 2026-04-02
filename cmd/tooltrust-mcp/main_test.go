@@ -135,6 +135,51 @@ func TestRenderTextReport_IncludesEvidenceForFlaggedTools(t *testing.T) {
 	assert.NotContains(t, text, "schema_property_count=12")
 }
 
+func TestRenderTextReport_IncludesBehaviorAndDestinationContext(t *testing.T) {
+	result := &ScanResult{
+		Summary: ScanSummary{
+			Total:    1,
+			Allowed:  0,
+			Approval: 1,
+			Blocked:  0,
+		},
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName:     "send_email",
+				Action:       model.ActionRequireApproval,
+				Behavior:     []string{"reads_env", "uses_network"},
+				Destinations: []string{"dynamic email recipient (bcc)", "hardcoded domain: api.postmarkapp.com"},
+				Score:        model.RiskScore{Grade: model.GradeC},
+			},
+		},
+	}
+
+	text := renderTextReport(result)
+	assert.Contains(t, text, "Behavior: reads_env, uses_network")
+	assert.Contains(t, text, "Destination: dynamic email recipient (bcc); hardcoded domain: api.postmarkapp.com")
+}
+
+func TestProcessToolsRaw_PopulatesBehaviorAndDestinationContext(t *testing.T) {
+	tools := []model.UnifiedTool{
+		{
+			Name:        "fetch_url",
+			Description: "Fetch a remote resource over HTTPS.",
+			Permissions: []model.Permission{model.PermissionNetwork},
+			InputSchema: jsonschema.Schema{
+				Properties: map[string]jsonschema.Property{
+					"url": {Type: "string"},
+				},
+			},
+		},
+	}
+
+	result, err := processToolsRaw(context.Background(), tools)
+	require.NoError(t, err)
+	require.Len(t, result.Policies, 1)
+	assert.Equal(t, []string{"uses_network"}, result.Policies[0].Behavior)
+	assert.Equal(t, []string{"dynamic URL input (url)"}, result.Policies[0].Destinations)
+}
+
 // ── tooltrust_scan_server tests ─────────────────────────────────────────────
 
 func TestHandleScanServer_EmptyCommand(t *testing.T) {

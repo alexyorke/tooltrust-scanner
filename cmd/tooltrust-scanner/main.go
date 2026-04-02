@@ -215,6 +215,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 		if evalErr != nil {
 			return fmt.Errorf("gateway evaluation failed for tool %q: %w", tools[i].Name, evalErr)
 		}
+		policy.Behavior, policy.Destinations = analyzer.SummarizeToolContext(tools[i])
 		policy.DependencyVisibility, policy.DependencyNote = dependencyVisibilityForTool(tools[i])
 		policies = append(policies, policy)
 
@@ -320,6 +321,11 @@ func printPtermUI(report ScanReport) error {
 					Text: pterm.FgGray.Sprint(toolReasonLabel(policy) + reason),
 				})
 			}
+			for _, line := range toolContextLines(policy) {
+				children = append(children, pterm.TreeNode{
+					Text: pterm.FgGray.Sprint(line),
+				})
+			}
 			if line, note := dependencyVisibilityLines(policy); line != "" {
 				children = append(children, pterm.TreeNode{
 					Text: pterm.FgGray.Sprint(line),
@@ -394,6 +400,21 @@ func dependencyVisibilityLines(policy model.GatewayPolicy) (line, note string) {
 		return "", ""
 	}
 	return "Dependency visibility: " + policy.DependencyVisibility, policy.DependencyNote
+}
+
+func toolContextLines(policy model.GatewayPolicy) []string {
+	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA {
+		return nil
+	}
+
+	var lines []string
+	if len(policy.Behavior) > 0 {
+		lines = append(lines, "Behavior: "+strings.Join(policy.Behavior, ", "))
+	}
+	if len(policy.Destinations) > 0 {
+		lines = append(lines, "Destination: "+strings.Join(policy.Destinations, "; "))
+	}
+	return lines
 }
 
 // printSupplyChainAlert scans all findings for AS-008 BLOCK issues and prints a

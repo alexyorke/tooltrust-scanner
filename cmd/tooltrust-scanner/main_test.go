@@ -252,6 +252,41 @@ func TestDependencyVisibilityForTool_MetadataAndRepoURL(t *testing.T) {
 	assert.Empty(t, note)
 }
 
+func TestToolContextLines_EmptyForAllowGradeA(t *testing.T) {
+	lines := toolContextLines(model.GatewayPolicy{
+		Action: model.ActionAllow,
+		Score:  model.RiskScore{Grade: model.GradeA},
+		Behavior: []string{
+			"reads_files",
+		},
+		Destinations: []string{
+			"dynamic URL input (url)",
+		},
+	})
+
+	assert.Nil(t, lines)
+}
+
+func TestToolContextLines_ForFlaggedTool(t *testing.T) {
+	lines := toolContextLines(model.GatewayPolicy{
+		Action: model.ActionRequireApproval,
+		Score:  model.RiskScore{Grade: model.GradeC},
+		Behavior: []string{
+			"reads_files",
+			"uses_network",
+		},
+		Destinations: []string{
+			"dynamic URL input (url)",
+			"hardcoded domain: api.postmarkapp.com",
+		},
+	})
+
+	assert.Equal(t, []string{
+		"Behavior: reads_files, uses_network",
+		"Destination: dynamic URL input (url); hardcoded domain: api.postmarkapp.com",
+	}, lines)
+}
+
 func TestEnrichLiveToolsWithLocalNodeDependencies(t *testing.T) {
 	tmp := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte(`{"name":"demo"}`), 0o644))

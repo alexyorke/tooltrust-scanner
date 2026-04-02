@@ -664,6 +664,12 @@ func renderTextReport(result *ScanResult) string {
 		}
 		lines = append(lines, fmt.Sprintf("• %s  %s GRADE %s  %s",
 			p.ToolName, gradeEmoji(p.Score.Grade), p.Score.Grade, actionLabel))
+		if len(p.Behavior) > 0 {
+			lines = append(lines, fmt.Sprintf("  Behavior: %s", strings.Join(p.Behavior, ", ")))
+		}
+		if len(p.Destinations) > 0 {
+			lines = append(lines, fmt.Sprintf("  Destination: %s", strings.Join(p.Destinations, "; ")))
+		}
 		for _, issue := range p.Score.Issues {
 			lines = append(lines, fmt.Sprintf("  [%s] %s: %s",
 				issue.RuleID, issue.Severity, humanizeIssue(issue)))
@@ -799,6 +805,7 @@ func processToolsRaw(ctx context.Context, tools []model.UnifiedTool) (*ScanResul
 		if evalErr != nil {
 			return nil, fmt.Errorf("policy evaluation failed for tool %q: %v", tools[i].Name, evalErr)
 		}
+		policy.Behavior, policy.Destinations = analyzer.SummarizeToolContext(tools[i])
 		policies = append(policies, policy)
 
 		switch policy.Action {
