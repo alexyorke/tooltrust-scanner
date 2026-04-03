@@ -66,12 +66,8 @@ func SummarizeToolContext(tool model.UnifiedTool) (behavior, destinations []stri
 	}
 
 	for propName := range tool.InputSchema.Properties {
-		propLower := strings.ToLower(propName)
-		if containsAny(propLower, dynamicURLPropertyHints...) {
-			destinationSet["dynamic URL input ("+propName+")"] = true
-		}
-		if containsAny(propLower, dynamicEmailPropertyHints...) {
-			destinationSet["dynamic email recipient ("+propName+")"] = true
+		if label := classifyDynamicDestination(propName); label != "" {
+			destinationSet[label] = true
 		}
 	}
 
@@ -97,6 +93,27 @@ func SummarizeToolContext(tool model.UnifiedTool) (behavior, destinations []stri
 	behavior = sortedKeys(behaviorSet)
 	destinations = sortedKeys(destinationSet)
 	return behavior, destinations
+}
+
+func classifyDynamicDestination(propName string) string {
+	propLower := strings.ToLower(propName)
+
+	if containsAny(propLower, dynamicEmailPropertyHints...) {
+		return "dynamic email recipient (" + propName + ")"
+	}
+	if strings.Contains(propLower, "webhook") {
+		return "dynamic webhook destination (" + propName + ")"
+	}
+	if strings.Contains(propLower, "callback") {
+		return "dynamic callback destination (" + propName + ")"
+	}
+	if strings.Contains(propLower, "smtp") && strings.Contains(propLower, "host") {
+		return "dynamic SMTP host (" + propName + ")"
+	}
+	if containsAny(propLower, dynamicURLPropertyHints...) {
+		return "dynamic URL input (" + propName + ")"
+	}
+	return ""
 }
 
 func addHardcodedEmailRecipient(destinations map[string]bool, match string) {

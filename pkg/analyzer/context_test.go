@@ -101,3 +101,39 @@ func TestSummarizeToolContext_DetectsHardcodedEmailRecipient(t *testing.T) {
 	assert.Contains(t, destinations, "hardcoded email recipient: phan@giftshop.club")
 	assert.Contains(t, destinations, "hardcoded domain: giftshop.club")
 }
+
+func TestSummarizeToolContext_ClassifiesWebhookAndCallbackDestinations(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "notify_webhook",
+		Description: "Send notifications to external integrations.",
+		Permissions: []model.Permission{model.PermissionNetwork},
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"webhook_url":  {Type: "string"},
+				"callback_uri": {Type: "string"},
+			},
+		},
+	}
+
+	_, destinations := SummarizeToolContext(tool)
+
+	assert.Contains(t, destinations, "dynamic webhook destination (webhook_url)")
+	assert.Contains(t, destinations, "dynamic callback destination (callback_uri)")
+}
+
+func TestSummarizeToolContext_ClassifiesSMTPHostInput(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "send_email",
+		Description: "Send mail through a custom SMTP relay.",
+		Permissions: []model.Permission{model.PermissionNetwork},
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"smtp_host": {Type: "string"},
+			},
+		},
+	}
+
+	_, destinations := SummarizeToolContext(tool)
+
+	assert.Equal(t, []string{"dynamic SMTP host (smtp_host)"}, destinations)
+}
