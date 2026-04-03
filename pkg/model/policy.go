@@ -35,6 +35,8 @@ type GatewayPolicy struct {
 	Action               Action     `json:"action"`
 	RateLimit            *RateLimit `json:"rate_limit,omitempty"`
 	Reason               string     `json:"reason,omitempty"`
+	Behavior             []string   `json:"behavior,omitempty"`
+	Destinations         []string   `json:"destinations,omitempty"`
 	DependencyVisibility string     `json:"dependency_visibility,omitempty"`
 	DependencyNote       string     `json:"dependency_note,omitempty"`
 	Score                RiskScore  `json:"score"`

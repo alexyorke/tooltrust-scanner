@@ -220,6 +220,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 		if evalErr != nil {
 			return fmt.Errorf("gateway evaluation failed for tool %q: %w", tools[i].Name, evalErr)
 		}
+		policy.Behavior, policy.Destinations = analyzer.SummarizeToolContext(tools[i])
 		policy.DependencyVisibility, policy.DependencyNote = dependencyVisibilityForTool(tools[i])
 		policies = append(policies, policy)
 
@@ -325,6 +326,11 @@ func printPtermUI(report ScanReport) error {
 					Text: pterm.FgGray.Sprint(toolReasonLabel(policy) + reason),
 				})
 			}
+			for _, line := range toolContextLines(policy) {
+				children = append(children, pterm.TreeNode{
+					Text: pterm.FgGray.Sprint(line),
+				})
+			}
 			if line, note := dependencyVisibilityLines(policy); line != "" {
 				children = append(children, pterm.TreeNode{
 					Text: pterm.FgGray.Sprint(line),
@@ -337,8 +343,12 @@ func printPtermUI(report ScanReport) error {
 			}
 			shownHints := map[string]bool{}
 			for _, issue := range policy.Score.Issues {
+				label := formatIssueLabel(issue, policy, !shownHints[issue.RuleID])
+				if label == "" {
+					continue
+				}
 				children = append(children, pterm.TreeNode{
-					Text: formatIssueLabel(issue, policy, !shownHints[issue.RuleID]),
+					Text: label,
 				})
 				shownHints[issue.RuleID] = true
 			}
@@ -398,7 +408,25 @@ func dependencyVisibilityLines(policy model.GatewayPolicy) (line, note string) {
 	if policy.DependencyVisibility == "" {
 		return "", ""
 	}
+	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA && policy.DependencyVisibility == "No dependency data" {
+		return "", ""
+	}
 	return "Dependency visibility: " + policy.DependencyVisibility, policy.DependencyNote
+}
+
+func toolContextLines(policy model.GatewayPolicy) []string {
+	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA {
+		return nil
+	}
+
+	var lines []string
+	if len(policy.Behavior) > 0 {
+		lines = append(lines, "Behavior: "+strings.Join(policy.Behavior, ", "))
+	}
+	if len(policy.Destinations) > 0 {
+		lines = append(lines, "Destination: "+strings.Join(policy.Destinations, "; "))
+	}
+	return lines
 }
 
 // printSupplyChainAlert scans all findings for AS-008 BLOCK issues and prints a
@@ -732,10 +760,15 @@ var ruleHint = map[string]string{
 	"AS-011": "→ Add explicit timeout and rate-limit config to the tool before use in production.",
 	"AS-013": "→ Use a unique namespace prefix per server (e.g. github__search_repos) to prevent tool name collisions.",
 	"AS-015": "→ Review the install-time script before use. Prefer a version without lifecycle scripts, or install with --ignore-scripts in CI/sandboxed environments.",
+	"AS-016": "→ Treat this package version as a likely compromise. Remove it, rotate exposed credentials, and inspect the dependency tree for the IOC package before reinstalling.",
 }
 
 // formatIssueLabel returns a coloured finding line with optional evidence and fix hint.
 func formatIssueLabel(issue model.Issue, policy model.GatewayPolicy, showHint bool) string {
+	if issue.RuleID == "AS-014" && policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA {
+		return ""
+	}
+
 	main := fmt.Sprintf("• [%s] %s: %s", issue.RuleID, issue.Severity, issue.Description)
 	hint := ""
 	if showHint {

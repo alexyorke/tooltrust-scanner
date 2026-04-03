@@ -14,3 +14,36 @@ func LockfileDepsFetcherForTest() func(string) []Dependency {
 
 // NPMVersionResponseForTest exposes npmVersionResponse for analyzer_test.
 type NPMVersionResponseForTest = npmVersionResponse
+
+// ParsePNPMLockYAMLForTest exposes parsePNPMLockYAML for analyzer_test.
+func ParsePNPMLockYAMLForTest(data []byte) ([]Dependency, error) {
+	return parsePNPMLockYAML(data)
+}
+
+// ParseYarnLockForTest exposes parseYarnLock for analyzer_test.
+func ParseYarnLockForTest(data []byte) ([]Dependency, error) {
+	return parseYarnLock(data)
+}
+
+// NPMIOCEntryForTest exposes npmIOCEntry for analyzer_test.
+type NPMIOCEntryForTest = npmIOCEntry
+
+// BuildNPMIOCIndexForTest exposes buildNPMIOCIndex for analyzer_test.
+func BuildNPMIOCIndexForTest(data []byte) (map[string]npmIOCEntry, error) {
+	idx, err := buildNPMIOCIndex(data)
+	if err != nil {
+		return nil, err
+	}
+	return idx.packageNames, nil
+}
+
+// BuildNPMIOCIndexForRuntimeTest exposes the full runtime IOC index for analyzer_test.
+func BuildNPMIOCIndexForRuntimeTest(data []byte) (npmIOCIndex, error) {
+	return buildNPMIOCIndex(data)
+}
+
+// NewNPMIOCCheckerWithIndexForTest overrides the IOC index for analyzer_test.
+func NewNPMIOCCheckerWithIndexForTest(checker *NPMIOCChecker, index npmIOCIndex) *NPMIOCChecker {
+	checker.index = index
+	return checker
+}

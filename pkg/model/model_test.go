@@ -94,3 +94,13 @@ func TestNewGatewayPolicy(t *testing.T) {
 	assert.Equal(t, model.ActionBlock, policy.Action)
 	assert.Equal(t, score, policy.Score)
 }
+
+func TestGatewayPolicy_CarriesToolContext(t *testing.T) {
+	score := model.NewRiskScore(30, []model.Issue{{Code: "X", Severity: model.SeverityMedium}})
+	policy := model.NewGatewayPolicy("search_files", score, nil)
+	policy.Behavior = []string{"uses_network", "reads_files"}
+	policy.Destinations = []string{"dynamic URL input (url)"}
+
+	assert.Equal(t, []string{"uses_network", "reads_files"}, policy.Behavior)
+	assert.Equal(t, []string{"dynamic URL input (url)"}, policy.Destinations)
+}
