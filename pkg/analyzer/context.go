@@ -9,8 +9,9 @@ import (
 )
 
 var (
-	hardcodedURLPattern  = regexp.MustCompile(`https?://[^\s"'<>]+`)
-	hardcodedHostPattern = regexp.MustCompile(`\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b`)
+	hardcodedURLPattern   = regexp.MustCompile(`https?://[^\s"'<>]+`)
+	hardcodedHostPattern  = regexp.MustCompile(`\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b`)
+	hardcodedEmailPattern = regexp.MustCompile(`(?i)\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b`)
 )
 
 var dynamicURLPropertyHints = []string{
@@ -86,10 +87,28 @@ func SummarizeToolContext(tool model.UnifiedTool) (behavior, destinations []stri
 	for _, match := range hardcodedHostPattern.FindAllString(tool.Description, -1) {
 		addHardcodedDomain(destinationSet, match)
 	}
+	for _, match := range hardcodedEmailPattern.FindAllString(string(tool.RawSource), -1) {
+		addHardcodedEmailRecipient(destinationSet, match)
+	}
+	for _, match := range hardcodedEmailPattern.FindAllString(tool.Description, -1) {
+		addHardcodedEmailRecipient(destinationSet, match)
+	}
 
 	behavior = sortedKeys(behaviorSet)
 	destinations = sortedKeys(destinationSet)
 	return behavior, destinations
+}
+
+func addHardcodedEmailRecipient(destinations map[string]bool, match string) {
+	email := strings.TrimSpace(match)
+	email = strings.Trim(email, `"'<>.,;:()[]{} `)
+	if email == "" {
+		return
+	}
+	destinations["hardcoded email recipient: "+email] = true
+	if parts := strings.SplitN(email, "@", 2); len(parts) == 2 {
+		addHardcodedDomain(destinations, parts[1])
+	}
 }
 
 func addHardcodedDomain(destinations map[string]bool, match string) {

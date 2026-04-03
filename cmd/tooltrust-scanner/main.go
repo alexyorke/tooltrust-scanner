@@ -338,8 +338,12 @@ func printPtermUI(report ScanReport) error {
 			}
 			shownHints := map[string]bool{}
 			for _, issue := range policy.Score.Issues {
+				label := formatIssueLabel(issue, policy, !shownHints[issue.RuleID])
+				if label == "" {
+					continue
+				}
 				children = append(children, pterm.TreeNode{
-					Text: formatIssueLabel(issue, policy, !shownHints[issue.RuleID]),
+					Text: label,
 				})
 				shownHints[issue.RuleID] = true
 			}
@@ -397,6 +401,9 @@ func printStarPrompt() {
 
 func dependencyVisibilityLines(policy model.GatewayPolicy) (line, note string) {
 	if policy.DependencyVisibility == "" {
+		return "", ""
+	}
+	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA && policy.DependencyVisibility == "No dependency data" {
 		return "", ""
 	}
 	return "Dependency visibility: " + policy.DependencyVisibility, policy.DependencyNote
@@ -753,6 +760,10 @@ var ruleHint = map[string]string{
 
 // formatIssueLabel returns a coloured finding line with optional evidence and fix hint.
 func formatIssueLabel(issue model.Issue, policy model.GatewayPolicy, showHint bool) string {
+	if issue.RuleID == "AS-014" && policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA {
+		return ""
+	}
+
 	main := fmt.Sprintf("• [%s] %s: %s", issue.RuleID, issue.Severity, issue.Description)
 	hint := ""
 	if showHint {

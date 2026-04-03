@@ -287,6 +287,34 @@ func TestToolContextLines_ForFlaggedTool(t *testing.T) {
 	}, lines)
 }
 
+func TestDependencyVisibilityLines_HiddenForAllowGradeAWithoutCoverage(t *testing.T) {
+	line, note := dependencyVisibilityLines(model.GatewayPolicy{
+		Action:               model.ActionAllow,
+		Score:                model.RiskScore{Grade: model.GradeA},
+		DependencyVisibility: "No dependency data",
+		DependencyNote:       "No metadata.dependencies or repo_url were exposed by this MCP server.",
+	})
+
+	assert.Equal(t, "", line)
+	assert.Equal(t, "", note)
+}
+
+func TestFormatIssueLabel_HidesAS014NoiseForAllowGradeA(t *testing.T) {
+	label := formatIssueLabel(model.Issue{
+		RuleID:      "AS-014",
+		Severity:    model.SeverityInfo,
+		Description: "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited.",
+		Evidence: []model.Evidence{
+			{Kind: "dependency_visibility", Value: "none"},
+		},
+	}, model.GatewayPolicy{
+		Action: model.ActionAllow,
+		Score:  model.RiskScore{Grade: model.GradeA},
+	}, true)
+
+	assert.Equal(t, "", label)
+}
+
 func TestEnrichLiveToolsWithLocalNodeDependencies(t *testing.T) {
 	tmp := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte(`{"name":"demo"}`), 0o644))
