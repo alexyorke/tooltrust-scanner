@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.3.7] - 2026-04-07
+
+### Fixed
+- **AS-006 false positives (round 2)**: fixed remaining FPs on
+  `speclock_policy_evaluate`, `brave_web_search_code_mode`,
+  `code_mode_transform`, and `analyze_code_security` when description
+  contains non-execution "execute".
+  - Added `code_mode` and `policy_evaluate` to safe-name substrings.
+  - Safe prefix/substring checks now gate the regex phase (step 3), not
+    only the suffix phase (step 2).
+  - Removed bare `"execute"` from `descriptionConfirmsExecution` — kept
+    specific variants (`execute code`, `execute script`, `execute javascript`).
+
+---
+
 ## [0.3.6] - 2026-04-04
 
 ### Fixed

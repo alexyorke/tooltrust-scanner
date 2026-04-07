@@ -98,7 +98,9 @@ var arbitraryCodeSafeNameSubstrings = []string{
 	"code_review",
 	"code_snippet",
 	"code_completion",
+	"code_mode",
 	"component_snippet",
+	"policy_evaluate",
 }
 
 // ArbitraryCodeChecker detects tools that can execute arbitrary script or
@@ -121,8 +123,9 @@ func NewArbitraryCodeChecker() *ArbitraryCodeChecker { return &ArbitraryCodeChec
 // contains strong signals of actual code/script execution (not just analysis).
 func descriptionConfirmsExecution(desc string) bool {
 	executionSignals := []string{
-		"execute", "eval(", "eval (", "run script",
+		"eval(", "eval (", "run script",
 		"run code", "execute code", "execute script",
+		"execute javascript", "execute js",
 		"arbitrary code", "arbitrary script",
 		"javascript", "browser context",
 		"page.evaluate", "frame.evaluate",
@@ -213,15 +216,38 @@ func (c *ArbitraryCodeChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 	}
 
 	// 3. Regex patterns for natural language variants in description or name.
+	// Apply the same safe-prefix / safe-substring gating as step 2 so that
+	// tools like analyze_code_security or brave_web_search_code_mode are not
+	// falsely flagged when the description happens to contain "execute" in a
+	// non-code-execution context.
 	combined := nameLower + " " + descLower
 	for _, re := range arbitraryCodePatterns {
-		if re.MatchString(combined) {
-			matched := re.FindString(combined)
-			return emitArbitraryCodeFinding(tool.Name, []model.Evidence{
-				{Kind: "pattern", Value: re.String()},
-				{Kind: "match", Value: matched},
-			}), nil
+		if !re.MatchString(combined) {
+			continue
 		}
+		isSafe := false
+		for _, prefix := range arbitraryCodeSafeNamePrefixes {
+			if strings.HasPrefix(nameLower, prefix) {
+				isSafe = true
+				break
+			}
+		}
+		if !isSafe {
+			for _, safe := range arbitraryCodeSafeNameSubstrings {
+				if strings.Contains(nameLower, safe) {
+					isSafe = true
+					break
+				}
+			}
+		}
+		if isSafe && !descriptionConfirmsExecution(descLower) {
+			continue
+		}
+		matched := re.FindString(combined)
+		return emitArbitraryCodeFinding(tool.Name, []model.Evidence{
+			{Kind: "pattern", Value: re.String()},
+			{Kind: "match", Value: matched},
+		}), nil
 	}
 
 	return nil, nil

@@ -401,3 +401,58 @@ func TestArbitraryCodeChecker_GetComponentSnippet_NoFalsePositive(t *testing.T) 
 	assert.False(t, report.HasFinding("AS-006"),
 		"get_component_snippet must NOT trigger AS-006")
 }
+
+func TestArbitraryCodeChecker_SpecLockPolicyEvaluate_NoFalsePositive(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "speclock_policy_evaluate",
+		Description: "Evaluate a speclock policy against the current project state.",
+	}
+	eng, _ := NewEngine(false, "")
+	report := eng.Scan(tool)
+	assert.False(t, report.HasFinding("AS-006"),
+		"speclock_policy_evaluate must NOT trigger AS-006 — policy evaluation, not code execution")
+}
+
+func TestArbitraryCodeChecker_CodeMode_NoFalsePositive(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		desc string
+	}{
+		{"brave_web_search_code_mode", "Search the web using Brave with code-optimized results."},
+		{"brave_local_search_code_mode", "Search local results using Brave in code mode."},
+		{"code_mode_transform", "Transform search results into code-friendly format."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := model.UnifiedTool{Name: tc.name, Description: tc.desc}
+			eng, _ := NewEngine(false, "")
+			report := eng.Scan(tool)
+			assert.False(t, report.HasFinding("AS-006"),
+				"%s must NOT trigger AS-006 — code_mode is a search mode, not execution", tc.name)
+		})
+	}
+}
+
+func TestArbitraryCodeChecker_SafePrefixGatesRegex(t *testing.T) {
+	// analyze_code_security with a description containing "execute" should NOT
+	// trigger AS-006 because the safe prefix analyze_code gates the regex phase.
+	tool := model.UnifiedTool{
+		Name:        "analyze_code_security",
+		Description: "Analyze repository code and execute static analysis scans for vulnerabilities.",
+	}
+	eng, _ := NewEngine(false, "")
+	report := eng.Scan(tool)
+	assert.False(t, report.HasFinding("AS-006"),
+		"analyze_code_security must NOT trigger AS-006 even when description says 'execute'")
+}
+
+func TestArbitraryCodeChecker_SafePrefixOverriddenByRealExecution(t *testing.T) {
+	// If description genuinely confirms code execution, safe prefix should NOT suppress.
+	tool := model.UnifiedTool{
+		Name:        "analyze_code_eval",
+		Description: "Analyze code by running eval() on JavaScript expressions.",
+	}
+	eng, _ := NewEngine(false, "")
+	report := eng.Scan(tool)
+	assert.True(t, report.HasFinding("AS-006"),
+		"analyze_code with eval() in description must still trigger AS-006")
+}
