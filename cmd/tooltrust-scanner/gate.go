@@ -29,7 +29,6 @@ type gateOpts struct {
 	scope       string
 	deepScan    bool
 	rulesDir    string
-	allowUnsafeLiveScan bool
 }
 
 // blockedError signals that installation was blocked by grade policy (exit 1).
@@ -43,6 +42,7 @@ func (e *blockedError) Error() string {
 
 func newGateCmd() *cobra.Command {
 	var opts gateOpts
+	var allowUnsafeLiveScan bool
 
 	cmd := &cobra.Command{
 		Use:   "gate <package> [-- extra-args...]",
@@ -68,7 +68,7 @@ the grade threshold.
 				opts.extraArgs = args[dashIdx:]
 			}
 
-			err := runGate(cmd.Context(), opts)
+			err := runGate(cmd.Context(), opts, allowUnsafeLiveScan)
 			if err != nil {
 				if _, ok := err.(*blockedError); ok {
 					// Exit 1 for policy block
@@ -90,18 +90,18 @@ the grade threshold.
 	cmd.Flags().StringVar(&opts.scope, "scope", "project", "config scope: project (writes .mcp.json) or user (writes ~/.claude.json)")
 	cmd.Flags().BoolVar(&opts.deepScan, "deep-scan", false, "enable AI-based semantic analysis (pass-through to scanner)")
 	cmd.Flags().StringVar(&opts.rulesDir, "rules-dir", "", "custom YAML rules directory (pass-through to scanner)")
-	cmd.Flags().BoolVar(&opts.allowUnsafeLiveScan, "allow-unsafe-live-scan", false, "acknowledge that gate executes the package on the host before ToolTrust can score it")
+	cmd.Flags().BoolVar(&allowUnsafeLiveScan, "allow-unsafe-live-scan", false, "acknowledge that gate executes the package on the host before ToolTrust can score it")
 
 	return cmd
 }
 
-func runGate(ctx context.Context, opts gateOpts) error {
+func runGate(ctx context.Context, opts gateOpts, allowUnsafeLiveScan bool) error {
 	// Derive server name.
 	serverName := opts.name
 	if serverName == "" {
 		serverName = deriveServerName(opts.packageName)
 	}
-	if !opts.allowUnsafeLiveScan {
+	if !allowUnsafeLiveScan {
 		return fmt.Errorf("gate refuses to execute %q without --allow-unsafe-live-scan because the target package runs on the host before ToolTrust can score it", opts.packageName)
 	}
 

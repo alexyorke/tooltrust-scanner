@@ -82,7 +82,7 @@ func TestRunGate_RequiresUnsafeLiveScanOptIn(t *testing.T) {
 	err := runGate(context.Background(), gateOpts{
 		packageName: "@modelcontextprotocol/server-memory",
 		dryRun:      true,
-	})
+	}, false)
 	if err == nil {
 		t.Fatal("expected gate to refuse unsafe live scan without opt-in")
 	}

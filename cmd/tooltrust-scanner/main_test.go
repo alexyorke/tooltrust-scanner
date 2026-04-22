@@ -384,7 +384,7 @@ func TestRunScan_ServerRequiresUnsafeLiveScanOptIn(t *testing.T) {
 		serverCmd: `npx -y @modelcontextprotocol/server-memory`,
 		protocol:  "mcp",
 		output:    "text",
-	})
+	}, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--allow-unsafe-live-scan")
 }

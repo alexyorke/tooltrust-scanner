@@ -93,8 +93,8 @@ func newScanCmd() *cobra.Command {
 		verbose    bool
 		deepScan   bool
 		rulesDir   string
-		allowUnsafeLiveScan bool
 	)
+	var allowUnsafeLiveScan bool
 
 	cmd := &cobra.Command{
 		Use:   "scan",
@@ -117,8 +117,7 @@ func newScanCmd() *cobra.Command {
 				verbose:    verbose,
 				deepScan:   deepScan,
 				rulesDir:   rulesDir,
-				allowUnsafeLiveScan: allowUnsafeLiveScan,
-			})
+			}, allowUnsafeLiveScan)
 		},
 	}
 
@@ -149,10 +148,9 @@ type scanOpts struct {
 	verbose    bool
 	deepScan   bool
 	rulesDir   string
-	allowUnsafeLiveScan bool
 }
 
-func runScan(ctx context.Context, opts scanOpts) error {
+func runScan(ctx context.Context, opts scanOpts, allowUnsafeLiveScan bool) error {
 	// Validate --output flag early.
 	switch opts.output {
 	case "text", "json", "sarif":
@@ -183,7 +181,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 		if opts.protocol != "mcp" {
 			return fmt.Errorf("--server only supports the 'mcp' protocol")
 		}
-		if !opts.allowUnsafeLiveScan {
+		if !allowUnsafeLiveScan {
 			return fmt.Errorf("--server refuses to execute a live MCP command without --allow-unsafe-live-scan because the target process runs on the host before ToolTrust can score it")
 		}
 
