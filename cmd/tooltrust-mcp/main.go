@@ -22,6 +22,7 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/AgentSafe-AI/tooltrust-scanner/internal/userhome"
 	localmcp "github.com/AgentSafe-AI/tooltrust-scanner/pkg/adapter/mcp"
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/analyzer"
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/gateway"
@@ -523,7 +524,7 @@ func loadMCPConfig() (string, mcpConfig, error) {
 	}
 
 	// 2. Check ~/.claude.json.
-	home, err := os.UserHomeDir()
+	home, err := userhome.Resolve()
 	if err == nil {
 		claudePath := filepath.Join(home, ".claude.json")
 		if data, err := os.ReadFile(claudePath); err == nil { // #nosec G304 -- path is ~/.claude.json, not user-controlled

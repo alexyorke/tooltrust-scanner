@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -332,7 +333,9 @@ func TestEnrichLiveToolsWithLocalNodeDependencies(t *testing.T) {
 		_ = os.Chdir(prevWD)
 	})
 
-	tools := enrichLiveToolsWithLocalNodeDependencies([]string{"npm", "run", "dev"}, []model.UnifiedTool{{
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "server.js"), []byte(`console.log("hello")`), 0o644))
+
+	tools := enrichLiveToolsWithLocalNodeDependencies([]string{"node", "./server.js"}, []model.UnifiedTool{{
 		Name: "deploy_site",
 	}})
 	require.Len(t, tools, 1)
@@ -345,4 +348,69 @@ func TestEnrichLiveToolsWithLocalNodeDependencies(t *testing.T) {
 	require.Len(t, rawDeps, 1)
 	assert.Equal(t, "axios", rawDeps[0]["name"])
 	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
+}
+
+func TestEnrichLiveToolsWithLocalNodeDependencies_DoesNotUseCallerCWD(t *testing.T) {
+	tmp := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte(`{"name":"demo"}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package-lock.json"), []byte(`{
+  "packages": {
+    "": {"version": "1.0.0"},
+    "node_modules/axios": {"version": "1.14.1"}
+  }
+}`), 0o644))
+
+	prevWD, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(tmp))
+	t.Cleanup(func() {
+		_ = os.Chdir(prevWD)
+	})
+
+	tools := enrichLiveToolsWithLocalNodeDependencies([]string{"npx", "-y", "@modelcontextprotocol/server-memory"}, []model.UnifiedTool{{
+		Name: "memory",
+	}})
+	require.Len(t, tools, 1)
+
+	visibility, note := dependencyVisibilityForTool(tools[0])
+	assert.Equal(t, "No dependency data", visibility)
+	assert.Contains(t, note, "No metadata.dependencies or repo_url")
+	_, hasDeps := tools[0].Metadata["dependencies"]
+	assert.False(t, hasDeps)
+}
+
+func TestRunScan_ServerRequiresUnsafeLiveScanOptIn(t *testing.T) {
+	err := runScan(context.Background(), scanOpts{
+		serverCmd: `npx -y @modelcontextprotocol/server-memory`,
+		protocol:  "mcp",
+		output:    "text",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--allow-unsafe-live-scan")
+}
+
+func TestParseYarnLockfile_ParsesYarnBerryEntries(t *testing.T) {
+	tmp := t.TempDir()
+	lockfile := filepath.Join(tmp, "yarn.lock")
+	require.NoError(t, os.WriteFile(lockfile, []byte(`
+__metadata:
+  version: 8
+
+"axios@npm:^1.14.1":
+  version: 1.14.1
+
+"@scope/sdk@npm:^2.3.4":
+  version: 2.3.4
+`), 0o644))
+
+	deps, err := parseYarnLockfile(lockfile)
+	require.NoError(t, err)
+	require.Len(t, deps, 2)
+
+	got := map[string]string{}
+	for _, dep := range deps {
+		got[dep.Name] = dep.Version
+	}
+	assert.Equal(t, "1.14.1", got["axios"])
+	assert.Equal(t, "2.3.4", got["@scope/sdk"])
 }

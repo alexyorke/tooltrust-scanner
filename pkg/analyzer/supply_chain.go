@@ -19,11 +19,11 @@ import (
 
 const (
 	osvAPIURL          = "https://api.osv.dev/v1/query"
-	osvQueryTimeout    = 10 * time.Second
-	osvTotalTimeout    = 30 * time.Second
 	lockfileFetchLimit = 5 << 20 // 5 MB per lockfile
 	maxOSVConcurrency  = 5
 )
+
+var osvQueryTimeout = 10 * time.Second
 
 // ── Data types ────────────────────────────────────────────────────────────────
 
@@ -365,44 +365,77 @@ func parseYarnLock(data []byte) ([]Dependency, error) {
 		if line == "" || strings.HasPrefix(line, "#") || !strings.HasSuffix(line, ":") {
 			continue
 		}
-		if strings.Contains(line, " version ") {
+		header := strings.TrimSuffix(line, ":")
+		if header == "__metadata" || strings.Contains(line, " version ") {
 			continue
 		}
+		version := ""
 
 		for j := i + 1; j < len(lines); j++ {
+			if !strings.HasPrefix(lines[j], " ") && !strings.HasPrefix(lines[j], "\t") {
+				break
+			}
 			next := strings.TrimSpace(lines[j])
 			if next == "" {
 				break
 			}
-			if strings.HasPrefix(next, "version ") {
-				version := strings.Trim(next[len("version "):], "\"")
-				specs := strings.Split(strings.TrimSuffix(line, ":"), ",")
-				for _, spec := range specs {
-					spec = strings.Trim(strings.TrimSpace(spec), "\"")
-					if spec == "" {
-						continue
-					}
-					idx := strings.LastIndex(spec, "@")
-					if idx <= 0 || idx == len(spec)-1 {
-						continue
-					}
-					name := spec[:idx]
-					k := name + "@" + version
-					if seen[k] {
-						continue
-					}
-					seen[k] = true
-					deps = append(deps, Dependency{Name: name, Version: version, Ecosystem: "npm"})
-				}
+			switch {
+			case strings.HasPrefix(next, "version "):
+				version = strings.Trim(strings.TrimSpace(next[len("version "):]), "\"'")
+			case strings.HasPrefix(next, "version:"):
+				version = strings.Trim(strings.TrimSpace(next[len("version:"):]), "\"'")
+			}
+			if version != "" {
 				break
 			}
-			if !strings.HasPrefix(lines[j], " ") && !strings.HasPrefix(lines[j], "\t") {
-				break
+		}
+		if version == "" {
+			continue
+		}
+		specs := strings.Split(header, ",")
+		for _, spec := range specs {
+			spec = strings.Trim(strings.TrimSpace(spec), "\"'")
+			if spec == "" {
+				continue
 			}
+			name, ok := parseYarnPackageName(spec)
+			if !ok {
+				continue
+			}
+			k := name + "@" + version
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			deps = append(deps, Dependency{Name: name, Version: version, Ecosystem: "npm"})
 		}
 	}
 
 	return deps, nil
+}
+
+func parseYarnPackageName(spec string) (string, bool) {
+	spec = strings.TrimSpace(strings.Trim(spec, "\"'"))
+	if spec == "" {
+		return "", false
+	}
+	if strings.HasPrefix(spec, "@") {
+		slash := strings.Index(spec, "/")
+		if slash < 0 {
+			return "", false
+		}
+		rest := spec[slash+1:]
+		at := strings.Index(rest, "@")
+		if at < 0 {
+			return "", false
+		}
+		return spec[:slash+1+at], true
+	}
+	at := strings.Index(spec, "@")
+	if at <= 0 {
+		return "", false
+	}
+	return spec[:at], true
 }
 
 // fetchLockfileDeps fetches and parses lockfiles from a GitHub repository URL.
@@ -522,9 +555,6 @@ func (c *SupplyChainChecker) Check(tool model.UnifiedTool) ([]model.Issue, error
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), osvTotalTimeout)
-	defer cancel()
-
 	// Query OSV in parallel (capped at maxOSVConcurrency goroutines).
 	ch := make(chan []model.Issue, len(deps))
 	sem := make(chan struct{}, maxOSVConcurrency)
@@ -538,7 +568,10 @@ func (c *SupplyChainChecker) Check(tool model.UnifiedTool) ([]model.Issue, error
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			vulns, qErr := c.client.Query(ctx, dep.Dependency)
+			queryCtx, cancel := context.WithTimeout(context.Background(), osvQueryTimeout)
+			defer cancel()
+
+			vulns, qErr := c.client.Query(queryCtx, dep.Dependency)
 			if qErr != nil {
 				ch <- nil
 				return

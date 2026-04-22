@@ -292,6 +292,68 @@ func TestAdapter_Parse_ArrayTypeField(t *testing.T) {
 	assert.Equal(t, "boolean", tools[0].InputSchema.Properties["hidden"].Type)
 }
 
+func TestAdapter_Parse_PreservesNestedSchemaAndMetadata(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "deploy",
+			"description": "Deploy to a remote endpoint",
+			"metadata": {
+				"oauth_scopes": ["repo"],
+				"timeout_ms": 5000
+			},
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"auth": {
+						"type": "object",
+						"properties": {
+							"client_secret": {"type": "string"}
+						}
+					},
+					"request": {
+						"type": "object",
+						"properties": {
+							"url": {"type": "string"},
+							"timeout": {"type": "integer"}
+						}
+					}
+				}
+			}
+		}]
+	}`)
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+
+	tool := tools[0]
+	require.NotNil(t, tool.Metadata)
+	assert.Equal(t, []string{"repo"}, tool.Metadata["oauth_scopes"])
+	assert.Equal(t, float64(5000), tool.Metadata["timeout_ms"])
+	assert.Equal(t, 5, tool.InputSchema.PropertyCount())
+	assert.Equal(t, "string", tool.InputSchema.Properties["auth"].Properties["client_secret"].Type)
+	assert.Equal(t, "string", tool.InputSchema.Properties["request"].Properties["url"].Type)
+
+	scanner, err := analyzer.NewScanner(false, "")
+	require.NoError(t, err)
+	score, err := scanner.Scan(context.Background(), tool)
+	require.NoError(t, err)
+	assertIssue := func(ruleID string) {
+		t.Helper()
+		for _, issue := range score.Issues {
+			if issue.RuleID == ruleID {
+				return
+			}
+		}
+		t.Fatalf("expected %s in scan issues, got %#v", ruleID, score.Issues)
+	}
+	assertIssue("AS-005")
+	assertIssue("AS-010")
+	for _, issue := range score.Issues {
+		require.NotEqual(t, "AS-011", issue.RuleID, "nested timeout signal should suppress AS-011")
+	}
+}
+
 func mustMarshal(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

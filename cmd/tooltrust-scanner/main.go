@@ -35,7 +35,7 @@ func newRootCmd() *cobra.Command {
 			"data exfiltration, privilege escalation, and supply-chain attacks. " +
 			"Each tool gets a trust grade (A–F) and a gateway policy (ALLOW / REQUIRE_APPROVAL / BLOCK).\n\n" +
 			"Quick start:\n" +
-			"  tooltrust-scanner scan --server \"npx -y @modelcontextprotocol/server-filesystem /tmp\"\n\n" +
+			"  tooltrust-scanner scan --server \"npx -y @modelcontextprotocol/server-filesystem /tmp\" --allow-unsafe-live-scan\n\n" +
 			"Learn more: https://github.com/AgentSafe-AI/tooltrust-scanner",
 	}
 	root.AddCommand(newVersionCmd())
@@ -83,16 +83,17 @@ var severityWeight = map[model.Severity]int{
 
 func newScanCmd() *cobra.Command {
 	var (
-		inputFile  string
-		serverCmd  string
-		protocol   string
-		output     string
-		outputFile string
-		failOn     string
-		dbPath     string
-		verbose    bool
-		deepScan   bool
-		rulesDir   string
+		inputFile           string
+		serverCmd           string
+		protocol            string
+		output              string
+		outputFile          string
+		failOn              string
+		dbPath              string
+		verbose             bool
+		deepScan            bool
+		rulesDir            string
+		allowUnsafeLiveScan bool
 	)
 
 	cmd := &cobra.Command{
@@ -102,19 +103,21 @@ func newScanCmd() *cobra.Command {
   tooltrust-scanner scan --input tools.json --output json
   tooltrust-scanner scan --input tools.json --output json --file report.json
   tooltrust-scanner scan --input tools.json --fail-on block
+  tooltrust-scanner scan --server "npx -y @modelcontextprotocol/server-filesystem /tmp" --allow-unsafe-live-scan
   tooltrust-scanner scan --input tools.json --db scans.db`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runScan(cmd.Context(), scanOpts{
-				inputFile:  inputFile,
-				serverCmd:  serverCmd,
-				protocol:   protocol,
-				output:     output,
-				outputFile: outputFile,
-				failOn:     failOn,
-				dbPath:     dbPath,
-				verbose:    verbose,
-				deepScan:   deepScan,
-				rulesDir:   rulesDir,
+				inputFile:           inputFile,
+				serverCmd:           serverCmd,
+				protocol:            protocol,
+				output:              output,
+				outputFile:          outputFile,
+				failOn:              failOn,
+				dbPath:              dbPath,
+				verbose:             verbose,
+				deepScan:            deepScan,
+				rulesDir:            rulesDir,
+				allowUnsafeLiveScan: allowUnsafeLiveScan,
 			})
 		},
 	}
@@ -129,22 +132,24 @@ func newScanCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "print per-tool scan process tree to stderr during scan")
 	cmd.Flags().BoolVar(&deepScan, "deep-scan", false, "Enable AI-based semantic analysis for deep prompt injection detection (downloads a ~22MB quantized ONNX model on first run)")
 	cmd.Flags().StringVar(&rulesDir, "rules-dir", "", "path to directory containing custom YAML rules")
+	cmd.Flags().BoolVar(&allowUnsafeLiveScan, "allow-unsafe-live-scan", false, "acknowledge that --server executes the target command on the host before ToolTrust can score it")
 	// Mutual exclusivity checked in runScan
 
 	return cmd
 }
 
 type scanOpts struct {
-	inputFile  string
-	serverCmd  string
-	protocol   string
-	output     string
-	outputFile string
-	failOn     string
-	dbPath     string
-	verbose    bool
-	deepScan   bool
-	rulesDir   string
+	inputFile           string
+	serverCmd           string
+	protocol            string
+	output              string
+	outputFile          string
+	failOn              string
+	dbPath              string
+	verbose             bool
+	deepScan            bool
+	rulesDir            string
+	allowUnsafeLiveScan bool
 }
 
 func runScan(ctx context.Context, opts scanOpts) error {
@@ -178,11 +183,18 @@ func runScan(ctx context.Context, opts scanOpts) error {
 		if opts.protocol != "mcp" {
 			return fmt.Errorf("--server only supports the 'mcp' protocol")
 		}
+		if !opts.allowUnsafeLiveScan {
+			return fmt.Errorf("--server refuses to execute a live MCP command without --allow-unsafe-live-scan because the target process runs on the host before ToolTrust can score it")
+		}
 
 		liveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
-		tools, err = scanLiveServer(liveCtx, opts.serverCmd)
+		args, parseErr := parseServerCommand(opts.serverCmd)
+		if parseErr != nil {
+			return parseErr
+		}
+		tools, err = scanLiveServerArgs(liveCtx, args, opts.serverCmd)
 		if err != nil {
 			return fmt.Errorf("live server scan failed (or timed out): %w", err)
 		}

@@ -359,3 +359,27 @@ func TestParseYarnLock(t *testing.T) {
 	assert.Equal(t, "1.14.1", names["axios"])
 	assert.Equal(t, "2.3.4", names["@scope/sdk"])
 }
+
+func TestParseYarnLock_YarnBerry(t *testing.T) {
+	data := []byte(`
+__metadata:
+  version: 8
+
+"axios@npm:^1.14.1":
+  version: 1.14.1
+
+"@scope/sdk@npm:^2.3.4":
+  version: 2.3.4
+`)
+	deps, err := analyzer.ParseYarnLockForTest(data)
+	require.NoError(t, err)
+	assert.Len(t, deps, 2)
+
+	names := make(map[string]string)
+	for _, d := range deps {
+		names[d.Name] = d.Version
+		assert.Equal(t, "npm", d.Ecosystem)
+	}
+	assert.Equal(t, "1.14.1", names["axios"])
+	assert.Equal(t, "2.3.4", names["@scope/sdk"])
+}

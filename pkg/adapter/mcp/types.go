@@ -60,6 +60,49 @@ type Tool struct {
 type ToolMeta struct {
 	RepoURL      string               `json:"repo_url,omitempty"`
 	Dependencies []DependencyMetadata `json:"dependencies,omitempty"`
+	OAuthScopes  []string             `json:"oauth_scopes,omitempty"`
+	Extra        map[string]any       `json:"-"`
+}
+
+// UnmarshalJSON preserves unknown metadata fields so downstream analyzers can inspect them.
+func (m *ToolMeta) UnmarshalJSON(data []byte) error {
+	type alias ToolMeta
+	var parsed alias
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return err
+	}
+
+	var extra map[string]any
+	if err := json.Unmarshal(data, &extra); err != nil {
+		return err
+	}
+	delete(extra, "repo_url")
+	delete(extra, "dependencies")
+	delete(extra, "oauth_scopes")
+
+	*m = ToolMeta(parsed)
+	if len(extra) > 0 {
+		m.Extra = extra
+	}
+	return nil
+}
+
+// MarshalJSON keeps the preserved metadata keys when fixtures/tests re-encode ToolMeta.
+func (m ToolMeta) MarshalJSON() ([]byte, error) {
+	out := map[string]any{}
+	for key, value := range m.Extra {
+		out[key] = value
+	}
+	if m.RepoURL != "" {
+		out["repo_url"] = m.RepoURL
+	}
+	if len(m.Dependencies) > 0 {
+		out["dependencies"] = m.Dependencies
+	}
+	if len(m.OAuthScopes) > 0 {
+		out["oauth_scopes"] = m.OAuthScopes
+	}
+	return json.Marshal(out)
 }
 
 // DependencyMetadata is the MCP-side representation of a package dependency.
@@ -75,10 +118,15 @@ type InputSchema struct {
 	Properties  map[string]SchemaProperty `json:"properties,omitempty"`
 	Required    []string                  `json:"required,omitempty"`
 	Description string                    `json:"description,omitempty"`
+	Items       *SchemaProperty           `json:"items,omitempty"`
 }
 
 // SchemaProperty describes a single property within an InputSchema.
 type SchemaProperty struct {
-	Type        FlexType `json:"type,omitempty"`
-	Description string   `json:"description,omitempty"`
+	Type        FlexType                  `json:"type,omitempty"`
+	Description string                    `json:"description,omitempty"`
+	Enum        []any                     `json:"enum,omitempty"`
+	Properties  map[string]SchemaProperty `json:"properties,omitempty"`
+	Required    []string                  `json:"required,omitempty"`
+	Items       *SchemaProperty           `json:"items,omitempty"`
 }

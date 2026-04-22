@@ -21,6 +21,14 @@ import (
 )
 
 func scanLiveServer(ctx context.Context, serverCmd string) ([]model.UnifiedTool, error) {
+	args, err := parseServerCommand(serverCmd)
+	if err != nil {
+		return nil, err
+	}
+	return scanLiveServerArgs(ctx, args, serverCmd)
+}
+
+func parseServerCommand(serverCmd string) ([]string, error) {
 	args, err := shellquote.Split(serverCmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse server command: %w", err)
@@ -28,11 +36,22 @@ func scanLiveServer(ctx context.Context, serverCmd string) ([]model.UnifiedTool,
 	if len(args) == 0 {
 		return nil, fmt.Errorf("empty server command")
 	}
+	return args, nil
+}
 
-	importTransport := true
-	_ = importTransport // To avoid unused variable issue during plan stage if I mess up imports
+func formatCommand(args []string) string {
+	return shellquote.Join(args...)
+}
 
-	spinner, err := pterm.DefaultSpinner.Start("🔌 Connecting to live MCP server: " + serverCmd)
+func scanLiveServerArgs(ctx context.Context, args []string, displayCmd string) ([]model.UnifiedTool, error) {
+	if len(args) == 0 {
+		return nil, fmt.Errorf("empty server command")
+	}
+	if strings.TrimSpace(displayCmd) == "" {
+		displayCmd = formatCommand(args)
+	}
+
+	spinner, err := pterm.DefaultSpinner.Start("🔌 Connecting to live MCP server: " + displayCmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start spinner: %w", err)
 	}
@@ -313,9 +332,6 @@ func parseNodeLockfile(path string) ([]nodeDependency, error) {
 
 func detectLocalProjectRoot(args []string) string {
 	candidates := []string{}
-	if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, cwd)
-	}
 	for _, arg := range args {
 		if arg == "" || strings.HasPrefix(arg, "-") {
 			continue
@@ -490,40 +506,73 @@ func parseYarnLockfile(path string) ([]nodeDependency, error) {
 		if line == "" || strings.HasPrefix(line, "#") || !strings.HasSuffix(line, ":") {
 			continue
 		}
-		if strings.Contains(line, " version ") {
+		header := strings.TrimSuffix(line, ":")
+		if header == "__metadata" || strings.Contains(line, " version ") {
 			continue
 		}
+		version := ""
 		for j := i + 1; j < len(lines); j++ {
+			if !strings.HasPrefix(lines[j], " ") && !strings.HasPrefix(lines[j], "\t") {
+				break
+			}
 			next := strings.TrimSpace(lines[j])
 			if next == "" {
 				break
 			}
-			if strings.HasPrefix(next, "version ") {
-				version := strings.Trim(next[len("version "):], "\"")
-				specs := strings.Split(strings.TrimSuffix(line, ":"), ",")
-				for _, spec := range specs {
-					spec = strings.Trim(strings.TrimSpace(spec), "\"")
-					if spec == "" {
-						continue
-					}
-					idx := strings.LastIndex(spec, "@")
-					if idx <= 0 {
-						continue
-					}
-					name := spec[:idx]
-					k := name + "@" + version
-					if seen[k] {
-						continue
-					}
-					seen[k] = true
-					deps = append(deps, nodeDependency{Name: name, Version: version, Ecosystem: "npm", Source: "local_lockfile"})
-				}
-				break
+			switch {
+			case strings.HasPrefix(next, "version "):
+				version = strings.Trim(strings.TrimSpace(next[len("version "):]), "\"'")
+			case strings.HasPrefix(next, "version:"):
+				version = strings.Trim(strings.TrimSpace(next[len("version:"):]), "\"'")
 			}
-			if !strings.HasPrefix(lines[j], " ") && !strings.HasPrefix(lines[j], "\t") {
+			if version != "" {
 				break
 			}
 		}
+		if version == "" {
+			continue
+		}
+		specs := strings.Split(header, ",")
+		for _, spec := range specs {
+			spec = strings.Trim(strings.TrimSpace(spec), "\"'")
+			if spec == "" {
+				continue
+			}
+			name, ok := parseYarnPackageName(spec)
+			if !ok {
+				continue
+			}
+			k := name + "@" + version
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			deps = append(deps, nodeDependency{Name: name, Version: version, Ecosystem: "npm", Source: "local_lockfile"})
+		}
 	}
 	return deps, nil
+}
+
+func parseYarnPackageName(spec string) (string, bool) {
+	spec = strings.TrimSpace(strings.Trim(spec, "\"'"))
+	if spec == "" {
+		return "", false
+	}
+	if strings.HasPrefix(spec, "@") {
+		slash := strings.Index(spec, "/")
+		if slash < 0 {
+			return "", false
+		}
+		rest := spec[slash+1:]
+		at := strings.Index(rest, "@")
+		if at < 0 {
+			return "", false
+		}
+		return spec[:slash+1+at], true
+	}
+	at := strings.Index(spec, "@")
+	if at <= 0 {
+		return "", false
+	}
+	return spec[:at], true
 }

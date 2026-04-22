@@ -51,12 +51,22 @@ func (a *Adapter) Parse(_ context.Context, data []byte) ([]model.UnifiedTool, er
 func buildMetadata(t Tool) map[string]any {
 	meta := map[string]any{}
 
+	for key, value := range t.Metadata.Extra {
+		meta[key] = value
+	}
+
 	repoURL := strings.TrimSpace(t.Metadata.RepoURL)
 	if repoURL == "" {
 		repoURL = strings.TrimSpace(t.RepoURL)
 	}
 	if repoURL != "" {
 		meta["repo_url"] = repoURL
+	}
+
+	if len(t.Metadata.OAuthScopes) > 0 {
+		scopes := make([]string, len(t.Metadata.OAuthScopes))
+		copy(scopes, t.Metadata.OAuthScopes)
+		meta["oauth_scopes"] = scopes
 	}
 
 	if len(t.Metadata.Dependencies) > 0 {
@@ -86,17 +96,38 @@ func buildMetadata(t Tool) map[string]any {
 func convertSchema(s InputSchema) jsonschema.Schema {
 	props := make(map[string]jsonschema.Property, len(s.Properties))
 	for k, v := range s.Properties {
-		props[k] = jsonschema.Property{
-			Type:        string(v.Type),
-			Description: v.Description,
-		}
+		props[k] = convertProperty(v)
 	}
 	return jsonschema.Schema{
 		Type:        string(s.Type),
 		Description: s.Description,
 		Properties:  props,
 		Required:    s.Required,
+		Items:       convertPropertyPtr(s.Items),
 	}
+}
+
+func convertProperty(p SchemaProperty) jsonschema.Property {
+	props := make(map[string]jsonschema.Property, len(p.Properties))
+	for k, v := range p.Properties {
+		props[k] = convertProperty(v)
+	}
+	return jsonschema.Property{
+		Type:        string(p.Type),
+		Description: p.Description,
+		Enum:        p.Enum,
+		Properties:  props,
+		Required:    p.Required,
+		Items:       convertPropertyPtr(p.Items),
+	}
+}
+
+func convertPropertyPtr(p *SchemaProperty) *jsonschema.Property {
+	if p == nil {
+		return nil
+	}
+	prop := convertProperty(*p)
+	return &prop
 }
 
 // permissionRule maps keyword signals to a Permission.
@@ -176,15 +207,14 @@ func inferPermissions(t Tool) []model.Permission {
 	}
 
 	for _, entry := range permissionRules {
-		// Check schema property names
-		for propKey := range t.InputSchema.Properties {
-			propLower := strings.ToLower(propKey)
+		walkInputSchemaProperties(t.InputSchema, func(propPath string, _ SchemaProperty) {
+			propLower := strings.ToLower(propPath)
 			for _, ruleKey := range entry.rule.propKeys {
 				if propLower == ruleKey || strings.Contains(propLower, ruleKey) {
 					add(entry.permission)
 				}
 			}
-		}
+		})
 		// Check description keywords
 		for _, kw := range entry.rule.descKeywords {
 			if strings.Contains(descLower, kw) {
@@ -199,4 +229,30 @@ func inferPermissions(t Tool) []model.Permission {
 		}
 	}
 	return perms
+}
+
+func walkInputSchemaProperties(schema InputSchema, fn func(path string, prop SchemaProperty)) {
+	for name, prop := range schema.Properties {
+		walkSchemaProperty(name, prop, fn)
+	}
+	if schema.Items != nil {
+		walkSchemaProperty("[]", *schema.Items, fn)
+	}
+}
+
+func walkSchemaProperty(prefix string, prop SchemaProperty, fn func(path string, prop SchemaProperty)) {
+	if fn != nil {
+		fn(prefix, prop)
+	}
+	for name, child := range prop.Properties {
+		path := name
+		if prefix != "" {
+			path = prefix + "." + name
+		}
+		walkSchemaProperty(path, child, fn)
+	}
+	if prop.Items != nil {
+		itemPath := prefix + "[]"
+		walkSchemaProperty(itemPath, *prop.Items, fn)
+	}
 }
