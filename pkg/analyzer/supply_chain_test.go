@@ -402,3 +402,14 @@ __metadata:
 	assert.Equal(t, "1.14.1", names["axios"])
 	assert.Equal(t, "2.3.4", names["@scope/sdk"])
 }
+
+func TestRawGitHubURL_RejectsNonGitHubHostContainingGitHubPath(t *testing.T) {
+	_, ok := analyzer.RawGitHubURLForTest("https://evil.example/github.com/owner/repo", "main", "package-lock.json")
+	assert.False(t, ok)
+}
+
+func TestRawGitHubURL_NormalizesTrailingSlashAndGitSuffix(t *testing.T) {
+	got, ok := analyzer.RawGitHubURLForTest("https://github.com/owner/repo.git/", "main", "package-lock.json")
+	require.True(t, ok)
+	assert.Equal(t, "https://raw.githubusercontent.com/owner/repo/main/package-lock.json", got)
+}

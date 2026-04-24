@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -490,13 +491,32 @@ func fetchLockfileDeps(repoURL string) []Dependency {
 // rawGitHubURL converts a github.com URL to raw.githubusercontent.com for
 // the given branch and file path.  Returns ("", false) for non-GitHub URLs.
 func rawGitHubURL(repoURL, branch, filePath string) (string, bool) {
-	clean := strings.TrimSuffix(strings.TrimSpace(repoURL), ".git")
-	clean = strings.TrimPrefix(clean, "git+")
-	if !strings.Contains(clean, "github.com/") {
+	clean := strings.TrimPrefix(strings.TrimSpace(repoURL), "git+")
+	parsed, err := url.Parse(clean)
+	if err != nil {
 		return "", false
 	}
-	raw := strings.Replace(clean, "github.com/", "raw.githubusercontent.com/", 1)
-	return fmt.Sprintf("%s/%s/%s", raw, branch, filePath), true
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return "", false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "github.com" && host != "www.github.com" {
+		return "", false
+	}
+
+	repoPath := strings.Trim(parsed.Path, "/")
+	repoPath = strings.TrimSuffix(repoPath, ".git")
+	parts := strings.Split(repoPath, "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", false
+	}
+
+	branch = strings.Trim(branch, "/")
+	filePath = strings.TrimPrefix(strings.ReplaceAll(filePath, "\\", "/"), "/")
+	if branch == "" || filePath == "" {
+		return "", false
+	}
+	return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", parts[0], parts[1], branch, filePath), true
 }
 
 // mergeDependencies merges two dep slices, deduplicating by ecosystem+name+version.
