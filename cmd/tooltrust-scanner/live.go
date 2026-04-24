@@ -452,7 +452,7 @@ func parseRequirementsFile(path string) ([]nodeDependency, error) {
 			line = strings.TrimSpace(line[:i])
 		}
 		if i := strings.Index(line, "=="); i > 0 {
-			name := strings.TrimSpace(line[:i])
+			name := normalizePythonRequirementName(strings.TrimSpace(line[:i]))
 			version := strings.TrimSpace(line[i+2:])
 			if name != "" && version != "" {
 				deps = append(deps, nodeDependency{Name: name, Version: version, Ecosystem: "PyPI", Source: "local_lockfile"})
@@ -463,6 +463,13 @@ func parseRequirementsFile(path string) ([]nodeDependency, error) {
 		return nil, fmt.Errorf("scan requirements.txt %s: %w", path, err)
 	}
 	return deps, nil
+}
+
+func normalizePythonRequirementName(name string) string {
+	if idx := strings.IndexByte(name, '['); idx >= 0 {
+		name = name[:idx]
+	}
+	return strings.TrimSpace(name)
 }
 
 func parsePNPMLockfile(path string) ([]nodeDependency, error) {

@@ -302,7 +302,7 @@ func parseRequirementsTxt(data []byte) ([]Dependency, error) {
 		}
 		// Only exact pins (==) are meaningful for CVE lookup
 		if idx := strings.Index(line, "=="); idx > 0 {
-			name := strings.TrimSpace(line[:idx])
+			name := normalizePythonPackageName(strings.TrimSpace(line[:idx]))
 			version := strings.TrimSpace(line[idx+2:])
 			if name != "" && version != "" {
 				deps = append(deps, Dependency{Name: name, Version: version, Ecosystem: "PyPI"})
@@ -313,6 +313,13 @@ func parseRequirementsTxt(data []byte) ([]Dependency, error) {
 		return nil, fmt.Errorf("parse requirements.txt: %w", err)
 	}
 	return deps, nil
+}
+
+func normalizePythonPackageName(name string) string {
+	if idx := strings.IndexByte(name, '['); idx >= 0 {
+		name = name[:idx]
+	}
+	return strings.TrimSpace(name)
 }
 
 type pnpmLockfile struct {
