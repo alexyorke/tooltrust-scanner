@@ -73,7 +73,7 @@ The public **[ToolTrust Directory](https://www.tooltrust.dev/)** holds **current
 
 ## What it catches
 
-ToolTrust runs **16** static analysis rules against every tool definition in this repo (**AS-001–AS-011**, **AS-013–AS-017**). **AS-012** (tool drift) is evaluated in the **[ToolTrust Directory](https://github.com/AgentSafe-AI/tooltrust-directory)** when new scan results are compared to previous runs.
+ToolTrust runs **16** static tool-definition rules in this repo (**AS-001–AS-011**, **AS-013–AS-017**) plus **2** source-scan rules for embedded MCP implementations (**AS-018**, **AS-019**). **AS-012** (tool drift) is evaluated in the **[ToolTrust Directory](https://github.com/AgentSafe-AI/tooltrust-directory)** when new scan results are compared to previous runs.
 
 | Threat | Rule | What it detects |
 |--------|------|-----------------|
@@ -93,13 +93,15 @@ ToolTrust runs **16** static analysis rules against every tool definition in thi
 | Suspicious npm lifecycle scripts | AS-015 | Dependency versions that run install-time scripts with risky remote-fetch or execution patterns |
 | Suspicious npm IOC dependency | AS-016 | Registry metadata or scripts referencing known malicious IOC patterns |
 | Suspicious data exfil description | AS-017 | Descriptions suggesting forwarding user data to external endpoints (complements AS-001) |
+| Embedded MCP server detected | AS-018 | Source code contains MCP SDK imports and server initialization but no enumerable tool manifest |
+| Unauthenticated MCP route exposure | AS-019 | Embedded MCP HTTP routes expose the same handler without equivalent authentication |
 
 Full rule details: [docs/RULES.md](docs/RULES.md)
 
 ## How it works
 
 1. **Parse** — Connects to a live MCP server (or reads a JSON file) and extracts every tool definition
-2. **Analyze** — Runs all 16 rules against each tool's name, description, schema, and permissions
+2. **Analyze** — Runs tool-definition rules against each tool's name, description, schema, and permissions; source scans add embedded MCP implementation checks
 3. **Grade** — Assigns a numeric risk score and letter grade (A–F) per tool
 4. **Enforce** — Maps each grade to a gateway policy: `ALLOW`, `REQUIRE_APPROVAL`, or `BLOCK`
 

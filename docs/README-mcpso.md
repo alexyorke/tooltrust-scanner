@@ -44,7 +44,7 @@ It reads your MCP config, connects to each server in parallel, scans every tool,
 | Data exfiltration | Tools that send data to external endpoints |
 | Privilege escalation | Tools requesting admin/sudo/root access |
 | Supply-chain CVEs | Known vulnerabilities in server dependencies |
-| Known malware | Confirmed compromised package versions (LiteLLM, Trivy, Langflow) |
+| Known malware | Confirmed compromised package versions (LiteLLM, Trivy, Langflow, TanStack-related packages) |
 | Typosquatting | Tool names impersonating legitimate tools |
 | Tool shadowing | Duplicate tool names designed to hijack agent behavior |
 | Insecure secret handling | Plaintext-style API keys, tokens, or passwords in tool inputs |
@@ -53,7 +53,7 @@ It reads your MCP config, connects to each server in parallel, scans every tool,
 | Suspicious npm scripts / IOCs | Risky install scripts or known-bad registry indicators |
 | Suspicious exfil wording | Descriptions suggesting forwarding user data externally (AS-017) |
 
-**16** built-in rules run in this repo (**AS-001–AS-011**, **AS-013–AS-017**). **AS-012** (tool drift) is assessed in the **[ToolTrust Directory](https://github.com/AgentSafe-AI/tooltrust-directory)** when scans are compared over time. Full catalog: [docs/RULES.md](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/RULES.md) · [tooltrust.dev](https://www.tooltrust.dev/)
+**16** tool-definition rules run in this repo (**AS-001–AS-011**, **AS-013–AS-017**), and source scans add **AS-018** / **AS-019** for embedded MCP implementations. **AS-012** (tool drift) is assessed in the **[ToolTrust Directory](https://github.com/AgentSafe-AI/tooltrust-directory)** when scans are compared over time. Full catalog: [docs/RULES.md](https://github.com/AgentSafe-AI/tooltrust-scanner/blob/main/docs/RULES.md) · [tooltrust.dev](https://www.tooltrust.dev/)
 
 ## Example snapshot (research cohort)
 

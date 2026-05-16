@@ -1,7 +1,7 @@
 # Security Rules
 
-ToolTrust Scanner checks every MCP tool against 17 active built-in rules.
-Each rule fires independently; a tool can trigger multiple rules.
+ToolTrust Scanner currently ships **18** active built-in rules: **16** tool-definition rules and **2** source-scan rules for embedded MCP implementations.
+Each rule fires independently; a tool or repository can trigger multiple rules.
 
 ---
 

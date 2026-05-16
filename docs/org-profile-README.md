@@ -10,7 +10,7 @@ AI agents are powerful — but every tool they call can hide prompt injection, d
 
 ### ToolTrust Scanner
 
-Static security scanner for MCP server tool definitions. **16** active security rules in this repo, plus explicit supply-chain visibility signals for missing dependency data and transitive dependency coverage from common lockfiles. **AS-012** (tool drift) is surfaced in the **[ToolTrust Directory](https://github.com/AgentSafe-AI/tooltrust-directory)** when new scans are compared to prior results. Battle-tested against hundreds of production servers.
+Static security scanner for MCP server tool definitions. **16** tool-definition rules plus **2** embedded MCP source-scan rules ship in this repo, with explicit supply-chain visibility signals for missing dependency data and transitive dependency coverage from common lockfiles. **AS-012** (tool drift) is surfaced in the **[ToolTrust Directory](https://github.com/AgentSafe-AI/tooltrust-directory)** when new scans are compared to prior results. Battle-tested against hundreds of production servers.
 
 ```json
 {

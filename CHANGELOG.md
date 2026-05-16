@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.3.11] - 2026-05-16
+
+### Added
+- **Unauthenticated MCP route exposure detection**: added `AS-019` source
+  detection for embedded MCP HTTP servers that expose the same handler through
+  authenticated and unauthenticated routes, with stronger severity when
+  fail-open allowlist behavior or alternate MCP endpoints are present.
+
+### Changed
+- Clarified README and rule catalog wording so tool-definition checks
+  (`AS-001`-`AS-017`, excluding `AS-012`) are distinguished from source-scan
+  signals (`AS-018` and `AS-019`).
+
 ## [0.3.10] - 2026-05-16
 
 ### Added
