@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.3.10] - 2026-05-16
+
+### Added
+- **Mini Shai-Hulud / TanStack supply-chain coverage**: added offline AS-008
+  blocklist entries for CVE-2026-45321 across the affected TanStack npm package
+  versions, plus confirmed OpenSearch npm, Mistral AI PyPI, and Guardrails AI
+  PyPI compromised releases.
+- **NPM IOC detection**: added AS-016 indicators for `@tanstack/setup`,
+  Mini Shai-Hulud infrastructure domains, second-stage payload URLs, and
+  TanStack runner script names.
+
 ## [0.3.9] - 2026-04-25
 
 ### Added
