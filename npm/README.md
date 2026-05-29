@@ -64,6 +64,7 @@ Recent supply-chain incident coverage includes:
 
 - LiteLLM `1.82.7` / `1.82.8` and related TeamPCP compromise indicators
 - Axios `1.14.1` / `0.30.4` malicious npm publish
+- `@cap-js/db-service`, `@cap-js/postgres`, and `@cap-js/sqlite` compromised release versions
 - npm IOC helpers such as `plain-crypto-js`
 
 ## Example output

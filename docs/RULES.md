@@ -71,7 +71,7 @@ Tools with no description or no input schema give the agent no basis for safe us
 
 Checks an offline bundled blacklist of packages confirmed to have been compromised in supply chain attacks. No network required — zero latency.
 
-Current blacklist: LiteLLM 1.82.7/1.82.8 (TeamPCP `.pth` backdoor), Trivy v0.69.4–v0.69.6 (CI pipeline compromise), Langflow < 1.9.0 (unauthenticated RCE), Axios 1.14.1/0.30.4 (malicious npm publish), Bitwarden CLI 2026.4.0, and Mini Shai-Hulud/TanStack-related compromised npm/PyPI package versions.
+Current blacklist: LiteLLM 1.82.7/1.82.8 (TeamPCP `.pth` backdoor), Trivy v0.69.4–v0.69.6 (CI pipeline compromise), Langflow < 1.9.0 (unauthenticated RCE), Axios 1.14.1/0.30.4 (malicious npm publish), Bitwarden CLI 2026.4.0, compromised `@cap-js/*` releases, and Mini Shai-Hulud/TanStack-related compromised npm/PyPI package versions.
 
 ---
 
