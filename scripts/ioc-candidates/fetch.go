@@ -13,14 +13,12 @@ import (
 	"net/url"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
 
 const (
 	defaultSince       = 24 * time.Hour
-	defaultMinSeverity = "HIGH"
 	defaultEcosystems  = "npm,PyPI,Go"
 	defaultOut         = "candidates.json"
 	defaultExisting    = "pkg/analyzer/data/blacklist.json"
@@ -29,7 +27,6 @@ const (
 
 type config struct {
 	Since       time.Duration
-	MinSeverity string
 	Ecosystems  []string
 	OutPath     string
 	Existing    string
@@ -56,22 +53,24 @@ type blacklistEntry struct {
 }
 
 type osvVulnerability struct {
-	ID               string `json:"id"`
-	Summary          string `json:"summary"`
-	Details          string `json:"details"`
-	Published        string `json:"published"`
-	Modified         string `json:"modified"`
-	Aliases          []string
-	Severity         []osvSeverity `json:"severity"`
+	ID               string   `json:"id"`
+	Summary          string   `json:"summary"`
+	Details          string   `json:"details"`
+	Published        string   `json:"published"`
+	Modified         string   `json:"modified"`
+	Aliases          []string `json:"aliases"`
 	DatabaseSpecific struct {
-		Severity string `json:"severity"`
+		Severity                 string `json:"severity"`
+		MaliciousPackagesOrigins []struct {
+			Source     string   `json:"source"`
+			Versions   []string `json:"versions"`
+			ImportTime string   `json:"import_time"`
+		} `json:"malicious-packages-origins"`
 	} `json:"database_specific"`
+	Credits []struct {
+		Name string `json:"name"`
+	} `json:"credits"`
 	Affected []osvAffected `json:"affected"`
-}
-
-type osvSeverity struct {
-	Type  string `json:"type"`
-	Score string `json:"score"`
 }
 
 type osvAffected struct {
@@ -123,14 +122,12 @@ func parseFlags(args []string) (config, error) {
 
 	var cfg config
 	var ecosystems string
-	var minSeverity string
 	var outPath string
 	var existing string
 	var feedBaseURL string
 	var since time.Duration
 
 	fs.DurationVar(&since, "since", defaultSince, "only include advisories published within this duration")
-	fs.StringVar(&minSeverity, "min-severity", defaultMinSeverity, "minimum severity: CRITICAL | HIGH | MEDIUM | LOW")
 	fs.StringVar(&ecosystems, "ecosystems", defaultEcosystems, "comma-separated OSV ecosystems")
 	fs.StringVar(&outPath, "out", defaultOut, "output JSON path")
 	fs.StringVar(&existing, "existing", defaultExisting, "existing blacklist JSON to de-duplicate against")
@@ -142,7 +139,6 @@ func parseFlags(args []string) (config, error) {
 
 	cfg = config{
 		Since:       since,
-		MinSeverity: strings.ToUpper(strings.TrimSpace(minSeverity)),
 		Ecosystems:  splitCSV(ecosystems),
 		OutPath:     outPath,
 		Existing:    existing,
@@ -150,9 +146,6 @@ func parseFlags(args []string) (config, error) {
 		Now:         time.Now().UTC(),
 	}
 
-	if severityRank(cfg.MinSeverity) == 0 {
-		return cfg, fmt.Errorf("invalid -min-severity %q", cfg.MinSeverity)
-	}
 	if len(cfg.Ecosystems) == 0 {
 		return cfg, errors.New("at least one ecosystem is required")
 	}
@@ -164,7 +157,7 @@ func fetchCandidates(ctx context.Context, cfg config) ([]blacklistEntry, []strin
 	if err != nil {
 		return nil, nil, err
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Minute}
 	return fetchCandidatesWithClient(ctx, cfg, client, existing)
 }
 
@@ -187,7 +180,7 @@ func fetchCandidatesWithClient(ctx context.Context, cfg config, client httpDoer,
 			warnings = append(warnings, fmt.Sprintf("skip %s feed: %v", ecosystem, err))
 			continue
 		}
-		allCandidates = append(allCandidates, buildCandidates(vulns, ecosystem, existing, cfg.Now, cfg.Since, cfg.MinSeverity)...)
+		allCandidates = append(allCandidates, buildCandidates(vulns, ecosystem, existing, cfg.Now, cfg.Since)...)
 	}
 
 	sort.Slice(allCandidates, func(i, j int) bool {
@@ -277,7 +270,7 @@ func parseFeedZip(data []byte) ([]osvVulnerability, error) {
 	return vulns, nil
 }
 
-func buildCandidates(vulns []osvVulnerability, ecosystem string, existing map[string]struct{}, now time.Time, since time.Duration, minSeverity string) []blacklistEntry {
+func buildCandidates(vulns []osvVulnerability, ecosystem string, existing map[string]struct{}, now time.Time, since time.Duration) []blacklistEntry {
 	var out []blacklistEntry
 	seen := map[string]struct{}{}
 	for i := range vulns {
@@ -287,13 +280,10 @@ func buildCandidates(vulns []osvVulnerability, ecosystem string, existing map[st
 			continue
 		}
 
-		severity, ok := classifySeverity(*vuln)
-		if !ok || severityRank(severity) < severityRank(minSeverity) {
-			continue
-		}
 		if !looksLikeBlacklistCandidate(*vuln) {
 			continue
 		}
+		severity := maliciousPackageSeverity(*vuln)
 
 		for _, affected := range vuln.Affected {
 			if !strings.EqualFold(strings.TrimSpace(affected.Package.Ecosystem), ecosystem) {
@@ -347,71 +337,72 @@ func buildCandidates(vulns []osvVulnerability, ecosystem string, existing map[st
 	return out
 }
 
-func looksLikeBlacklistCandidate(vuln osvVulnerability) bool {
-	return hasStrongCompromiseSignal(vuln)
+// maliciousPackageSeverity returns CRITICAL for all confirmed MAL- records.
+// MAL- records carry no CVSS. A confirmed malicious package is always block-worthy.
+func maliciousPackageSeverity(_ osvVulnerability) string {
+	return "CRITICAL"
 }
 
-func candidateConfidence(vuln osvVulnerability) string {
-	if hasStrongCompromiseSignal(vuln) {
-		return "high"
+// isMaliciousPackageRecord reports whether an OSV record is a confirmed
+// malicious package (OpenSSF malicious-packages / OSV "MAL-" namespace),
+// as opposed to an ordinary CVE. These records carry no CVSS severity.
+func isMaliciousPackageRecord(vuln osvVulnerability) bool {
+	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(vuln.ID)), "MAL-") {
+		return true
 	}
-	return "medium"
-}
-
-func suggestedActionForCandidate(vuln osvVulnerability) string {
-	if hasStrongCompromiseSignal(vuln) {
-		return "block"
-	}
-	return "watch"
-}
-
-func candidateNotes(vuln osvVulnerability) string {
-	if hasStrongCompromiseSignal(vuln) {
-		return "Review before promotion. Promote to blacklist only after confirming malicious or compromised affected versions."
-	}
-	return "Review-only OSV candidate. Do not promote to AS-008 unless independent evidence confirms a malicious publish or supply-chain compromise."
-}
-
-func hasStrongCompromiseSignal(vuln osvVulnerability) bool {
-	text := strings.ToLower(strings.Join([]string{
-		strings.TrimSpace(vuln.Summary),
-		strings.TrimSpace(vuln.Details),
-		strings.Join(vuln.Aliases, " "),
-	}, " "))
-
-	strongSignals := []string{
-		"compromised package",
-		"compromised release",
-		"compromised version",
-		"malicious package",
-		"malicious publish",
-		"malicious release",
-		"malicious version",
-		"supply-chain compromise",
-		"supply chain compromise",
-		"maintainer account compromised",
-		"maintainer account was compromised",
-		"maintainer account takeover",
-		"stolen npm token",
-		"stolen release token",
-		"credential exfiltration",
-		"exfiltrate credentials",
-		"backdoored package",
-		"backdoored release",
-		"dependency confusion",
-		"malicious dependency",
-		"poisoned package",
-		"poisoned release",
-		"protestware",
-		"typosquat",
-		"typosquatting",
-	}
-	for _, signal := range strongSignals {
-		if strings.Contains(text, signal) {
+	for _, alias := range vuln.Aliases {
+		if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(alias)), "MAL-") {
 			return true
 		}
 	}
 	return false
+}
+
+func looksLikeBlacklistCandidate(vuln osvVulnerability) bool {
+	return isMaliciousPackageRecord(vuln)
+}
+
+func candidateConfidence(_ osvVulnerability) string { return "high" }
+
+func suggestedActionForCandidate(_ osvVulnerability) string { return "block" }
+
+func candidateNotes(vuln osvVulnerability) string {
+	origins := maliciousOriginSources(vuln)
+	if len(origins) > 0 {
+		return fmt.Sprintf(
+			"OSV-confirmed malicious package (%s). Reported by: %s. Review affected versions before promoting to AS-008.",
+			vuln.ID, strings.Join(origins, ", "),
+		)
+	}
+	return fmt.Sprintf(
+		"OSV-confirmed malicious package (%s). Review affected versions before promoting to AS-008.",
+		vuln.ID,
+	)
+}
+
+// maliciousOriginSources collects distinct reporting sources for the record,
+// e.g. "amazon-inspector", "ossf-package-analysis", plus named credits.
+func maliciousOriginSources(vuln osvVulnerability) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if _, ok := seen[strings.ToLower(s)]; ok {
+			return
+		}
+		seen[strings.ToLower(s)] = struct{}{}
+		out = append(out, s)
+	}
+	for _, o := range vuln.DatabaseSpecific.MaliciousPackagesOrigins {
+		add(o.Source)
+	}
+	for _, c := range vuln.Credits {
+		add(c.Name)
+	}
+	return out
 }
 
 func readExistingBlacklist(path string) (map[string]struct{}, error) {
@@ -443,61 +434,6 @@ func parseTime(value string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return t.UTC(), true
-}
-
-func classifySeverity(vuln osvVulnerability) (string, bool) {
-	maxScore := -1.0
-	for _, sev := range vuln.Severity {
-		score, ok := parseSeverityScore(sev.Score)
-		if ok && score > maxScore {
-			maxScore = score
-		}
-	}
-	if maxScore >= 0 {
-		switch {
-		case maxScore >= 9.0:
-			return "CRITICAL", true
-		case maxScore >= 7.0:
-			return "HIGH", true
-		case maxScore >= 4.0:
-			return "MEDIUM", true
-		default:
-			return "LOW", true
-		}
-	}
-
-	severity := strings.ToUpper(strings.TrimSpace(vuln.DatabaseSpecific.Severity))
-	if severityRank(severity) > 0 {
-		return severity, true
-	}
-	return "", false
-}
-
-func parseSeverityScore(raw string) (float64, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0, false
-	}
-	score, err := strconv.ParseFloat(raw, 64)
-	if err == nil {
-		return score, true
-	}
-	return 0, false
-}
-
-func severityRank(severity string) int {
-	switch strings.ToUpper(strings.TrimSpace(severity)) {
-	case "CRITICAL":
-		return 4
-	case "HIGH":
-		return 3
-	case "MEDIUM":
-		return 2
-	case "LOW":
-		return 1
-	default:
-		return 0
-	}
 }
 
 func preferredID(vuln osvVulnerability) string {
