@@ -4,8 +4,10 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"golang.org/x/mod/semver"
 
@@ -89,8 +91,7 @@ func ensureV(v string) string {
 func semverLT(version, bound string) bool {
 	v, b := ensureV(version), ensureV(bound)
 	if !semver.IsValid(v) || !semver.IsValid(b) {
-		// Fall back to string comparison for non-semver (e.g. PyPI date versions)
-		return normaliseVersion(version) < normaliseVersion(bound)
+		return compareLooseVersion(normaliseVersion(version), normaliseVersion(bound)) < 0
 	}
 	return semver.Compare(v, b) < 0
 }
@@ -98,9 +99,92 @@ func semverLT(version, bound string) bool {
 func semverLE(version, bound string) bool {
 	v, b := ensureV(version), ensureV(bound)
 	if !semver.IsValid(v) || !semver.IsValid(b) {
-		return normaliseVersion(version) <= normaliseVersion(bound)
+		return compareLooseVersion(normaliseVersion(version), normaliseVersion(bound)) <= 0
 	}
 	return semver.Compare(v, b) <= 0
+}
+
+func compareLooseVersion(a, b string) int {
+	at := splitVersionTokens(a)
+	bt := splitVersionTokens(b)
+	for i := 0; i < len(at) && i < len(bt); i++ {
+		ai, aNum := atoiToken(at[i])
+		bi, bNum := atoiToken(bt[i])
+		switch {
+		case aNum && bNum:
+			if ai < bi {
+				return -1
+			}
+			if ai > bi {
+				return 1
+			}
+		case aNum != bNum:
+			if aNum {
+				return -1
+			}
+			return 1
+		default:
+			al := strings.ToLower(at[i])
+			bl := strings.ToLower(bt[i])
+			if al < bl {
+				return -1
+			}
+			if al > bl {
+				return 1
+			}
+		}
+	}
+	switch {
+	case len(at) < len(bt):
+		return -1
+	case len(at) > len(bt):
+		return 1
+	default:
+		return 0
+	}
+}
+
+func splitVersionTokens(v string) []string {
+	var tokens []string
+	var current strings.Builder
+	var currentKind rune
+	flush := func() {
+		if current.Len() > 0 {
+			tokens = append(tokens, current.String())
+			current.Reset()
+		}
+		currentKind = 0
+	}
+	for _, r := range v {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			flush()
+			continue
+		}
+		kind := rune('l')
+		if unicode.IsDigit(r) {
+			kind = 'd'
+		}
+		if currentKind != 0 && currentKind != kind {
+			flush()
+		}
+		current.WriteRune(r)
+		currentKind = kind
+	}
+	flush()
+	return tokens
+}
+
+func atoiToken(token string) (int, bool) {
+	for _, r := range token {
+		if !unicode.IsDigit(r) {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(token)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // ── BlacklistChecker ──────────────────────────────────────────────────────────

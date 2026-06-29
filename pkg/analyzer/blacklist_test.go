@@ -297,6 +297,21 @@ func TestBlacklist_CustomJSON_LessEqualRange(t *testing.T) {
 	assert.Empty(t, miss, "2.0.1 > 2.0.0 should not match")
 }
 
+func TestBlacklist_CustomJSON_PyPIPostReleaseRange(t *testing.T) {
+	data := []byte(`[
+	  {"id":"TEST-003","component":"oldpkg","ecosystem":"PyPI",
+	   "affected_versions":["<= 1.2.post10"],"severity":"HIGH",
+	   "reason":"Test","link":"https://example.com"}
+	]`)
+	bc := newBlacklistFromJSON(t, data)
+
+	hit, _ := bc.Check(toolWithDep("oldpkg", "1.2.post2", "PyPI"))
+	assert.Len(t, hit, 1, "1.2.post2 should be treated as older than 1.2.post10")
+
+	miss, _ := bc.Check(toolWithDep("oldpkg", "1.2.post11", "PyPI"))
+	assert.Empty(t, miss, "1.2.post11 should be newer than 1.2.post10")
+}
+
 func TestBlacklist_Meta(t *testing.T) {
 	bc := analyzer.NewBlacklistChecker()
 	meta := bc.Meta()
