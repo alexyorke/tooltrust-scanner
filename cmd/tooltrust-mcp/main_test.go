@@ -190,6 +190,42 @@ func TestRenderTextReport_IncludesDependencyVisibilityContext(t *testing.T) {
 	assert.Contains(t, text, "Local dependency artifacts scanned from package-lock.json.")
 }
 
+func TestRenderTextReport_CapabilitySurfaceUsesCurrentAS002Wording(t *testing.T) {
+	result := &ScanResult{
+		Summary: ScanSummary{
+			Total:           1,
+			Allowed:         0,
+			RequireApproval: 1,
+			Blocked:         0,
+		},
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName: "send_env",
+				Action:   model.ActionRequireApproval,
+				Score: model.RiskScore{
+					Grade: model.GradeC,
+					Issues: []model.Issue{
+						{
+							RuleID:      "AS-002",
+							Code:        "CAPABILITY_SURFACE",
+							Severity:    model.SeverityInfo,
+							Description: "declared capabilities: network access, filesystem access",
+							Evidence: []model.Evidence{
+								{Kind: "capability", Value: "network"},
+								{Kind: "capability", Value: "fs"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	text := renderTextReport(result)
+	assert.Contains(t, text, "declared capabilities: network access, filesystem access")
+	assert.Contains(t, text, "Safer configuration: confirm the tool truly needs network access; remove it if local-only operation is enough; limit filesystem access to the intended directories only.")
+}
+
 func TestProcessToolsRaw_PopulatesBehaviorAndDestinationContext(t *testing.T) {
 	tools := []model.UnifiedTool{
 		{

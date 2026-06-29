@@ -764,6 +764,8 @@ func joinOrNone(parts []string) string {
 
 func humanizeIssue(issue model.Issue) string {
 	switch {
+	case issue.RuleID == "AS-002" && issue.Code == "CAPABILITY_SURFACE":
+		return issue.Description
 	case issue.RuleID == "AS-002" && strings.Contains(issue.Description, "network permission"):
 		return "Network access declared"
 	case issue.RuleID == "AS-002" && strings.Contains(issue.Description, "fs permission"):
@@ -802,6 +804,16 @@ func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig
 	hasRateLimitGap := false
 
 	for _, issue := range policy.Score.Issues {
+		if issue.RuleID == "AS-002" && issueHasCapability(issue, "network") {
+			hasNetwork = true
+		}
+		if issue.RuleID == "AS-002" && issueHasCapability(issue, "fs") {
+			hasFS = true
+		}
+		if issue.RuleID == "AS-002" && issueHasCapability(issue, "db") {
+			hasDB = true
+		}
+
 		switch {
 		case issue.RuleID == "AS-002" && strings.Contains(issue.Description, "network permission"):
 			hasNetwork = true
@@ -843,6 +855,15 @@ func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig
 	}
 
 	return actionNow, saferConfig
+}
+
+func issueHasCapability(issue model.Issue, capability string) bool {
+	for _, evidence := range issue.Evidence {
+		if evidence.Kind == "capability" && evidence.Value == capability {
+			return true
+		}
+	}
+	return false
 }
 
 // processToolsRaw runs the scanner and returns raw results (used by both
