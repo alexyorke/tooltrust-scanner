@@ -54,9 +54,11 @@ var toolNameNormalizer = strings.NewReplacer("_", "", "-", "", " ", "")
 type normalizedToolName struct {
 	original   string
 	normalized string
+	length     int
 }
 
 var normalizedPopularMCPToolNames = buildNormalizedToolNames(popularMCPToolNames)
+var normalizedPopularMCPToolNameBuckets = buildNormalizedToolNameBuckets(normalizedPopularMCPToolNames)
 
 const (
 	maxTyposquatDistance     = 2
@@ -149,12 +151,22 @@ func normalizeToolName(name string) string {
 func buildNormalizedToolNames(names []string) []normalizedToolName {
 	out := make([]normalizedToolName, 0, len(names))
 	for _, name := range names {
+		normalized := normalizeToolName(name)
 		out = append(out, normalizedToolName{
 			original:   name,
-			normalized: normalizeToolName(name),
+			normalized: normalized,
+			length:     len(normalized),
 		})
 	}
 	return out
+}
+
+func buildNormalizedToolNameBuckets(names []normalizedToolName) map[int][]normalizedToolName {
+	buckets := make(map[int][]normalizedToolName, len(names))
+	for _, name := range names {
+		buckets[name.length] = append(buckets[name.length], name)
+	}
+	return buckets
 }
 
 // TyposquattingChecker detects tool names within edit distance ≤ 2 of a known
@@ -182,7 +194,7 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 	}
 	normName := normalizeToolName(name)
 
-	// If this name IS a canonical tool, it cannot be a typosquat — bail before
+	// If this name IS a canonical tool, it cannot be a typosquat - bail before
 	// the distance loop so we don't accidentally flag it against a different
 	// entry that happens to be within edit-distance 2 (e.g. search_code vs
 	// search_nodes).
@@ -192,60 +204,62 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 		}
 	}
 
-	for _, known := range normalizedPopularMCPToolNames {
-		normKnown := known.normalized
-		// Skip if length difference alone exceeds threshold (fast reject).
-		diff := len(normName) - len(normKnown)
-		if diff < 0 {
-			diff = -diff
-		}
-		if diff > 2 {
-			continue
-		}
-		// Skip simple singular/plural variants (e.g. create_relation vs
-		// create_relations). Do not skip arbitrary prefixes/suffixes such as
-		// read_file2, which are still typosquat-like.
-		if isSingularPluralVariant(normName, normKnown) {
-			continue
-		}
-		dist := levenshteinWithin(normName, normKnown, maxTyposquatDistance)
-		if dist < 1 {
-			continue
-		}
-		shorter := len(normName)
-		if len(normKnown) < shorter {
-			shorter = len(normKnown)
-		}
-		// Distance-2 matching on short/medium names produces too many false
-		// positives: generic verb+noun patterns (list_pages vs list_tags,
-		// list_comments vs list_commits, pg_describe_table vs describe_table)
-		// coincidentally collide at distance 2.  Only flag distance-2 when
-		// both normalised names are long (≥15 chars), providing enough entropy
-		// to be meaningful.
-		if dist == 2 && shorter < 15 {
-			continue
-		}
-		// Distance-1 substitutions (same normalised length) on short names are
-		// also noisy: git_tag vs get_tag, git_commit vs get_commit,
-		// search_notes vs search_nodes.  Only flag same-length dist-1 when
-		// both names are long enough (≥12 chars).  Insertion/deletion typos
-		// (different lengths) are always flagged — list_fles vs list_files,
-		// brave_web_searrch vs brave_web_search.
-		if dist == 1 && len(normName) == len(normKnown) && shorter < 12 {
-			continue
-		}
-		if dist <= maxTyposquatDistance {
-			return []model.Issue{{
-				RuleID:   "AS-009",
-				ToolName: tool.Name,
-				Severity: model.SeverityMedium,
-				Code:     "TYPOSQUATTING",
-				Description: fmt.Sprintf(
-					"tool name %q is suspiciously similar to the well-known MCP tool %q (edit distance %d) — possible typosquatting",
-					tool.Name, known.original, dist,
-				),
-				Location: "name",
-			}}, nil
+	for length := len(normName) - maxTyposquatDistance; length <= len(normName)+maxTyposquatDistance; length++ {
+		for _, known := range normalizedPopularMCPToolNameBuckets[length] {
+			normKnown := known.normalized
+			// Skip if length difference alone exceeds threshold (fast reject).
+			diff := len(normName) - len(normKnown)
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff > 2 {
+				continue
+			}
+			// Skip simple singular/plural variants (e.g. create_relation vs
+			// create_relations). Do not skip arbitrary prefixes/suffixes such as
+			// read_file2, which are still typosquat-like.
+			if isSingularPluralVariant(normName, normKnown) {
+				continue
+			}
+			dist := levenshteinWithin(normName, normKnown, maxTyposquatDistance)
+			if dist < 1 {
+				continue
+			}
+			shorter := len(normName)
+			if len(normKnown) < shorter {
+				shorter = len(normKnown)
+			}
+			// Distance-2 matching on short/medium names produces too many false
+			// positives: generic verb+noun patterns (list_pages vs list_tags,
+			// list_comments vs list_commits, pg_describe_table vs describe_table)
+			// coincidentally collide at distance 2. Only flag distance-2 when
+			// both normalized names are long (>=15 chars), providing enough entropy
+			// to be meaningful.
+			if dist == 2 && shorter < 15 {
+				continue
+			}
+			// Distance-1 substitutions (same normalized length) on short names are
+			// also noisy: git_tag vs get_tag, git_commit vs get_commit,
+			// search_notes vs search_nodes. Only flag same-length dist-1 when
+			// both names are long enough (>=12 chars). Insertion/deletion typos
+			// (different lengths) are always flagged - list_fles vs list_files,
+			// brave_web_searrch vs brave_web_search.
+			if dist == 1 && len(normName) == len(normKnown) && shorter < 12 {
+				continue
+			}
+			if dist <= maxTyposquatDistance {
+				return []model.Issue{{
+					RuleID:   "AS-009",
+					ToolName: tool.Name,
+					Severity: model.SeverityMedium,
+					Code:     "TYPOSQUATTING",
+					Description: fmt.Sprintf(
+						"tool name %q is suspiciously similar to the well-known MCP tool %q (edit distance %d) - possible typosquatting",
+						tool.Name, known.original, dist,
+					),
+					Location: "name",
+				}}, nil
+			}
 		}
 	}
 	return nil, nil

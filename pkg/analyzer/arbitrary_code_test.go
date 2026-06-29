@@ -29,6 +29,46 @@ func TestArbitraryCodeChecker_EvaluateScriptInName(t *testing.T) {
 	assert.Equal(t, "evaluate_script", report.Findings[0].Evidence[0].Value)
 }
 
+func TestArbitraryCodeChecker_ResourceInput_NotConfirmed(t *testing.T) {
+	// "resource" contains the substring "source" but is not itself a code input.
+	tool := model.UnifiedTool{
+		Name:        "evaluate_script",
+		Description: "Evaluates a mathematical expression.",
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"resource": {Type: "string"},
+			},
+		},
+	}
+	checker := NewArbitraryCodeChecker()
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "POSSIBLE_ARBITRARY_CODE_EXECUTION", issues[0].Code,
+		"'resource' input must not confirm capability - must stay POSSIBLE (Info)")
+	assert.Equal(t, model.SeverityInfo, issues[0].Severity)
+}
+
+func TestArbitraryCodeChecker_SourceInput_ConfirmedCritical(t *testing.T) {
+	// A bare "source" input property is a confirmed code/script source.
+	tool := model.UnifiedTool{
+		Name:        "evaluate_script",
+		Description: "Evaluates a mathematical expression.",
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"source": {Type: "string"},
+			},
+		},
+	}
+	checker := NewArbitraryCodeChecker()
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "ARBITRARY_CODE_EXECUTION", issues[0].Code,
+		"bare 'source' input -> ARBITRARY_CODE_EXECUTION (Critical)")
+	assert.Equal(t, model.SeverityCritical, issues[0].Severity)
+}
+
 func TestArbitraryCodeChecker_ExecuteJavascriptInDescription(t *testing.T) {
 	tool := model.UnifiedTool{
 		Name:        "run_in_browser",
