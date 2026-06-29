@@ -60,3 +60,29 @@ func TestParseYarnLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
 	assert.Equal(t, "npm", deps[0].Ecosystem)
 	assert.Equal(t, "local_lockfile", deps[0].Source)
 }
+
+func TestParseNodeLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "package-lock.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+  "packages": {
+    "": {
+      "version": "1.0.0",
+      "dependencies": {
+        "string-width-cjs": "npm:string-width@^4.2.3"
+      }
+    },
+    "node_modules/string-width-cjs": {
+      "name": "string-width",
+      "version": "4.2.3"
+    }
+  }
+}`), 0o644))
+
+	deps, err := parseNodeLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "string-width", deps[0].Name)
+	assert.Equal(t, "4.2.3", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+	assert.Equal(t, "local_lockfile", deps[0].Source)
+}

@@ -278,6 +278,29 @@ func TestParsePackageLockJSON_V2(t *testing.T) {
 	assert.Equal(t, "6.5.2", names["qs"])
 }
 
+func TestParsePackageLockJSON_NPMAliasUsesRealPackageName(t *testing.T) {
+	data := []byte(`{
+  "packages": {
+    "": {
+      "version": "1.0.0",
+      "dependencies": {
+        "string-width-cjs": "npm:string-width@^4.2.3"
+      }
+    },
+    "node_modules/string-width-cjs": {
+      "name": "string-width",
+      "version": "4.2.3"
+    }
+  }
+}`)
+	deps, err := analyzer.ParsePackageLockJSONForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "string-width", deps[0].Name)
+	assert.Equal(t, "4.2.3", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+}
+
 func TestParseGoSum(t *testing.T) {
 	data := []byte(`github.com/foo/bar v1.2.3 h1:abc
 github.com/foo/bar v1.2.3/go.mod h1:def

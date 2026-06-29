@@ -231,6 +231,7 @@ type nodeLockfile struct {
 }
 
 type nodeLockEntry struct {
+	Name    string `json:"name"`
 	Version string `json:"version"`
 }
 
@@ -284,6 +285,9 @@ func parseNodeLockfile(path string) ([]nodeDependency, error) {
 			if idx := strings.LastIndex(key, "node_modules/"); idx >= 0 {
 				name = key[idx+len("node_modules/"):]
 			}
+			if entry.Name != "" {
+				name = entry.Name
+			}
 			if name == "" {
 				continue
 			}
@@ -298,6 +302,9 @@ func parseNodeLockfile(path string) ([]nodeDependency, error) {
 	}
 
 	for name, entry := range lock.Dependencies {
+		if entry.Name != "" {
+			name = entry.Name
+		}
 		if name == "" || entry.Version == "" {
 			continue
 		}

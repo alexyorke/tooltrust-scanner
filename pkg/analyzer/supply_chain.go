@@ -213,6 +213,7 @@ type packageLockJSON struct {
 }
 
 type packageLockEntry struct {
+	Name    string `json:"name"`
 	Version string `json:"version"`
 }
 
@@ -234,6 +235,9 @@ func parsePackageLockJSON(data []byte) ([]Dependency, error) {
 			if idx := strings.LastIndex(key, "node_modules/"); idx >= 0 {
 				name = key[idx+len("node_modules/"):]
 			}
+			if entry.Name != "" {
+				name = entry.Name
+			}
 			k := name + "@" + entry.Version
 			if name == "" || seen[k] {
 				continue
@@ -244,6 +248,9 @@ func parsePackageLockJSON(data []byte) ([]Dependency, error) {
 	} else {
 		// npm v1: flat "dependencies" map
 		for name, entry := range lock.Dependencies {
+			if entry.Name != "" {
+				name = entry.Name
+			}
 			k := name + "@" + entry.Version
 			if entry.Version == "" || seen[k] {
 				continue
