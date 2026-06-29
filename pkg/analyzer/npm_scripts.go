@@ -25,8 +25,8 @@ var suspiciousNPMScriptKeys = []string{
 }
 
 var highRiskNPMScriptPatterns = []string{
-	"curl ",
-	"wget ",
+	"curl",
+	"wget",
 	"powershell",
 	"invoke-webrequest",
 	"bash -c",
@@ -195,9 +195,30 @@ func compactScript(script string) string {
 func classifyNPMScript(script string) (severity model.Severity, rationale string) {
 	normalized := " " + strings.ToLower(strings.Join(strings.Fields(script), " ")) + " "
 	for _, pattern := range highRiskNPMScriptPatterns {
-		if strings.Contains(normalized, strings.ToLower(pattern)) {
+		if matchesHighRiskNPMScriptPattern(normalized, pattern) {
 			return model.SeverityHigh, fmt.Sprintf("; detected higher-risk command pattern %q", strings.TrimSpace(pattern))
 		}
 	}
 	return model.SeverityMedium, ""
+}
+
+func matchesHighRiskNPMScriptPattern(normalized, pattern string) bool {
+	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	if strings.Contains(pattern, " ") {
+		return strings.Contains(normalized, pattern)
+	}
+	for _, token := range strings.Fields(normalized) {
+		if commandTokenMatches(token, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func commandTokenMatches(token, command string) bool {
+	token = strings.Trim(token, `"'()[]{}<>.,;`)
+	if idx := strings.LastIndexAny(token, `/\`); idx >= 0 {
+		token = token[idx+1:]
+	}
+	return token == command || strings.HasPrefix(token, command+".")
 }

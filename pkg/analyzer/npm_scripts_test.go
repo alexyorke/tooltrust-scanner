@@ -63,6 +63,31 @@ func TestNPMLifecycleScriptChecker_ModerateRiskScript_Finding(t *testing.T) {
 	assert.NotContains(t, issues[0].Description, "higher-risk command pattern")
 }
 
+func TestNPMLifecycleScriptChecker_CertutilSubstring_NoHighRisk(t *testing.T) {
+	checker := analyzer.NewNPMLifecycleScriptCheckerWithMock(map[string]analyzer.NPMVersionResponseForTest{
+		"axios@1.14.0": {
+			Name:    "axios",
+			Version: "1.14.0",
+			Scripts: map[string]string{"postinstall": "node scripts/certutility.js"},
+		},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "deploy_site",
+		Metadata: map[string]any{
+			"dependencies": []any{
+				map[string]any{"name": "axios", "version": "1.14.0", "ecosystem": "npm"},
+			},
+		},
+	}
+
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, model.SeverityMedium, issues[0].Severity)
+	assert.NotContains(t, issues[0].Description, "higher-risk command pattern")
+}
+
 func TestNPMLifecycleScriptChecker_NoScripts_NoFinding(t *testing.T) {
 	checker := analyzer.NewNPMLifecycleScriptCheckerWithMock(map[string]analyzer.NPMVersionResponseForTest{
 		"axios@1.14.0": {
