@@ -61,3 +61,23 @@ func TestExtractRouteRegistrations_HandleFunc(t *testing.T) {
 	assert.Equal(t, "/mcp_message", routes[0].Path)
 	assert.Equal(t, "mcpHandler", routes[0].Handler)
 }
+
+func TestExtractRouteRegistrations_MiddlewareWrappedDirectHandler(t *testing.T) {
+	text := `func Register(api Router, mcpHandler Handler, allowed []string) {
+	api.Any("/mcp", AuthRequired(mcpHandler))
+	api.Any("/mcp_message", IPWhitelist(allowed, mcpHandler))
+}
+`
+
+	routes := extractRouteRegistrations("router.go", text)
+
+	require.Len(t, routes, 2)
+	assert.Equal(t, "/mcp", routes[0].Path)
+	assert.Equal(t, "mcpHandler", routes[0].Handler)
+	assert.True(t, routes[0].HasAuth)
+	assert.False(t, routes[0].HasIPFilter)
+	assert.Equal(t, "/mcp_message", routes[1].Path)
+	assert.Equal(t, "mcpHandler", routes[1].Handler)
+	assert.False(t, routes[1].HasAuth)
+	assert.True(t, routes[1].HasIPFilter)
+}

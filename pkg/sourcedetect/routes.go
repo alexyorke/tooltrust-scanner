@@ -22,10 +22,11 @@ type routeRegistration struct {
 }
 
 var (
-	routeStartPattern  = regexp.MustCompile(`\.\s*(?:Any|GET|POST|PUT|PATCH|DELETE|HandleFunc|Handle)\s*\(`)
-	quotedPathPattern  = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]")
-	handlerCallPattern = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.]*)\s*\(\s*c\s*\)`)
-	handlerArgPattern  = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]\\s*,\\s*([A-Za-z_][A-Za-z0-9_.]*)\\b")
+	routeStartPattern        = regexp.MustCompile(`\.\s*(?:Any|GET|POST|PUT|PATCH|DELETE|HandleFunc|Handle)\s*\(`)
+	quotedPathPattern        = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]")
+	handlerCallPattern       = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.]*)\s*\(\s*c\s*\)`)
+	handlerArgPattern        = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]\\s*,\\s*([A-Za-z_][A-Za-z0-9_.]*)\\b")
+	wrappedHandlerArgPattern = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]\\s*,\\s*[A-Za-z_][A-Za-z0-9_.]*\\s*\\([^)]*?([A-Za-z_][A-Za-z0-9_.]*)\\s*\\)")
 )
 
 func detectRouteAuthAsymmetry(root string, opts Options) ([]RouteFinding, []model.Issue, error) {
@@ -89,7 +90,7 @@ func extractRouteRegistrations(rel, text string) []routeRegistration {
 			Path:        path,
 			Handler:     handler,
 			HasAuth:     strings.Contains(block, "AuthRequired("),
-			HasIPFilter: strings.Contains(block, "IPWhiteList("),
+			HasIPFilter: hasIPFilterCall(block),
 			Block:       block,
 		})
 	}
@@ -156,7 +157,21 @@ func extractHandlerCall(block, path string) string {
 		}
 		return handler
 	}
+	for _, match := range wrappedHandlerArgPattern.FindAllStringSubmatch(block, -1) {
+		if len(match) < 3 || match[1] != path {
+			continue
+		}
+		handler := match[2]
+		if isRouteMiddleware(handler) {
+			continue
+		}
+		return handler
+	}
 	return ""
+}
+
+func hasIPFilterCall(block string) bool {
+	return strings.Contains(block, "IPWhiteList(") || strings.Contains(block, "IPWhitelist(")
 }
 
 func isRouteMiddleware(handler string) bool {
