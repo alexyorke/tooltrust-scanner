@@ -253,6 +253,7 @@ func scanLiveServer(ctx context.Context, args, extraEnv []string) ([]model.Unifi
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse tools: %w", err)
 	}
+	tools = localmcp.EnrichLiveToolsWithLocalDependencyMetadata(args, tools)
 	return tools, nil
 }
 

@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/AgentSafe-AI/tooltrust-scanner/internal/jsonschema"
+	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/analyzer"
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
@@ -437,6 +440,35 @@ func TestScanLiveServer_WithExtraEnv(t *testing.T) {
 	// that env merging works without crashing.
 	_, err := scanLiveServer(context.Background(), []string{"/nonexistent/binary"}, []string{"TEST_KEY=test_value"})
 	require.Error(t, err)
+}
+
+func TestScanLiveServer_EnrichesLocalDependencyMetadata(t *testing.T) {
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	repoRoot := filepath.Clean(filepath.Join(cwd, "..", ".."))
+	require.NoError(t, os.Chdir(repoRoot))
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	tools, err := scanLiveServer(ctx, []string{"go", "run", "./cmd/tooltrust-mcp"}, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, tools)
+
+	foundLocalLockfile := false
+	for _, tool := range tools {
+		visibility, note := analyzer.DependencyVisibilityForTool(tool)
+		if strings.Contains(visibility, "Verified from local lockfile") {
+			foundLocalLockfile = true
+			assert.Contains(t, note, "Local dependency artifacts scanned")
+			break
+		}
+	}
+	assert.True(t, foundLocalLockfile, "live MCP scan should enrich tools with local dependency evidence")
 }
 
 // ── processToolsRaw tests ───────────────────────────────────────────────────
