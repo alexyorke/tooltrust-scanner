@@ -486,7 +486,7 @@ func parsePNPMLockfile(path string) ([]nodeDependency, error) {
 
 func parsePNPMLockKey(line string) (name, version string, ok bool) {
 	trimmed := strings.TrimSpace(line)
-	if !strings.HasPrefix(trimmed, "/") && !strings.HasPrefix(trimmed, "'/") && !strings.HasPrefix(trimmed, "\"/") {
+	if !strings.HasSuffix(trimmed, ":") {
 		return "", "", false
 	}
 	trimmed = strings.TrimSuffix(trimmed, ":")

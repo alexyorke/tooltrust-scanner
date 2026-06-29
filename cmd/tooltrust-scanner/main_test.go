@@ -419,3 +419,22 @@ packages:
 	assert.Contains(t, deps, nodeDependency{Name: "@scope/pkg", Version: "1.2.3", Ecosystem: "npm", Source: "local_lockfile"})
 	assert.Contains(t, deps, nodeDependency{Name: "left-pad", Version: "1.3.0", Ecosystem: "npm", Source: "local_lockfile"})
 }
+
+func TestParsePNPMLockfile_ModernBarePackageKeys(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "pnpm-lock.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+lockfileVersion: '11.0'
+packages:
+  string-width@4.2.3:
+    resolution: {}
+  '@scope/pkg@1.2.3(peer@2.0.0)':
+    resolution: {}
+`), 0o644))
+
+	deps, err := parsePNPMLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 2)
+	assert.Contains(t, deps, nodeDependency{Name: "string-width", Version: "4.2.3", Ecosystem: "npm", Source: "local_lockfile"})
+	assert.Contains(t, deps, nodeDependency{Name: "@scope/pkg", Version: "1.2.3", Ecosystem: "npm", Source: "local_lockfile"})
+}
