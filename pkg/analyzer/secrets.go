@@ -26,14 +26,19 @@ var secretParamPatterns = []string{
 var secretParamAllowlist = map[string]bool{
 	"pagetoken":          true,
 	"page_token":         true,
+	"next_page_token":    true,
+	"nextpagetoken":      true,
 	"next_token":         true,
 	"nexttoken":          true,
 	"cursor":             true,
 	"next_cursor":        true,
 	"nextcursor":         true,
 	"continuation_token": true,
+	"continuationtoken":  true,
 	"sync_token":         true,
+	"synctoken":          true,
 	"resume_token":       true,
+	"resumetoken":        true,
 }
 
 // secretDescriptionPatterns detect when a tool description signals that
@@ -74,7 +79,7 @@ func (c *SecretHandlingChecker) Check(tool model.UnifiedTool) ([]model.Issue, er
 	// 1. Input schema: look for parameter names that indicate secrets
 	for propName := range tool.InputSchema.Properties {
 		nameLower := strings.ToLower(propName)
-		if secretParamAllowlist[nameLower] {
+		if secretParamAllowlist[nameLower] || secretParamAllowlist[normalizeSecretParamName(nameLower)] {
 			continue
 		}
 		for _, pattern := range secretParamPatterns {
@@ -109,4 +114,9 @@ func (c *SecretHandlingChecker) Check(tool model.UnifiedTool) ([]model.Issue, er
 	}
 
 	return issues, nil
+}
+
+func normalizeSecretParamName(name string) string {
+	replacer := strings.NewReplacer("_", "", "-", "")
+	return replacer.Replace(name)
 }

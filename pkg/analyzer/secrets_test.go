@@ -115,7 +115,20 @@ func TestSecretChecker_PassSubstringFalsePositives_NoFinding(t *testing.T) {
 
 func TestSecretChecker_PaginationTokens_NoFalsePositive(t *testing.T) {
 	// pageToken, next_token, cursor are pagination cursors, not credentials.
-	for _, propName := range []string{"pageToken", "page_token", "next_token", "nextToken", "cursor", "next_cursor", "continuation_token", "sync_token"} {
+	for _, propName := range []string{
+		"pageToken",
+		"page-token",
+		"page_token",
+		"next_token",
+		"nextToken",
+		"nextPageToken",
+		"cursor",
+		"next_cursor",
+		"continuation_token",
+		"continuationToken",
+		"sync_token",
+		"syncToken",
+	} {
 		tool := model.UnifiedTool{
 			Name: "list_items",
 			InputSchema: jsonschema.Schema{
