@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -395,10 +396,7 @@ func handleScanConfig(ctx context.Context, _ mcplib.CallToolRequest) (*mcplib.Ca
 		result serverScanResult
 	}
 
-	serverNames := make([]string, 0, len(cfg.MCPServers))
-	for name := range cfg.MCPServers {
-		serverNames = append(serverNames, name)
-	}
+	serverNames := sortedMCPServerNames(cfg.MCPServers)
 
 	results := make([]serverScanResult, len(serverNames))
 	var wg sync.WaitGroup
@@ -448,6 +446,15 @@ func handleScanConfig(ctx context.Context, _ mcplib.CallToolRequest) (*mcplib.Ca
 		return mcplib.NewToolResultError(fmt.Sprintf("failed to serialize result: %v", err)), nil
 	}
 	return mcplib.NewToolResultText(string(encoded)), nil
+}
+
+func sortedMCPServerNames(servers map[string]mcpServerEntry) []string {
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // scanOneServer scans a single MCP server from config.

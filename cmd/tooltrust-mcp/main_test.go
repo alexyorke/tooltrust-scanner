@@ -374,6 +374,16 @@ func TestHandleScanConfig_NoConfigFile(t *testing.T) {
 	assert.True(t, result.IsError)
 }
 
+func TestSortedMCPServerNames_Deterministic(t *testing.T) {
+	got := sortedMCPServerNames(map[string]mcpServerEntry{
+		"zeta":  {Command: "node"},
+		"alpha": {Command: "node"},
+		"beta":  {Command: "node"},
+	})
+
+	assert.Equal(t, []string{"alpha", "beta", "zeta"}, got)
+}
+
 func isolateUserHome(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("HOME", dir)
