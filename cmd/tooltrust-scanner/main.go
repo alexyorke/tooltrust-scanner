@@ -155,6 +155,9 @@ func runScan(ctx context.Context, opts scanOpts) error {
 	default:
 		return fmt.Errorf("invalid --output value %q (use: text | json | sarif)", opts.output)
 	}
+	if err := validateFailOn(opts.failOn); err != nil {
+		return err
+	}
 
 	if opts.output == "json" || opts.output == "sarif" {
 		pterm.DisableOutput()
@@ -937,10 +940,12 @@ func printScanPtree(w *os.File, tool model.UnifiedTool, score model.RiskScore, p
 }
 
 func checkFailOn(failOn string, summary ScanSummary) error {
-	if failOn == "" {
-		return nil
+	if err := validateFailOn(failOn); err != nil {
+		return err
 	}
 	switch failOn {
+	case "":
+		return nil
 	case "block":
 		if summary.Blocked > 0 {
 			return fmt.Errorf("scan failed: %d tool(s) BLOCKED", summary.Blocked)
@@ -953,10 +958,17 @@ func checkFailOn(failOn string, summary ScanSummary) error {
 		if summary.RequireApproval > 0 || summary.Blocked > 0 {
 			return fmt.Errorf("scan failed: only %d of %d tool(s) are fully allowed", summary.Allowed, summary.Total)
 		}
+	}
+	return nil
+}
+
+func validateFailOn(failOn string) error {
+	switch failOn {
+	case "", "allow", "approval", "block":
+		return nil
 	default:
 		return fmt.Errorf("invalid --fail-on value %q (use: allow | approval | block)", failOn)
 	}
-	return nil
 }
 
 func persistResults(ctx context.Context, dbPath string, tools []model.UnifiedTool, policies []model.GatewayPolicy) error {

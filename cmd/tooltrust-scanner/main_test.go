@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -53,6 +54,25 @@ func TestCheckFailOn_InvalidValue(t *testing.T) {
 	err := checkFailOn("bogus", ScanSummary{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid --fail-on")
+}
+
+func TestRunScan_InvalidFailOnDoesNotWriteReport(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "tools.json")
+	output := filepath.Join(tmp, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte(`{"tools":[]}`), 0o644))
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "mcp",
+		output:     "json",
+		outputFile: output,
+		failOn:     "bogus",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid --fail-on")
+	assert.NoFileExists(t, output)
 }
 
 func TestFormatToolLabel_HidesScoreForAllowGradeA(t *testing.T) {
