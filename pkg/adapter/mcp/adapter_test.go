@@ -416,6 +416,32 @@ func TestAdapter_Parse_PreservesNestedSchemaDetails(t *testing.T) {
 	assert.Equal(t, "Request source", props["metadata"].Properties["source"].Description)
 }
 
+func TestAdapter_Parse_PreservesTopLevelArrayItemsAndInfersPermission(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "prepare_requests",
+			"description": "Prepare outbound requests.",
+			"inputSchema": {
+				"type": "array",
+				"items": {
+					"type": "object",
+					"properties": {
+						"url": {"type": "string", "description": "Target URL"}
+					}
+				}
+			}
+		}]
+	}`)
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	require.NotNil(t, tools[0].InputSchema.Items)
+	require.Contains(t, tools[0].InputSchema.Items.Properties, "url")
+	assert.Equal(t, "Target URL", tools[0].InputSchema.Items.Properties["url"].Description)
+	assert.Contains(t, tools[0].Permissions, model.PermissionNetwork)
+}
+
 func TestAdapter_Parse_InfersPermissionFromNestedSchemaProperty(t *testing.T) {
 	payload := []byte(`{
 		"tools": [{

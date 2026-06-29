@@ -75,6 +75,7 @@ type InputSchema struct {
 	Properties  map[string]SchemaProperty `json:"properties,omitempty"`
 	Required    []string                  `json:"required,omitempty"`
 	Description string                    `json:"description,omitempty"`
+	Items       *SchemaProperty           `json:"items,omitempty"`
 }
 
 // SchemaProperty describes a single property within an InputSchema.

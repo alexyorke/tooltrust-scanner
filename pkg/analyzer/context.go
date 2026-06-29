@@ -175,7 +175,7 @@ func isEmailRecipientProperty(propLower string) bool {
 }
 
 func schemaPropertyPaths(schema jsonschema.Schema) []string {
-	if len(schema.Properties) == 0 {
+	if len(schema.Properties) == 0 && schema.Items == nil {
 		return nil
 	}
 	var paths []string
@@ -190,6 +190,11 @@ func schemaPropertyPaths(schema jsonschema.Schema) []string {
 func walkSchemaPropertyPaths(schema jsonschema.Schema, visit func(string) bool) bool {
 	for name, prop := range schema.Properties {
 		if !walkPropertyPaths(name, prop, visit) {
+			return false
+		}
+	}
+	if schema.Items != nil {
+		if !walkPropertyPaths("[]", *schema.Items, visit) {
 			return false
 		}
 	}
@@ -229,7 +234,7 @@ func walkPropertyPaths(path string, prop jsonschema.Property, visit func(string)
 }
 
 func schemaLeafPropertyPaths(schema jsonschema.Schema) []string {
-	if len(schema.Properties) == 0 {
+	if len(schema.Properties) == 0 && schema.Items == nil {
 		return nil
 	}
 	var paths []string
@@ -244,6 +249,11 @@ func schemaLeafPropertyPaths(schema jsonschema.Schema) []string {
 func walkSchemaLeafPropertyPaths(schema jsonschema.Schema, visit func(string) bool) bool {
 	for name, prop := range schema.Properties {
 		if !walkLeafPropertyPaths(name, prop, visit) {
+			return false
+		}
+	}
+	if schema.Items != nil {
+		if !walkLeafPropertyPaths("[]", *schema.Items, visit) {
 			return false
 		}
 	}

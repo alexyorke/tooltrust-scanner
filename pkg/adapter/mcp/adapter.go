@@ -89,12 +89,17 @@ func convertSchema(s InputSchema) jsonschema.Schema {
 	for k, v := range s.Properties {
 		props[k] = convertProperty(v)
 	}
-	return jsonschema.Schema{
+	schema := jsonschema.Schema{
 		Type:        string(s.Type),
 		Description: s.Description,
 		Properties:  props,
 		Required:    s.Required,
 	}
+	if s.Items != nil {
+		items := convertProperty(*s.Items)
+		schema.Items = &items
+	}
+	return schema
 }
 
 func convertProperty(p SchemaProperty) jsonschema.Property {
@@ -267,12 +272,15 @@ func containsToken(s, token string) bool {
 }
 
 func inputSchemaPropertyPaths(schema InputSchema) []string {
-	if len(schema.Properties) == 0 {
+	if len(schema.Properties) == 0 && schema.Items == nil {
 		return nil
 	}
 	var paths []string
 	for name, prop := range schema.Properties {
 		paths = append(paths, schemaPropertyPaths(name, prop)...)
+	}
+	if schema.Items != nil {
+		paths = append(paths, schemaPropertyPaths("[]", *schema.Items)...)
 	}
 	return paths
 }
