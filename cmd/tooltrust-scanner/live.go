@@ -113,7 +113,9 @@ func enrichLiveToolsWithLocalNodeDependencies(args []string, tools []model.Unifi
 	if root == "" {
 		for i := range tools {
 			ensureMetadata(&tools[i])
-			tools[i].Metadata["dependency_visibility_note"] = "No metadata.dependencies or repo_url were exposed by this MCP server, and no local project manifest could be inferred from the launch command."
+			if !hasDependencyMetadata(tools[i].Metadata) && !hasRepoURL(tools[i].Metadata) {
+				tools[i].Metadata["dependency_visibility_note"] = "No metadata.dependencies or repo_url were exposed by this MCP server, and no local project manifest could be inferred from the launch command."
+			}
 		}
 		return tools
 	}
