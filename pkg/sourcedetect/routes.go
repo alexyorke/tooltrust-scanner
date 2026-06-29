@@ -23,7 +23,7 @@ type routeRegistration struct {
 
 var (
 	routeStartPattern  = regexp.MustCompile(`\.\s*(?:Any|GET|POST|PUT|PATCH|DELETE|Handle)\s*\(`)
-	quotedPathPattern  = regexp.MustCompile(`"(/[^"]+)"`)
+	quotedPathPattern  = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]")
 	handlerCallPattern = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.]*)\s*\(\s*c\s*\)`)
 )
 
@@ -73,19 +73,19 @@ func extractRouteRegistrations(rel, text string) []routeRegistration {
 		}
 		i = endLine
 
-		pathMatch := quotedPathPattern.FindStringSubmatch(block)
-		if len(pathMatch) < 2 {
+		path := extractMCPRoutePath(block)
+		if path == "" {
 			continue
 		}
 		handler := extractHandlerCall(block)
-		if handler == "" || !strings.Contains(strings.ToLower(pathMatch[1]), "mcp") {
+		if handler == "" {
 			continue
 		}
 
 		out = append(out, routeRegistration{
 			File:        rel,
 			Line:        startLine,
-			Path:        pathMatch[1],
+			Path:        path,
 			Handler:     handler,
 			HasAuth:     strings.Contains(block, "AuthRequired("),
 			HasIPFilter: strings.Contains(block, "IPWhiteList("),
@@ -93,6 +93,16 @@ func extractRouteRegistrations(rel, text string) []routeRegistration {
 		})
 	}
 	return out
+}
+
+func extractMCPRoutePath(block string) string {
+	matches := quotedPathPattern.FindAllStringSubmatch(block, -1)
+	for _, match := range matches {
+		if len(match) >= 2 && strings.Contains(strings.ToLower(match[1]), "mcp") {
+			return match[1]
+		}
+	}
+	return ""
 }
 
 func captureCallBlock(lines []string, start int) (block string, endLine int) {
