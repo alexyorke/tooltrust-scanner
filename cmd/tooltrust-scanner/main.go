@@ -160,7 +160,15 @@ func runScan(ctx context.Context, opts scanOpts) error {
 	}
 
 	if opts.output == "json" || opts.output == "sarif" {
+		prevPtermOutput := pterm.Output
 		pterm.DisableOutput()
+		defer func() {
+			if prevPtermOutput {
+				pterm.EnableOutput()
+				return
+			}
+			pterm.DisableOutput()
+		}()
 	}
 
 	if (opts.inputFile == "") == (opts.serverCmd == "") {

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/pterm/pterm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -73,6 +75,45 @@ func TestRunScan_InvalidFailOnDoesNotWriteReport(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid --fail-on")
 	assert.NoFileExists(t, output)
+}
+
+func TestRunScan_JSONOutputDoesNotSuppressLaterTextOutput(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "tools.json")
+	jsonOutput := filepath.Join(tmp, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte(`{"tools":[]}`), 0o644))
+
+	prevOutput := pterm.Output
+	pterm.EnableOutput()
+	t.Cleanup(func() {
+		if prevOutput {
+			pterm.EnableOutput()
+		} else {
+			pterm.DisableOutput()
+		}
+		pterm.SetDefaultOutput(os.Stdout)
+	})
+
+	var buf bytes.Buffer
+	pterm.SetDefaultOutput(&buf)
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "mcp",
+		output:     "json",
+		outputFile: jsonOutput,
+	})
+	require.NoError(t, err)
+
+	buf.Reset()
+
+	err = runScan(context.Background(), scanOpts{
+		inputFile: input,
+		protocol:  "mcp",
+		output:    "text",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, buf.String(), "Scan Summary")
 }
 
 func TestFormatToolLabel_HidesScoreForAllowGradeA(t *testing.T) {
