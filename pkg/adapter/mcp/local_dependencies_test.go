@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,4 +35,26 @@ func TestEnrichLiveToolsWithLocalDependencyMetadata_PreservesRepoURLNote(t *test
 	visibility, note := analyzer.DependencyVisibilityForTool(tools[0])
 	assert.Equal(t, "Repo URL available", visibility)
 	assert.Equal(t, "repo_url is available, so ToolTrust can try to inspect remote lockfiles for dependency evidence.", note)
+}
+
+func TestEnrichLiveToolsWithLocalDependencyMetadata_DetectsBarePythonScriptProjectRoot(t *testing.T) {
+	tmp := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "requirements.txt"), []byte("requests==2.31.0\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "server.py"), []byte("# stub\n"), 0o644))
+
+	prevWD, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(tmp))
+	t.Cleanup(func() {
+		_ = os.Chdir(prevWD)
+	})
+
+	tools := EnrichLiveToolsWithLocalDependencyMetadata([]string{"python", "server.py"}, []model.UnifiedTool{
+		{Name: "python_server"},
+	})
+
+	require.Len(t, tools, 1)
+	visibility, note := analyzer.DependencyVisibilityForTool(tools[0])
+	assert.Equal(t, "Verified from local lockfile", visibility)
+	assert.Contains(t, note, "Local dependency artifacts scanned")
 }

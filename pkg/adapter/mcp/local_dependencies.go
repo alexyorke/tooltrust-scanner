@@ -235,7 +235,7 @@ func detectLocalProjectRoot(args []string) string {
 		if strings.Contains(arg, string(os.PathSeparator)) || strings.HasPrefix(arg, ".") {
 			candidates = append(candidates, arg)
 		}
-		if strings.HasSuffix(arg, ".js") || strings.HasSuffix(arg, ".mjs") || strings.HasSuffix(arg, ".cjs") || strings.HasSuffix(arg, ".ts") {
+		if hasLocalSourceFileExtension(arg) {
 			candidates = append(candidates, arg)
 		}
 	}
@@ -267,6 +267,15 @@ func detectLocalProjectRoot(args []string) string {
 		}
 	}
 	return ""
+}
+
+func hasLocalSourceFileExtension(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".js", ".mjs", ".cjs", ".ts", ".py", ".go":
+		return true
+	default:
+		return false
+	}
 }
 
 func findLocalDependencyArtifacts(root string) []dependencyArtifact {

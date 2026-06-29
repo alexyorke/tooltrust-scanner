@@ -45,6 +45,30 @@ func TestDetectLocalProjectRoot_LocalScript(t *testing.T) {
 		"local-script launch must return the project root via arg-based detection")
 }
 
+func TestDetectLocalProjectRoot_LocalPythonScriptBareFilename(t *testing.T) {
+	tmp := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "requirements.txt"), []byte("requests==2.31.0\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "server.py"), []byte("# stub\n"), 0o644))
+
+	t.Chdir(tmp)
+
+	got := detectLocalProjectRoot([]string{"python", "server.py"})
+	assert.Equal(t, tmp, got,
+		"bare local Python script launches must return the project root")
+}
+
+func TestDetectLocalProjectRoot_LocalGoFileBareFilename(t *testing.T) {
+	tmp := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/demo\n\ngo 1.21\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644))
+
+	t.Chdir(tmp)
+
+	got := detectLocalProjectRoot([]string{"go", "run", "main.go"})
+	assert.Equal(t, tmp, got,
+		"bare local Go file launches must return the project root")
+}
+
 func TestParseYarnLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "yarn.lock")
 	require.NoError(t, os.WriteFile(path, []byte(`
