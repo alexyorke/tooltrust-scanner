@@ -31,10 +31,8 @@ func (c *DependencyInventoryChecker) Check(tool model.UnifiedTool) ([]model.Issu
 	}
 
 	note := "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited."
-	if tool.Metadata != nil {
-		if n := metadataNote(tool.Metadata); n != "" {
-			note = n
-		}
+	if _, visibilityNote := DependencyVisibilityForTool(tool); visibilityNote != "" {
+		note = visibilityNote
 	}
 
 	return []model.Issue{{

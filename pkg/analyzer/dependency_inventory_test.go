@@ -53,3 +53,26 @@ func TestDependencyInventoryChecker_NonMCP_NoFinding(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, issues)
 }
+
+func TestDependencyInventoryChecker_RepoURLOnly_UsesRepoAvailabilityNote(t *testing.T) {
+	prev := analyzer.LockfileDepsFetcherForTest()
+	analyzer.SetLockfileDepsFetcherForTest(func(string) []analyzer.Dependency { return nil })
+	t.Cleanup(func() {
+		analyzer.SetLockfileDepsFetcherForTest(prev)
+	})
+
+	checker := analyzer.NewDependencyInventoryChecker()
+	tool := model.UnifiedTool{
+		Name:     "safe_tool",
+		Protocol: model.ProtocolMCP,
+		Metadata: map[string]any{
+			"repo_url": "https://github.com/example/repo",
+		},
+	}
+
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "DEPENDENCY_INVENTORY_UNAVAILABLE", issues[0].Code)
+	assert.Equal(t, "repo_url is available, so ToolTrust can try to inspect remote lockfiles for dependency evidence.", issues[0].Description)
+}
