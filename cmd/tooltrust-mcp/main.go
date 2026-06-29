@@ -487,10 +487,18 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 	}
 
 	if len(tools) == 0 {
+		emptyResult, err := processToolsRaw(ctx, nil)
+		if err != nil {
+			return serverScanResult{
+				Server: name,
+				Status: "error",
+				Error:  err.Error(),
+			}
+		}
 		return serverScanResult{
 			Server: name,
 			Status: "ok",
-			Result: &ScanResult{Summary: ScanSummary{Total: 0}},
+			Result: emptyResult,
 		}
 	}
 

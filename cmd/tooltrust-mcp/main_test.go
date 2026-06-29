@@ -247,6 +247,39 @@ func TestProcessToolsRaw_UsesScannerJSONSummaryContract(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestScanOneServer_EmptyToolServerUsesScannerSummaryContract(t *testing.T) {
+	serverDir := createTempEmptyMCPServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result := scanOneServer(ctx, "empty-server", mcpServerEntry{
+		Command: "go",
+		Args:    []string{"run", serverDir},
+	})
+
+	require.Equal(t, "ok", result.Status)
+	require.NotNil(t, result.Result)
+	assert.Equal(t, 0, result.Result.Summary.Total)
+	assert.Equal(t, 0, result.Result.Summary.Allowed)
+	assert.Equal(t, 0, result.Result.Summary.RequireApproval)
+	assert.Equal(t, 0, result.Result.Summary.Blocked)
+	assert.Equal(t, 0, result.Result.Summary.AvgScore)
+	assert.Equal(t, "A", result.Result.Summary.AvgGrade)
+	assert.False(t, result.Result.Summary.ScannedAt.IsZero())
+
+	encoded, err := json.Marshal(result.Result)
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(encoded, &payload))
+
+	summary, ok := payload["summary"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "A", summary["avg_grade"])
+	assert.NotEqual(t, "0001-01-01T00:00:00Z", summary["scanned_at"])
+}
+
 // ── tooltrust_scan_server tests ─────────────────────────────────────────────
 
 func TestHandleScanServer_EmptyCommand(t *testing.T) {
@@ -453,6 +486,44 @@ func isolateUserHome(t *testing.T, dir string) {
 	t.Setenv("USERPROFILE", dir)
 	t.Setenv("HOMEDRIVE", "")
 	t.Setenv("HOMEPATH", "")
+}
+
+func createTempEmptyMCPServer(t *testing.T) string {
+	t.Helper()
+
+	repoRoot, err := filepath.Abs(filepath.Join(".", "..", ".."))
+	require.NoError(t, err)
+
+	workDir := filepath.Join(repoRoot, "work")
+	require.NoError(t, os.MkdirAll(workDir, 0o755))
+
+	dir, err := os.MkdirTemp(workDir, "empty-mcp-server-")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+
+	const source = `package main
+
+import (
+	"log"
+
+	"github.com/mark3labs/mcp-go/server"
+)
+
+func main() {
+	s := server.NewMCPServer("empty-server", "1.0.0", server.WithToolCapabilities(true))
+	if err := server.ServeStdio(s); err != nil {
+		log.Fatal(err)
+	}
+}
+`
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte(source), 0o644))
+
+	absDir, err := filepath.Abs(dir)
+	require.NoError(t, err)
+	return absDir
 }
 
 // ── Self-scan skip tests ────────────────────────────────────────────────────
