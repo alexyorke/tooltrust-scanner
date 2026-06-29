@@ -49,6 +49,15 @@ var popularMCPToolNames = []string{
 	"get_sentry_issue", "resolve_sentry_issue",
 }
 
+var toolNameNormalizer = strings.NewReplacer("_", "", "-", "", " ", "")
+
+type normalizedToolName struct {
+	original   string
+	normalized string
+}
+
+var normalizedPopularMCPToolNames = buildNormalizedToolNames(popularMCPToolNames)
+
 // levenshtein computes the edit distance between two strings.
 func levenshtein(a, b string) int {
 	la, lb := len(a), len(b)
@@ -95,11 +104,18 @@ func min3(a, b, c int) int {
 // edit-distance comparison (list_files vs listfiles vs list-files all normalize
 // to "listfiles" so that separators don't consume edit-distance budget).
 func normalizeToolName(name string) string {
-	s := strings.ToLower(name)
-	s = strings.ReplaceAll(s, "_", "")
-	s = strings.ReplaceAll(s, "-", "")
-	s = strings.ReplaceAll(s, " ", "")
-	return s
+	return toolNameNormalizer.Replace(strings.ToLower(name))
+}
+
+func buildNormalizedToolNames(names []string) []normalizedToolName {
+	out := make([]normalizedToolName, 0, len(names))
+	for _, name := range names {
+		out = append(out, normalizedToolName{
+			original:   name,
+			normalized: normalizeToolName(name),
+		})
+	}
+	return out
 }
 
 // TyposquattingChecker detects tool names within edit distance ≤ 2 of a known
@@ -131,14 +147,14 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 	// the distance loop so we don't accidentally flag it against a different
 	// entry that happens to be within edit-distance 2 (e.g. search_code vs
 	// search_nodes).
-	for _, known := range popularMCPToolNames {
-		if normName == normalizeToolName(known) {
+	for _, known := range normalizedPopularMCPToolNames {
+		if normName == known.normalized {
 			return nil, nil
 		}
 	}
 
-	for _, known := range popularMCPToolNames {
-		normKnown := normalizeToolName(known)
+	for _, known := range normalizedPopularMCPToolNames {
+		normKnown := known.normalized
 		// Skip if length difference alone exceeds threshold (fast reject).
 		diff := len(normName) - len(normKnown)
 		if diff < 0 {
@@ -187,7 +203,7 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 				Code:     "TYPOSQUATTING",
 				Description: fmt.Sprintf(
 					"tool name %q is suspiciously similar to the well-known MCP tool %q (edit distance %d) — possible typosquatting",
-					tool.Name, known, dist,
+					tool.Name, known.original, dist,
 				),
 				Location: "name",
 			}}, nil

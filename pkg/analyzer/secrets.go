@@ -63,6 +63,8 @@ var secretDescriptionPatterns = []string{
 	"expose key",
 }
 
+var secretParamNormalizer = strings.NewReplacer("_", "", "-", "")
+
 // SecretHandlingChecker flags tools that accept credentials as input
 // parameters (high leakage risk in agent traces) and descriptions that suggest
 // secrets are logged or stored insecurely.
@@ -135,6 +137,5 @@ func schemaPathBase(path string) string {
 }
 
 func normalizeSecretParamName(name string) string {
-	replacer := strings.NewReplacer("_", "", "-", "")
-	return replacer.Replace(name)
+	return secretParamNormalizer.Replace(name)
 }
