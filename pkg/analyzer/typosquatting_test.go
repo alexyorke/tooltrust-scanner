@@ -26,6 +26,7 @@ func TestTyposquattingChecker_EditDistance1_Triggers(t *testing.T) {
 	}{
 		{"list_fles", "list_files"},               // dropped 'i'
 		{"read_fle", "read_file"},                 // dropped 'i'
+		{"read_file2", "read_file"},               // appended digit
 		{"brave_web_searrch", "brave_web_search"}, // double 'r'
 	}
 	for _, tc := range cases {

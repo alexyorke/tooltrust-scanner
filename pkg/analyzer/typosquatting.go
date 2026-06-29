@@ -147,10 +147,10 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 		if diff > 2 {
 			continue
 		}
-		// Skip singular/plural and prefix-extension variants (e.g.
-		// create_relation vs create_relations).  These are legitimate tool
-		// families, not impersonations.
-		if strings.HasPrefix(normName, normKnown) || strings.HasPrefix(normKnown, normName) {
+		// Skip simple singular/plural variants (e.g. create_relation vs
+		// create_relations). Do not skip arbitrary prefixes/suffixes such as
+		// read_file2, which are still typosquat-like.
+		if isSingularPluralVariant(normName, normKnown) {
 			continue
 		}
 		dist := levenshtein(normName, normKnown)
@@ -194,4 +194,8 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 		}
 	}
 	return nil, nil
+}
+
+func isSingularPluralVariant(a, b string) bool {
+	return a+"s" == b || b+"s" == a
 }
