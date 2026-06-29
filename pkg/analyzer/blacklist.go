@@ -135,13 +135,29 @@ func compareLooseVersion(a, b string) int {
 		}
 	}
 	switch {
-	case len(at) < len(bt):
-		return -1
 	case len(at) > len(bt):
+		if hasPreReleaseToken(at[len(bt):]) {
+			return -1
+		}
 		return 1
+	case len(at) < len(bt):
+		if hasPreReleaseToken(bt[len(at):]) {
+			return 1
+		}
+		return -1
 	default:
 		return 0
 	}
+}
+
+func hasPreReleaseToken(tokens []string) bool {
+	for _, token := range tokens {
+		switch strings.ToLower(token) {
+		case "a", "alpha", "b", "beta", "rc", "dev", "pre", "preview":
+			return true
+		}
+	}
+	return false
 }
 
 func splitVersionTokens(v string) []string {
