@@ -362,6 +362,19 @@ func TestParseYarnLock(t *testing.T) {
 	assert.Equal(t, "2.3.4", names["@scope/sdk"])
 }
 
+func TestParseYarnLock_NPMAliasUsesRealPackageName(t *testing.T) {
+	data := []byte(`
+"string-width-cjs@npm:string-width@^4.2.0":
+  version "4.2.3"
+`)
+	deps, err := analyzer.ParseYarnLockForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "string-width", deps[0].Name)
+	assert.Equal(t, "4.2.3", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+}
+
 // ---------------------------------------------------------------------------
 // Transitive / source-based severity tests (Change 1)
 // ---------------------------------------------------------------------------

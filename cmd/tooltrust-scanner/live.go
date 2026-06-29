@@ -527,11 +527,10 @@ func parseYarnLockfile(path string) ([]nodeDependency, error) {
 					if spec == "" {
 						continue
 					}
-					idx := strings.LastIndex(spec, "@")
-					if idx <= 0 {
+					name, ok := yarnLockSpecPackageName(spec)
+					if !ok {
 						continue
 					}
-					name := spec[:idx]
 					k := name + "@" + version
 					if seen[k] {
 						continue
@@ -547,4 +546,15 @@ func parseYarnLockfile(path string) ([]nodeDependency, error) {
 		}
 	}
 	return deps, nil
+}
+
+func yarnLockSpecPackageName(spec string) (string, bool) {
+	if aliasIdx := strings.Index(spec, "@npm:"); aliasIdx >= 0 {
+		spec = spec[aliasIdx+len("@npm:"):]
+	}
+	idx := strings.LastIndex(spec, "@")
+	if idx <= 0 || idx == len(spec)-1 {
+		return "", false
+	}
+	return spec[:idx], true
 }

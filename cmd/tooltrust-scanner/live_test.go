@@ -44,3 +44,19 @@ func TestDetectLocalProjectRoot_LocalScript(t *testing.T) {
 	assert.Equal(t, tmp, got,
 		"local-script launch must return the project root via arg-based detection")
 }
+
+func TestParseYarnLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yarn.lock")
+	require.NoError(t, os.WriteFile(path, []byte(`
+"string-width-cjs@npm:string-width@^4.2.0":
+  version "4.2.3"
+`), 0o644))
+
+	deps, err := parseYarnLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "string-width", deps[0].Name)
+	assert.Equal(t, "4.2.3", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+	assert.Equal(t, "local_lockfile", deps[0].Source)
+}

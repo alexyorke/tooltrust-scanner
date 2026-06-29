@@ -391,11 +391,10 @@ func parseYarnLock(data []byte) ([]Dependency, error) {
 					if spec == "" {
 						continue
 					}
-					idx := strings.LastIndex(spec, "@")
-					if idx <= 0 || idx == len(spec)-1 {
+					name, ok := yarnSpecPackageName(spec)
+					if !ok {
 						continue
 					}
-					name := spec[:idx]
 					k := name + "@" + version
 					if seen[k] {
 						continue
@@ -412,6 +411,17 @@ func parseYarnLock(data []byte) ([]Dependency, error) {
 	}
 
 	return deps, nil
+}
+
+func yarnSpecPackageName(spec string) (string, bool) {
+	if aliasIdx := strings.Index(spec, "@npm:"); aliasIdx >= 0 {
+		spec = spec[aliasIdx+len("@npm:"):]
+	}
+	idx := strings.LastIndex(spec, "@")
+	if idx <= 0 || idx == len(spec)-1 {
+		return "", false
+	}
+	return spec[:idx], true
 }
 
 // fetchLockfileDeps fetches and parses lockfiles from a GitHub repository URL.
