@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -114,6 +115,31 @@ func TestRunScan_JSONOutputDoesNotSuppressLaterTextOutput(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Contains(t, buf.String(), "Scan Summary")
+}
+
+func TestRunScan_JSONOutput_EmptyPoliciesUseArray(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "tools.json")
+	output := filepath.Join(tmp, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte(`{"tools":[]}`), 0o644))
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "mcp",
+		output:     "json",
+		outputFile: output,
+	})
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(output)
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(data, &payload))
+
+	policies, ok := payload["policies"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, policies)
 }
 
 func TestShouldPrintWriteNotice_FileIsNonInteractive(t *testing.T) {

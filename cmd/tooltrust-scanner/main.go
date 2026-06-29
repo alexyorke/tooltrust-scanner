@@ -220,7 +220,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize scanner: %w", err)
 	}
-	var policies []model.GatewayPolicy
+	policies := make([]model.GatewayPolicy, 0, len(tools))
 	summary := ScanSummary{Total: len(tools), ScannedAt: time.Now().UTC()}
 
 	for i := range tools {

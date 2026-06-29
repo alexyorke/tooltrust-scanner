@@ -277,6 +277,9 @@ func TestScanOneServer_EmptyToolServerUsesScannerSummaryContract(t *testing.T) {
 	require.NoError(t, json.Unmarshal(encoded, &payload))
 
 	assert.Equal(t, "1.0", payload["schema_version"])
+	policies, ok := payload["policies"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, policies)
 
 	summary, ok := payload["summary"].(map[string]any)
 	require.True(t, ok)
