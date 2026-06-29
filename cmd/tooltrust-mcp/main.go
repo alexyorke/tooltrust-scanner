@@ -682,6 +682,12 @@ func renderTextReport(result *ScanResult) string {
 		if len(p.Destinations) > 0 {
 			lines = append(lines, fmt.Sprintf("  Destination: %s", strings.Join(p.Destinations, "; ")))
 		}
+		if p.DependencyVisibility != "" {
+			lines = append(lines, fmt.Sprintf("  Dependency visibility: %s", p.DependencyVisibility))
+			if p.DependencyNote != "" {
+				lines = append(lines, "  "+p.DependencyNote)
+			}
+		}
 		for _, issue := range p.Score.Issues {
 			lines = append(lines, fmt.Sprintf("  [%s] %s: %s",
 				issue.RuleID, issue.Severity, humanizeIssue(issue)))

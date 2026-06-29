@@ -166,6 +166,30 @@ func TestRenderTextReport_IncludesBehaviorAndDestinationContext(t *testing.T) {
 	assert.Contains(t, text, "Destination: dynamic email recipient (bcc); hardcoded domain: api.postmarkapp.com")
 }
 
+func TestRenderTextReport_IncludesDependencyVisibilityContext(t *testing.T) {
+	result := &ScanResult{
+		Summary: ScanSummary{
+			Total:    1,
+			Allowed:  0,
+			Approval: 1,
+			Blocked:  0,
+		},
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName:             "deploy_site",
+				Action:               model.ActionRequireApproval,
+				DependencyVisibility: "Verified from local lockfile + Repo URL available",
+				DependencyNote:       "Local dependency artifacts scanned from package-lock.json.",
+				Score:                model.RiskScore{Grade: model.GradeC},
+			},
+		},
+	}
+
+	text := renderTextReport(result)
+	assert.Contains(t, text, "Dependency visibility: Verified from local lockfile + Repo URL available")
+	assert.Contains(t, text, "Local dependency artifacts scanned from package-lock.json.")
+}
+
 func TestProcessToolsRaw_PopulatesBehaviorAndDestinationContext(t *testing.T) {
 	tools := []model.UnifiedTool{
 		{
