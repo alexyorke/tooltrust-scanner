@@ -520,11 +520,35 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 
 // isSelfEntry returns true if the config entry refers to tooltrust-mcp itself.
 func isSelfEntry(name string, entry mcpServerEntry) bool {
-	if strings.Contains(strings.ToLower(name), "tooltrust") {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "tooltrust", "tooltrust-scanner", "tooltrust-mcp":
 		return true
 	}
-	cmdStr := entry.Command + " " + strings.Join(entry.Args, " ")
-	return strings.Contains(cmdStr, "tooltrust-mcp")
+	if referencesTooltrustMCP(entry.Command) {
+		return true
+	}
+	for _, arg := range entry.Args {
+		if referencesTooltrustMCP(arg) {
+			return true
+		}
+	}
+	return false
+}
+
+func referencesTooltrustMCP(token string) bool {
+	token = strings.ToLower(strings.Trim(strings.TrimSpace(token), `"'`))
+	if token == "" {
+		return false
+	}
+	switch token {
+	case "tooltrust-mcp", "@agentsafe-ai/tooltrust-mcp":
+		return true
+	}
+	base := strings.ToLower(filepath.Base(filepath.Clean(token)))
+	if strings.TrimSuffix(base, filepath.Ext(base)) == "tooltrust-mcp" {
+		return true
+	}
+	return false
 }
 
 // loadMCPConfig searches for the MCP config file and parses it.

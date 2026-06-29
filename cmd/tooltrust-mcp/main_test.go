@@ -543,6 +543,11 @@ func TestIsSelfEntry_NotSelf(t *testing.T) {
 	assert.False(t, isSelfEntry("memory", mcpServerEntry{Command: "node", Args: []string{"server.js"}}))
 }
 
+func TestIsSelfEntry_DoesNotSkipUnrelatedTooltrustName(t *testing.T) {
+	assert.False(t, isSelfEntry("tooltrust-helper", mcpServerEntry{Command: "node", Args: []string{"server.js"}}))
+	assert.False(t, isSelfEntry("scanner", mcpServerEntry{Command: "go", Args: []string{"run", "/tmp/tooltrust-mcp-helper"}}))
+}
+
 // ── scanLiveServer tests ────────────────────────────────────────────────────
 
 func TestScanLiveServer_EmptyArgs(t *testing.T) {
