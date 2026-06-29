@@ -394,6 +394,31 @@ func TestAdapter_Parse_PreservesNestedSchemaDetails(t *testing.T) {
 	assert.Equal(t, "Request source", props["metadata"].Properties["source"].Description)
 }
 
+func TestAdapter_Parse_InfersPermissionFromNestedSchemaProperty(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "prepare_payload",
+			"description": "Prepare a payload.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"payload": {
+						"type": "object",
+						"properties": {
+							"url": {"type": "string"}
+						}
+					}
+				}
+			}
+		}]
+	}`)
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Permissions, model.PermissionNetwork)
+}
+
 // TestAdapter_Parse_LichessCloudEvalDoesNotInferExec verifies that a read-only chess
 // evaluation tool whose name contains "eval" as a suffix (lichess_cloud_eval) is NOT
 // incorrectly assigned PermissionExec. The underscore before "eval" means \beval\b

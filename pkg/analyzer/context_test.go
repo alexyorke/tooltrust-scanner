@@ -156,6 +156,28 @@ func TestSummarizeToolContext_ClassifiesWebhookAndCallbackDestinations(t *testin
 	assert.Contains(t, destinations, "dynamic callback destination (callback_uri)")
 }
 
+func TestSummarizeToolContext_ClassifiesNestedDynamicDestination(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "fetch_remote",
+		Description: "Fetch a remote resource.",
+		Permissions: []model.Permission{model.PermissionNetwork},
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"request": {
+					Type: "object",
+					Properties: map[string]jsonschema.Property{
+						"url": {Type: "string"},
+					},
+				},
+			},
+		},
+	}
+
+	_, destinations := SummarizeToolContext(tool)
+
+	assert.Equal(t, []string{"dynamic URL input (request.url)"}, destinations)
+}
+
 func TestSummarizeToolContext_ClassifiesSMTPHostInput(t *testing.T) {
 	tool := model.UnifiedTool{
 		Name:        "send_email",

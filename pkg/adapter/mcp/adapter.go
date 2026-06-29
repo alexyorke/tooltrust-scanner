@@ -201,7 +201,7 @@ func inferPermissions(t Tool) []model.Permission {
 
 	for _, entry := range permissionRules {
 		// Check schema property names
-		for propKey := range t.InputSchema.Properties {
+		for _, propKey := range inputSchemaPropertyPaths(t.InputSchema) {
 			propLower := strings.ToLower(propKey)
 			for _, ruleKey := range entry.rule.propKeys {
 				if propLower == ruleKey || strings.Contains(propLower, ruleKey) {
@@ -229,4 +229,28 @@ func inferPermissions(t Tool) []model.Permission {
 		}
 	}
 	return perms
+}
+
+func inputSchemaPropertyPaths(schema InputSchema) []string {
+	if len(schema.Properties) == 0 {
+		return nil
+	}
+	var paths []string
+	for name, prop := range schema.Properties {
+		paths = append(paths, schemaPropertyPaths(name, prop)...)
+	}
+	return paths
+}
+
+func schemaPropertyPaths(path string, prop SchemaProperty) []string {
+	paths := []string{path}
+	for name, nested := range prop.Properties {
+		paths = append(paths, schemaPropertyPaths(path+"."+name, nested)...)
+	}
+	if prop.Items != nil {
+		for name, nested := range prop.Items.Properties {
+			paths = append(paths, schemaPropertyPaths(path+"[]."+name, nested)...)
+		}
+	}
+	return paths
 }

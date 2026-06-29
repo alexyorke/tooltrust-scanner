@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/AgentSafe-AI/tooltrust-scanner/internal/jsonschema"
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
@@ -61,7 +62,7 @@ func SummarizeToolContext(tool model.UnifiedTool) (behavior, destinations []stri
 		}
 	}
 
-	for propName := range tool.InputSchema.Properties {
+	for _, propName := range schemaPropertyPaths(tool.InputSchema) {
 		if label := classifyDynamicDestination(propName); label != "" {
 			destinationSet[label] = true
 		}
@@ -141,6 +142,31 @@ func isEmailRecipientProperty(propLower string) bool {
 		}
 	}
 	return false
+}
+
+func schemaPropertyPaths(schema jsonschema.Schema) []string {
+	if len(schema.Properties) == 0 {
+		return nil
+	}
+	var paths []string
+	for name, prop := range schema.Properties {
+		paths = append(paths, propertyPaths(name, prop)...)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func propertyPaths(path string, prop jsonschema.Property) []string {
+	paths := []string{path}
+	for name, nested := range prop.Properties {
+		paths = append(paths, propertyPaths(path+"."+name, nested)...)
+	}
+	if prop.Items != nil {
+		for name, nested := range prop.Items.Properties {
+			paths = append(paths, propertyPaths(path+"[]."+name, nested)...)
+		}
+	}
+	return paths
 }
 
 func splitIdentifier(s string) []string {
