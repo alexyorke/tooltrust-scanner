@@ -302,10 +302,7 @@ func TestLoadMCPConfig_NoConfigFound(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
 
-	// Override HOME to prevent finding real ~/.claude.json.
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", dir)
-	defer os.Setenv("HOME", origHome)
+	isolateUserHome(t, dir)
 
 	_, _, err := loadMCPConfig()
 	require.Error(t, err)
@@ -367,9 +364,7 @@ func TestHandleScanConfig_NoConfigFile(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
 
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", dir)
-	defer os.Setenv("HOME", origHome)
+	isolateUserHome(t, dir)
 
 	req := mcplib.CallToolRequest{}
 	req.Params.Arguments = map[string]any{}
@@ -377,6 +372,14 @@ func TestHandleScanConfig_NoConfigFile(t *testing.T) {
 	result, err := handleScanConfig(context.Background(), req)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
+}
+
+func isolateUserHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+	t.Setenv("HOMEDRIVE", "")
+	t.Setenv("HOMEPATH", "")
 }
 
 // ── Self-scan skip tests ────────────────────────────────────────────────────

@@ -429,6 +429,12 @@ func parseRequirementsFile(path string) ([]nodeDependency, error) {
 		if i := strings.Index(line, "=="); i > 0 {
 			name := strings.TrimSpace(line[:i])
 			version := strings.TrimSpace(line[i+2:])
+			if marker := strings.IndexByte(version, ';'); marker >= 0 {
+				version = strings.TrimSpace(version[:marker])
+			}
+			if comment := strings.IndexByte(version, '#'); comment >= 0 {
+				version = strings.TrimSpace(version[:comment])
+			}
 			if name != "" && version != "" {
 				deps = append(deps, nodeDependency{Name: name, Version: version, Ecosystem: "PyPI", Source: "local_lockfile"})
 			}
@@ -449,21 +455,10 @@ func parsePNPMLockfile(path string) ([]nodeDependency, error) {
 	seen := map[string]bool{}
 	var deps []nodeDependency
 	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "/") && !strings.HasPrefix(trimmed, "'/") {
+		name, version, ok := parsePNPMLockKey(line)
+		if !ok {
 			continue
 		}
-		trimmed = strings.Trim(trimmed, "'")
-		trimmed = strings.TrimSuffix(trimmed, ":")
-		trimmed = strings.TrimPrefix(trimmed, "/")
-		if trimmed == "" {
-			continue
-		}
-		idx := strings.LastIndex(trimmed, "@")
-		if idx <= 0 || idx == len(trimmed)-1 {
-			continue
-		}
-		name, version := trimmed[:idx], trimmed[idx+1:]
 		k := name + "@" + version
 		if seen[k] {
 			continue
@@ -472,6 +467,27 @@ func parsePNPMLockfile(path string) ([]nodeDependency, error) {
 		deps = append(deps, nodeDependency{Name: name, Version: version, Ecosystem: "npm", Source: "local_lockfile"})
 	}
 	return deps, nil
+}
+
+func parsePNPMLockKey(line string) (name, version string, ok bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "/") && !strings.HasPrefix(trimmed, "'/") && !strings.HasPrefix(trimmed, "\"/") {
+		return "", "", false
+	}
+	trimmed = strings.TrimSuffix(trimmed, ":")
+	trimmed = strings.Trim(trimmed, "'\"")
+	trimmed = strings.TrimPrefix(trimmed, "/")
+	if trimmed == "" {
+		return "", "", false
+	}
+	if idx := strings.Index(trimmed, "("); idx >= 0 {
+		trimmed = trimmed[:idx]
+	}
+	idx := strings.LastIndex(trimmed, "@")
+	if idx <= 0 || idx == len(trimmed)-1 {
+		return "", "", false
+	}
+	return trimmed[:idx], trimmed[idx+1:], true
 }
 
 func parseYarnLockfile(path string) ([]nodeDependency, error) {

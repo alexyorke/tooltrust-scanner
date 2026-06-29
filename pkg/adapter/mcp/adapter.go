@@ -126,7 +126,7 @@ var permissionRules = []struct {
 		permissionRule{
 			propKeys:     []string{"url", "uri", "endpoint", "host"},
 			descKeywords: []string{"url", "network", "http", "https", "fetch", "remote", "download"},
-			nameKeywords: []string{"fetch", "scrape", "crawl", "download", "search", "query", "api", "request"},
+			nameKeywords: []string{"fetch", "scrape", "crawl", "download", "search", "api", "request"},
 		},
 	},
 	{

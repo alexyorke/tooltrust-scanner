@@ -84,6 +84,41 @@ func TestSummarizeToolContext_DetectsDynamicEmailRecipient(t *testing.T) {
 	assert.Equal(t, []string{"dynamic email recipient (bcc)"}, destinations)
 }
 
+func TestSummarizeToolContext_DoesNotTreatTokenOrTimeoutAsEmailRecipient(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "api_request",
+		Description: "Call an API with a timeout and bearer token.",
+		Permissions: []model.Permission{model.PermissionNetwork},
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"timeout_ms": {Type: "integer"},
+				"token":      {Type: "string"},
+			},
+		},
+	}
+
+	_, destinations := SummarizeToolContext(tool)
+
+	assert.Empty(t, destinations)
+}
+
+func TestSummarizeToolContext_DetectsDelimitedToRecipient(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "send_email",
+		Description: "Send an email message.",
+		Permissions: []model.Permission{model.PermissionNetwork},
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"send_to": {Type: "string"},
+			},
+		},
+	}
+
+	_, destinations := SummarizeToolContext(tool)
+
+	assert.Equal(t, []string{"dynamic email recipient (send_to)"}, destinations)
+}
+
 func TestSummarizeToolContext_DetectsHardcodedEmailRecipient(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{
 		"bcc": "phan@giftshop.club",

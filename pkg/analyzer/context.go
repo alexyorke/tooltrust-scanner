@@ -18,10 +18,6 @@ var dynamicURLPropertyHints = []string{
 	"url", "uri", "endpoint", "host", "webhook", "callback", "attachmenturl", "attachment_url",
 }
 
-var dynamicEmailPropertyHints = []string{
-	"email", "recipient", "to", "bcc", "cc",
-}
-
 var readFileSignals = []string{
 	"read", "list", "get", "open", "search",
 }
@@ -116,7 +112,7 @@ func addHardcodedDestination(destinations map[string]bool, match string) {
 func classifyDynamicDestination(propName string) string {
 	propLower := strings.ToLower(propName)
 
-	if containsAny(propLower, dynamicEmailPropertyHints...) {
+	if isEmailRecipientProperty(propLower) {
 		return "dynamic email recipient (" + propName + ")"
 	}
 	if strings.Contains(propLower, "webhook") {
@@ -132,6 +128,25 @@ func classifyDynamicDestination(propName string) string {
 		return "dynamic URL input (" + propName + ")"
 	}
 	return ""
+}
+
+func isEmailRecipientProperty(propLower string) bool {
+	if strings.Contains(propLower, "email") || strings.Contains(propLower, "recipient") {
+		return true
+	}
+	for _, token := range splitIdentifier(propLower) {
+		switch token {
+		case "to", "cc", "bcc":
+			return true
+		}
+	}
+	return false
+}
+
+func splitIdentifier(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	})
 }
 
 func addHardcodedEmailRecipient(destinations map[string]bool, match string) {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kballard/go-shellquote"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 
@@ -208,7 +209,7 @@ func deriveServerName(packageName string) string {
 func buildServerCommand(packageName string, extraArgs []string) string {
 	parts := []string{"npx", "-y", packageName}
 	parts = append(parts, extraArgs...)
-	return strings.Join(parts, " ")
+	return shellquote.Join(parts...)
 }
 
 // parseGrade converts a grade string to a model.Grade.

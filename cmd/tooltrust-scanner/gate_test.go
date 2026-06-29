@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kballard/go-shellquote"
+
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
@@ -38,6 +40,25 @@ func TestBuildServerCommand_WithExtraArgs(t *testing.T) {
 	want := "npx -y @modelcontextprotocol/server-filesystem /tmp /home"
 	if got != want {
 		t.Errorf("buildServerCommand() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildServerCommand_PreservesExtraArgWithSpaces(t *testing.T) {
+	got := buildServerCommand("@modelcontextprotocol/server-filesystem", []string{"C:/Users/Alice/My Project"})
+
+	args, err := shellquote.Split(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"npx", "-y", "@modelcontextprotocol/server-filesystem", "C:/Users/Alice/My Project"}
+	if len(args) != len(want) {
+		t.Fatalf("args length = %d, want %d (%q)", len(args), len(want), got)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("args[%d] = %q, want %q (command %q)", i, args[i], want[i], got)
+		}
 	}
 }
 

@@ -305,6 +305,29 @@ func TestAdapter_Parse_DBTool(t *testing.T) {
 	assert.Contains(t, tools[0].Permissions, model.PermissionDB)
 }
 
+func TestAdapter_Parse_QueryDatabaseDoesNotInferNetwork(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "query_database",
+				Description: "Run a SQL query against the configured database.",
+				InputSchema: mcp.InputSchema{
+					Type: "object",
+					Properties: map[string]mcp.SchemaProperty{
+						"query": {Type: "string"},
+					},
+				},
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Permissions, model.PermissionDB)
+	assert.NotContains(t, tools[0].Permissions, model.PermissionNetwork)
+}
+
 // TestAdapter_Parse_ArrayTypeField verifies that a JSON Schema "type" value
 // encoded as an array (e.g. ["string","null"]) is accepted without error and
 // that the first non-null element is used as the property type.
