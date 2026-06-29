@@ -35,3 +35,16 @@ func TestExtractRouteRegistrations_UsesMCPPathFromChainedGroup(t *testing.T) {
 	assert.Equal(t, "/mcp_message", routes[0].Path)
 	assert.Equal(t, "mcpHandler.ServeHTTP", routes[0].Handler)
 }
+
+func TestExtractRouteRegistrations_DirectHandlerArgument(t *testing.T) {
+	text := `func Register(api Router, mcpHandler Handler) {
+	api.Any("/mcp_message", mcpHandler)
+}
+`
+
+	routes := extractRouteRegistrations("router.go", text)
+
+	require.Len(t, routes, 1)
+	assert.Equal(t, "/mcp_message", routes[0].Path)
+	assert.Equal(t, "mcpHandler", routes[0].Handler)
+}

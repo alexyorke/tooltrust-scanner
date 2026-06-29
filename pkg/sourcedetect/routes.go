@@ -25,6 +25,7 @@ var (
 	routeStartPattern  = regexp.MustCompile(`\.\s*(?:Any|GET|POST|PUT|PATCH|DELETE|Handle)\s*\(`)
 	quotedPathPattern  = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]")
 	handlerCallPattern = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.]*)\s*\(\s*c\s*\)`)
+	handlerArgPattern  = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]\\s*,\\s*([A-Za-z_][A-Za-z0-9_.]*)\\b")
 )
 
 func detectRouteAuthAsymmetry(root string, opts Options) ([]RouteFinding, []model.Issue, error) {
@@ -77,7 +78,7 @@ func extractRouteRegistrations(rel, text string) []routeRegistration {
 		if path == "" {
 			continue
 		}
-		handler := extractHandlerCall(block)
+		handler := extractHandlerCall(block, path)
 		if handler == "" {
 			continue
 		}
@@ -133,19 +134,35 @@ func captureCallBlock(lines []string, start int) (block string, endLine int) {
 	return "", start
 }
 
-func extractHandlerCall(block string) string {
+func extractHandlerCall(block, path string) string {
 	matches := handlerCallPattern.FindAllStringSubmatch(block, -1)
 	for _, match := range matches {
 		if len(match) < 2 {
 			continue
 		}
 		handler := match[1]
-		if strings.Contains(handler, "AuthRequired") || strings.Contains(handler, "IPWhiteList") {
+		if isRouteMiddleware(handler) {
+			continue
+		}
+		return handler
+	}
+	for _, match := range handlerArgPattern.FindAllStringSubmatch(block, -1) {
+		if len(match) < 3 || match[1] != path {
+			continue
+		}
+		handler := match[2]
+		if isRouteMiddleware(handler) {
 			continue
 		}
 		return handler
 	}
 	return ""
+}
+
+func isRouteMiddleware(handler string) bool {
+	return strings.Contains(handler, "AuthRequired") ||
+		strings.Contains(handler, "IPWhiteList") ||
+		strings.Contains(handler, "IPWhitelist")
 }
 
 func findFailOpenWhitelistEvidence(text string) (Evidence, bool) {
