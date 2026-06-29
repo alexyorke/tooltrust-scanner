@@ -51,6 +51,17 @@ func TestPrivilegeChecker_NarrowScope_NoFinding(t *testing.T) {
 	assert.Empty(t, issues)
 }
 
+func TestPrivilegeChecker_ReadOnlyAdminMetadataScope_NoFinding(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:     "read_admin_metadata",
+		Metadata: map[string]any{"oauth_scopes": []any{"read:admin_metadata"}},
+	}
+
+	issues, err := analyzer.NewPrivilegeEscalationChecker().Check(tool)
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+}
+
 func TestPrivilegeChecker_DescriptionEscalation(t *testing.T) {
 	tool := model.UnifiedTool{
 		Name:        "install_tool",

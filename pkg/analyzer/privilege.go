@@ -64,19 +64,15 @@ func (c *PrivilegeEscalationChecker) Check(tool model.UnifiedTool) ([]model.Issu
 	if scopes := extractStringSlice(tool.Metadata, "oauth_scopes"); len(scopes) > 0 {
 		for _, scope := range scopes {
 			scopeLower := strings.ToLower(strings.TrimSpace(scope))
-			for _, broad := range broadOAuthScopes {
-				if scopeLower == broad || strings.HasSuffix(scopeLower, ":write") ||
-					strings.Contains(scopeLower, "admin") || scopeLower == "*" {
-					issues = append(issues, model.Issue{
-						RuleID:      "AS-005",
-						ToolName:    tool.Name,
-						Severity:    model.SeverityHigh,
-						Code:        "BROAD_OAUTH_SCOPE",
-						Description: fmt.Sprintf("tool declares over-broad OAuth scope %q", scope),
-						Location:    "metadata.oauth_scopes",
-					})
-					break
-				}
+			if isBroadOAuthScope(scopeLower) {
+				issues = append(issues, model.Issue{
+					RuleID:      "AS-005",
+					ToolName:    tool.Name,
+					Severity:    model.SeverityHigh,
+					Code:        "BROAD_OAUTH_SCOPE",
+					Description: fmt.Sprintf("tool declares over-broad OAuth scope %q", scope),
+					Location:    "metadata.oauth_scopes",
+				})
 			}
 		}
 	}
@@ -98,6 +94,25 @@ func (c *PrivilegeEscalationChecker) Check(tool model.UnifiedTool) ([]model.Issu
 	}
 
 	return issues, nil
+}
+
+func isBroadOAuthScope(scopeLower string) bool {
+	for _, broad := range broadOAuthScopes {
+		if scopeLower == broad {
+			return true
+		}
+	}
+	if strings.HasSuffix(scopeLower, ":write") {
+		return true
+	}
+	for _, token := range strings.FieldsFunc(scopeLower, func(r rune) bool {
+		return r == ':' || r == '/' || r == ' ' || r == ','
+	}) {
+		if token == "admin" {
+			return true
+		}
+	}
+	return false
 }
 
 // extractStringSlice is a helper that reads a []string from tool.Metadata.
