@@ -39,6 +39,16 @@ var secretParamAllowlist = map[string]bool{
 	"synctoken":          true,
 	"resume_token":       true,
 	"resumetoken":        true,
+	"maxtokens":          true,
+	"inputtokens":        true,
+	"outputtokens":       true,
+	"prompttokens":       true,
+	"completiontokens":   true,
+	"totaltokens":        true,
+	"tokencount":         true,
+	"tokencounts":        true,
+	"tokenlimit":         true,
+	"tokenizer":          true,
 }
 
 // secretDescriptionPatterns detect when a tool description signals that

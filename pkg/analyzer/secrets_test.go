@@ -165,6 +165,29 @@ func TestSecretChecker_PaginationTokens_NoFalsePositive(t *testing.T) {
 	}
 }
 
+func TestSecretChecker_ModelTokenFields_NoFalsePositive(t *testing.T) {
+	for _, propName := range []string{
+		"max_tokens",
+		"maxTokens",
+		"input_tokens",
+		"output_tokens",
+		"token_count",
+		"tokenizer",
+	} {
+		tool := model.UnifiedTool{
+			Name: "completion_tool",
+			InputSchema: jsonschema.Schema{
+				Properties: map[string]jsonschema.Property{
+					propName: {Type: "integer"},
+				},
+			},
+		}
+		issues, err := analyzer.NewSecretHandlingChecker().Check(tool)
+		require.NoError(t, err)
+		assert.Empty(t, issues, "param %q must not trigger AS-010 (model token field, not secret)", propName)
+	}
+}
+
 func TestEngine_AS010_SecretParam(t *testing.T) {
 	tool := model.UnifiedTool{
 		Name: "creds_tool",
