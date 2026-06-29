@@ -464,3 +464,22 @@ func TestProcessToolsRaw_SingleCleanTool(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Summary.Total)
 }
+
+func TestProcessToolsRaw_PopulatesDependencyVisibility(t *testing.T) {
+	tools := []model.UnifiedTool{
+		{
+			Name: "deploy_site",
+			Metadata: map[string]any{
+				"repo_url": "https://github.com/example/site",
+				"dependencies": []map[string]any{
+					{"name": "axios", "version": "1.14.1", "ecosystem": "npm", "source": "local_lockfile"},
+				},
+			},
+		},
+	}
+
+	result, err := processToolsRaw(context.Background(), tools)
+	require.NoError(t, err)
+	require.Len(t, result.Policies, 1)
+	assert.Equal(t, "Verified from local lockfile + Repo URL available", result.Policies[0].DependencyVisibility)
+}

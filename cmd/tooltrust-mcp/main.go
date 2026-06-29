@@ -817,6 +817,7 @@ func processToolsRaw(ctx context.Context, tools []model.UnifiedTool) (*ScanResul
 			return nil, fmt.Errorf("policy evaluation failed for tool %q: %v", tools[i].Name, evalErr)
 		}
 		policy.Behavior, policy.Destinations = analyzer.SummarizeToolContext(tools[i])
+		policy.DependencyVisibility, policy.DependencyNote = analyzer.DependencyVisibilityForTool(tools[i])
 		policies = append(policies, policy)
 
 		switch policy.Action {
