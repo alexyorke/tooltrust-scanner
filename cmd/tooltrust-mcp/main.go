@@ -186,10 +186,6 @@ func handleScanServer(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 		return mcplib.NewToolResultText(fmt.Sprintf("Failed to scan live server: %v", err)), nil
 	}
 
-	if len(tools) == 0 {
-		return mcplib.NewToolResultText("Server connected successfully, but no tools were exported by this server."), nil
-	}
-
 	return processTools(ctx, tools)
 }
 
