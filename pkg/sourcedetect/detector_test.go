@@ -18,6 +18,7 @@ func TestDetectEmbeddedMCP_PositiveFixtures(t *testing.T) {
 		{"go-mark3labs", "go-mark3labs", "go"},
 		{"python", "python-fastmcp", "python"},
 		{"ts", "ts-mcp-server", "typescript"},
+		{"ts-sdk-server", "ts-sdk-server", "typescript"},
 	}
 
 	for _, tc := range cases {

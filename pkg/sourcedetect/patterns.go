@@ -48,6 +48,7 @@ var signatures = []SDKSignature{
 		},
 		InitPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`\bnew\s+McpServer\s*\(`),
+			regexp.MustCompile(`\bnew\s+Server\s*\(`),
 		},
 		ToolDefPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`\.registerTool\s*\(`),
