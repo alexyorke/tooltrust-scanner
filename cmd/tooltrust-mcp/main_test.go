@@ -261,6 +261,41 @@ func TestRenderTextReport_CapabilitySurfaceMentionsExecAdvice(t *testing.T) {
 	assert.Contains(t, text, "remove code/command execution if it is not required")
 }
 
+func TestRenderTextReport_CapabilitySurfaceMentionsHTTPAdvice(t *testing.T) {
+	result := &ScanResult{
+		Summary: ScanSummary{
+			Total:           1,
+			Allowed:         0,
+			RequireApproval: 1,
+			Blocked:         0,
+		},
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName: "http_client",
+				Action:   model.ActionRequireApproval,
+				Score: model.RiskScore{
+					Grade: model.GradeC,
+					Issues: []model.Issue{
+						{
+							RuleID:      "AS-002",
+							Code:        "CAPABILITY_SURFACE",
+							Severity:    model.SeverityInfo,
+							Description: "declared capabilities: HTTP requests",
+							Evidence: []model.Evidence{
+								{Kind: "capability", Value: "http"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	text := renderTextReport(result)
+	assert.Contains(t, text, "declared capabilities: HTTP requests")
+	assert.Contains(t, text, "remove HTTP requests if it is not required")
+}
+
 func TestProcessToolsRaw_PopulatesBehaviorAndDestinationContext(t *testing.T) {
 	tools := []model.UnifiedTool{
 		{

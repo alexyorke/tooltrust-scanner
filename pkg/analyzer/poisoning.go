@@ -47,10 +47,6 @@ var jailbreakPattern = regexp.MustCompile(`(?i)jailbreak`)
 // "respects .gitignore rules".
 var injectionRules = []patternRule{
 	// ── High-confidence: explicit injection markers ──────────────────────────
-	{
-		regexp.MustCompile(`(?i)\b(ignore|disregard|bypass)\s+(?:\w+\s+){0,3}(instructions?|prompts?|context|rules?|guidelines?|restrictions?|filters?)`),
-		model.SeverityCritical,
-	},
 	{regexp.MustCompile(`(?im)^\s*system\s*:`), model.SeverityCritical},
 	{regexp.MustCompile(`(?i)<\s*INST\s*>`), model.SeverityCritical},
 	{regexp.MustCompile(`(?i)\[INST\]`), model.SeverityCritical},
@@ -145,9 +141,27 @@ func (c *PoisoningChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 
 	descLower := strings.ToLower(desc)
 	defensiveJailbreak := describesDefensiveJailbreakUse(descLower)
+	hasInjectionHint := containsAny(descLower, injectionRuleHints...)
 
 	var issues []model.Issue
-	if containsAny(descLower, injectionRuleHints...) {
+	if hasInjectionHint {
+		if matched, ok := matchInstructionOverridePhrase(desc); ok {
+			issues = append(issues, model.Issue{
+				RuleID:      "AS-001",
+				ToolName:    tool.Name,
+				Severity:    model.SeverityCritical,
+				Code:        "TOOL_POISONING",
+				Description: "possible prompt injection detected in tool description: instruction override phrase matched",
+				Location:    "description",
+				Evidence: []model.Evidence{
+					{Kind: "description_pattern", Value: "instruction_override_phrase"},
+					{Kind: "description_match", Value: matched},
+				},
+			})
+		}
+	}
+
+	if len(issues) == 0 && hasInjectionHint {
 		for _, rule := range injectionRules {
 			if rule.pattern == jailbreakPattern && defensiveJailbreak {
 				continue
@@ -189,6 +203,86 @@ func (c *PoisoningChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 	}
 
 	return issues, nil
+}
+
+type wordSpan struct {
+	start int
+	end   int
+}
+
+func matchInstructionOverridePhrase(desc string) (string, bool) {
+	spans := asciiWordSpans(desc)
+	if len(spans) == 0 {
+		return "", false
+	}
+
+	for i := 0; i < len(spans); i++ {
+		trigger := strings.ToLower(desc[spans[i].start:spans[i].end])
+		if !isInstructionOverrideTrigger(trigger) {
+			continue
+		}
+
+		limit := i + 4
+		if limit >= len(spans) {
+			limit = len(spans) - 1
+		}
+		for j := i + 1; j <= limit; j++ {
+			target := strings.ToLower(desc[spans[j].start:spans[j].end])
+			if isInstructionOverrideTarget(target) {
+				return desc[spans[i].start:spans[j].end], true
+			}
+		}
+	}
+
+	return "", false
+}
+
+func asciiWordSpans(s string) []wordSpan {
+	spans := make([]wordSpan, 0, 8)
+	inWord := false
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if isASCIIWordByte(s[i]) {
+			if !inWord {
+				start = i
+				inWord = true
+			}
+			continue
+		}
+		if inWord {
+			spans = append(spans, wordSpan{start: start, end: i})
+			inWord = false
+		}
+	}
+	if inWord {
+		spans = append(spans, wordSpan{start: start, end: len(s)})
+	}
+	return spans
+}
+
+func isASCIIWordByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9') ||
+		b == '_'
+}
+
+func isInstructionOverrideTrigger(word string) bool {
+	switch word {
+	case "ignore", "disregard", "bypass":
+		return true
+	default:
+		return false
+	}
+}
+
+func isInstructionOverrideTarget(word string) bool {
+	switch word {
+	case "instruction", "instructions", "prompt", "prompts", "context", "rule", "rules", "guideline", "guidelines", "restriction", "restrictions", "filter", "filters":
+		return true
+	default:
+		return false
+	}
 }
 
 // isDataMovementTool returns true when the tool name contains a data-movement

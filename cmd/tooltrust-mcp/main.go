@@ -802,6 +802,7 @@ func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig
 	hasFS := false
 	hasDB := false
 	hasExec := false
+	hasHTTP := false
 	hasRateLimitGap := false
 
 	for _, issue := range policy.Score.Issues {
@@ -816,6 +817,9 @@ func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig
 		}
 		if issue.RuleID == "AS-002" && issueHasCapability(issue, "exec") {
 			hasExec = true
+		}
+		if issue.RuleID == "AS-002" && issueHasCapability(issue, "http") {
+			hasHTTP = true
 		}
 
 		switch {
@@ -853,6 +857,9 @@ func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig
 	}
 	if hasExec {
 		safer = append(safer, "remove code/command execution if it is not required")
+	}
+	if hasHTTP {
+		safer = append(safer, "remove HTTP requests if it is not required")
 	}
 	if hasRateLimitGap {
 		safer = append(safer, "add explicit rate-limit, timeout, or retry settings")
