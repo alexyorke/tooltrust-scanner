@@ -264,7 +264,7 @@ func hasCodeExecutionCapability(tool model.UnifiedTool) bool {
 	if tool.HasPermission(model.PermissionExec) {
 		return true
 	}
-	for propName := range tool.InputSchema.Properties {
+	for _, propName := range schemaPropertyPaths(tool.InputSchema) {
 		if isCodeExecPropName(strings.ToLower(propName)) {
 			return true
 		}

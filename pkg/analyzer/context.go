@@ -169,6 +169,34 @@ func propertyPaths(path string, prop jsonschema.Property) []string {
 	return paths
 }
 
+func schemaLeafPropertyPaths(schema jsonschema.Schema) []string {
+	if len(schema.Properties) == 0 {
+		return nil
+	}
+	var paths []string
+	for name, prop := range schema.Properties {
+		paths = append(paths, leafPropertyPaths(name, prop)...)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func leafPropertyPaths(path string, prop jsonschema.Property) []string {
+	var paths []string
+	for name, nested := range prop.Properties {
+		paths = append(paths, leafPropertyPaths(path+"."+name, nested)...)
+	}
+	if prop.Items != nil {
+		for name, nested := range prop.Items.Properties {
+			paths = append(paths, leafPropertyPaths(path+"[]."+name, nested)...)
+		}
+	}
+	if len(paths) == 0 {
+		return []string{path}
+	}
+	return paths
+}
+
 func splitIdentifier(s string) []string {
 	return strings.FieldsFunc(s, func(r rune) bool {
 		return (r < 'a' || r > 'z') && (r < '0' || r > '9')

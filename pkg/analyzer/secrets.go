@@ -77,8 +77,8 @@ func (c *SecretHandlingChecker) Check(tool model.UnifiedTool) ([]model.Issue, er
 	var issues []model.Issue
 
 	// 1. Input schema: look for parameter names that indicate secrets
-	for propName := range tool.InputSchema.Properties {
-		nameLower := strings.ToLower(propName)
+	for _, propName := range schemaLeafPropertyPaths(tool.InputSchema) {
+		nameLower := strings.ToLower(schemaPathBase(propName))
 		if secretParamAllowlist[nameLower] || secretParamAllowlist[normalizeSecretParamName(nameLower)] {
 			continue
 		}
@@ -114,6 +114,14 @@ func (c *SecretHandlingChecker) Check(tool model.UnifiedTool) ([]model.Issue, er
 	}
 
 	return issues, nil
+}
+
+func schemaPathBase(path string) string {
+	trimmed := strings.TrimSuffix(path, "[]")
+	if idx := strings.LastIndex(trimmed, "."); idx >= 0 {
+		return trimmed[idx+1:]
+	}
+	return trimmed
 }
 
 func normalizeSecretParamName(name string) string {

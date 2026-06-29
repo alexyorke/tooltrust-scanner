@@ -63,6 +63,27 @@ func TestDoSChecker_NetworkPermission_WithTimeoutSchema_NoFinding(t *testing.T) 
 	assert.Empty(t, issues)
 }
 
+func TestDoSChecker_NetworkPermission_WithNestedTimeoutSchema_NoFinding(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "http_client",
+		Permissions: []model.Permission{model.PermissionHTTP},
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"request": {
+					Type: "object",
+					Properties: map[string]jsonschema.Property{
+						"timeout": {Type: "integer"},
+					},
+				},
+			},
+		},
+	}
+
+	issues, err := analyzer.NewDoSResilienceChecker().Check(tool)
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+}
+
 func TestDoSChecker_ExecPermission_NoRateLimit_Finding(t *testing.T) {
 	tool := model.UnifiedTool{
 		Name:        "run_command",

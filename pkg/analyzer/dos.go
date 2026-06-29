@@ -82,7 +82,7 @@ func hasRateLimitSignal(tool model.UnifiedTool) bool {
 		}
 	}
 	// Check input schema property names
-	for propName := range tool.InputSchema.Properties {
+	for _, propName := range schemaLeafPropertyPaths(tool.InputSchema) {
 		propLower := strings.ToLower(propName)
 		for _, indicator := range rateLimitIndicators {
 			if strings.Contains(propLower, indicator) {
