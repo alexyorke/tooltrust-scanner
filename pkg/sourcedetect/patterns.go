@@ -42,7 +42,7 @@ var signatures = []SDKSignature{
 	},
 	{
 		Language:       "typescript",
-		FileExtensions: []string{".ts", ".tsx", ".js", ".mjs"},
+		FileExtensions: []string{".ts", ".tsx", ".js", ".mjs", ".cjs"},
 		ImportPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`["']@modelcontextprotocol/sdk`),
 		},

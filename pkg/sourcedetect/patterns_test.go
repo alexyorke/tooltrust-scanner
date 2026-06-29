@@ -9,6 +9,9 @@ func TestSignatureForExt(t *testing.T) {
 	if got := signatureForExt(".tsx"); len(got) != 1 || got[0].Language != "typescript" {
 		t.Fatalf("expected typescript signature, got %#v", got)
 	}
+	if got := signatureForExt(".cjs"); len(got) != 1 || got[0].Language != "typescript" {
+		t.Fatalf("expected commonjs signature, got %#v", got)
+	}
 	if got := signatureForExt(".rb"); len(got) != 0 {
 		t.Fatalf("expected no signature, got %#v", got)
 	}
