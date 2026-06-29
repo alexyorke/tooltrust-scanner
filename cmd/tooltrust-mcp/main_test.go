@@ -108,10 +108,10 @@ func TestHandleScanJSON_EmptyToolsList(t *testing.T) {
 func TestRenderTextReport_IncludesEvidenceForFlaggedTools(t *testing.T) {
 	result := &ScanResult{
 		Summary: ScanSummary{
-			Total:    1,
-			Allowed:  0,
-			Approval: 1,
-			Blocked:  0,
+			Total:           1,
+			Allowed:         0,
+			RequireApproval: 1,
+			Blocked:         0,
 		},
 		Policies: []model.GatewayPolicy{
 			{
@@ -145,10 +145,10 @@ func TestRenderTextReport_IncludesEvidenceForFlaggedTools(t *testing.T) {
 func TestRenderTextReport_IncludesBehaviorAndDestinationContext(t *testing.T) {
 	result := &ScanResult{
 		Summary: ScanSummary{
-			Total:    1,
-			Allowed:  0,
-			Approval: 1,
-			Blocked:  0,
+			Total:           1,
+			Allowed:         0,
+			RequireApproval: 1,
+			Blocked:         0,
 		},
 		Policies: []model.GatewayPolicy{
 			{
@@ -169,10 +169,10 @@ func TestRenderTextReport_IncludesBehaviorAndDestinationContext(t *testing.T) {
 func TestRenderTextReport_IncludesDependencyVisibilityContext(t *testing.T) {
 	result := &ScanResult{
 		Summary: ScanSummary{
-			Total:    1,
-			Allowed:  0,
-			Approval: 1,
-			Blocked:  0,
+			Total:           1,
+			Allowed:         0,
+			RequireApproval: 1,
+			Blocked:         0,
 		},
 		Policies: []model.GatewayPolicy{
 			{
@@ -209,6 +209,42 @@ func TestProcessToolsRaw_PopulatesBehaviorAndDestinationContext(t *testing.T) {
 	require.Len(t, result.Policies, 1)
 	assert.Equal(t, []string{"uses_network"}, result.Policies[0].Behavior)
 	assert.Equal(t, []string{"dynamic URL input (url)"}, result.Policies[0].Destinations)
+}
+
+func TestProcessToolsRaw_UsesScannerJSONSummaryContract(t *testing.T) {
+	tools := []model.UnifiedTool{
+		{
+			Name:        "read_file",
+			Description: "Reads a file from disk.",
+			InputSchema: jsonschema.Schema{
+				Properties: map[string]jsonschema.Property{
+					"path": {Type: "string"},
+				},
+			},
+		},
+	}
+
+	result, err := processToolsRaw(context.Background(), tools)
+	require.NoError(t, err)
+
+	encoded, err := json.Marshal(result)
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(encoded, &payload))
+
+	summary, ok := payload["summary"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, summary, "require_approval")
+	assert.NotContains(t, summary, "requireApproval")
+	assert.Equal(t, float64(1), summary["allowed"])
+	assert.Equal(t, float64(0), summary["avg_score"])
+	assert.Equal(t, "A", summary["avg_grade"])
+
+	scannedAt, ok := summary["scanned_at"].(string)
+	require.True(t, ok)
+	_, err = time.Parse(time.RFC3339, scannedAt)
+	require.NoError(t, err)
 }
 
 // ── tooltrust_scan_server tests ─────────────────────────────────────────────

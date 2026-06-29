@@ -559,10 +559,13 @@ type ScanResult struct {
 
 // ScanSummary gives a high-level count of the enforcement decisions.
 type ScanSummary struct {
-	Total    int `json:"total"`
-	Allowed  int `json:"allowed"`
-	Approval int `json:"requireApproval"`
-	Blocked  int `json:"blocked"`
+	Total           int       `json:"total"`
+	Allowed         int       `json:"allowed"`
+	RequireApproval int       `json:"require_approval"`
+	Blocked         int       `json:"blocked"`
+	AvgScore        int       `json:"avg_score"`
+	AvgGrade        string    `json:"avg_grade"`
+	ScannedAt       time.Time `json:"scanned_at"`
 }
 
 func processTools(ctx context.Context, tools []model.UnifiedTool) (*mcplib.CallToolResult, error) {
@@ -649,7 +652,7 @@ func renderTextReport(result *ScanResult) string {
 
 	lines = append(lines,
 		fmt.Sprintf("Scan Summary: %d tools scanned | %d allowed | %d need approval | %d blocked",
-			result.Summary.Total, result.Summary.Allowed, result.Summary.Approval, result.Summary.Blocked),
+			result.Summary.Total, result.Summary.Allowed, result.Summary.RequireApproval, result.Summary.Blocked),
 		fmt.Sprintf("Tool Grades: %s", joinOrNone(gradeParts)),
 		fmt.Sprintf("Findings by Severity: %s (%d total)", joinOrNone(sevParts), totalFindings),
 	)
@@ -812,7 +815,7 @@ func processToolsRaw(ctx context.Context, tools []model.UnifiedTool) (*ScanResul
 		return nil, fmt.Errorf("failed to initialize scanner: %v", err)
 	}
 	var policies []model.GatewayPolicy
-	summary := ScanSummary{Total: len(tools)}
+	summary := ScanSummary{Total: len(tools), ScannedAt: time.Now().UTC()}
 
 	for i := range tools {
 		score, scanErr := scanner.Scan(ctx, tools[i])
@@ -831,11 +834,27 @@ func processToolsRaw(ctx context.Context, tools []model.UnifiedTool) (*ScanResul
 		case model.ActionAllow:
 			summary.Allowed++
 		case model.ActionRequireApproval:
-			summary.Approval++
+			summary.RequireApproval++
 		case model.ActionBlock:
 			summary.Blocked++
 		}
 	}
 
+	summary.AvgScore, summary.AvgGrade = avgRiskScore(policies)
+
 	return &ScanResult{Policies: policies, Summary: summary}, nil
+}
+
+func avgRiskScore(policies []model.GatewayPolicy) (int, string) {
+	if len(policies) == 0 {
+		return 0, string(model.GradeA)
+	}
+
+	total := 0
+	for i := range policies {
+		total += policies[i].Score.Score
+	}
+
+	avg := total / len(policies)
+	return avg, string(model.GradeFromScore(avg))
 }

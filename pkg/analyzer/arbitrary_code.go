@@ -59,6 +59,24 @@ var arbitraryCodePatterns = []*regexp.Regexp{
 	regexp.MustCompile("(?i)`[^`]*\\b(curl|wget|bash|sh)\\b[^`]*`"),
 }
 
+var arbitraryCodePatternHints = []string{
+	"eval",
+	"evaluat",
+	"execut",
+	"run ",
+	"runs ",
+	"inject",
+	"python code",
+	"javascript",
+	" js",
+	"code snippet",
+	"page.evaluate",
+	"frame.evaluate",
+	"window.eval",
+	"document.eval",
+	"`",
+}
+
 // arbitraryCodeNameSuffixes are tool-name suffixes that strongly signal JS
 // evaluation (e.g. chrome_evaluate, puppeteer_evaluate, cdp_eval).
 var arbitraryCodeNameSuffixes = []string{
@@ -226,33 +244,35 @@ func (c *ArbitraryCodeChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 	// falsely flagged when the description happens to contain "execute" in a
 	// non-code-execution context.
 	combined := nameLower + " " + descLower
-	for _, re := range arbitraryCodePatterns {
-		if !re.MatchString(combined) {
-			continue
-		}
-		isSafe := false
-		for _, prefix := range arbitraryCodeSafeNamePrefixes {
-			if strings.HasPrefix(nameLower, prefix) {
-				isSafe = true
-				break
+	if containsAny(combined, arbitraryCodePatternHints...) {
+		for _, re := range arbitraryCodePatterns {
+			if !re.MatchString(combined) {
+				continue
 			}
-		}
-		if !isSafe {
-			for _, safe := range arbitraryCodeSafeNameSubstrings {
-				if strings.Contains(nameLower, safe) {
+			isSafe := false
+			for _, prefix := range arbitraryCodeSafeNamePrefixes {
+				if strings.HasPrefix(nameLower, prefix) {
 					isSafe = true
 					break
 				}
 			}
+			if !isSafe {
+				for _, safe := range arbitraryCodeSafeNameSubstrings {
+					if strings.Contains(nameLower, safe) {
+						isSafe = true
+						break
+					}
+				}
+			}
+			if isSafe && !descriptionConfirmsExecution(descLower) {
+				continue
+			}
+			matched := re.FindString(combined)
+			return emitArbitraryCodeFinding(tool.Name, []model.Evidence{
+				{Kind: "pattern", Value: re.String()},
+				{Kind: "match", Value: matched},
+			}, hasCodeExecutionCapability(tool)), nil
 		}
-		if isSafe && !descriptionConfirmsExecution(descLower) {
-			continue
-		}
-		matched := re.FindString(combined)
-		return emitArbitraryCodeFinding(tool.Name, []model.Evidence{
-			{Kind: "pattern", Value: re.String()},
-			{Kind: "match", Value: matched},
-		}, hasCodeExecutionCapability(tool)), nil
 	}
 
 	return nil, nil

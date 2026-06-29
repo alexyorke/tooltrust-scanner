@@ -284,7 +284,9 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 			if writeErr := os.WriteFile(opts.outputFile, encoded, 0o644); writeErr != nil {
 				return fmt.Errorf("failed to write output file: %w", writeErr)
 			}
-			fmt.Fprintf(os.Stderr, "report written to %s\n", opts.outputFile)
+			if shouldPrintWriteNotice(os.Stderr) {
+				fmt.Fprintf(os.Stderr, "report written to %s\n", opts.outputFile)
+			}
 		} else {
 			fmt.Println(string(encoded))
 		}
@@ -301,6 +303,19 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 	}
 	printStarPrompt()
 	return nil
+}
+
+func shouldPrintWriteNotice(f *os.File) bool {
+	if f == nil {
+		return false
+	}
+
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+
+	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
 // printPtermUI renders the scan report as a pterm tree + summary box.

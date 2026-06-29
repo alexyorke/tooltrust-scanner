@@ -78,15 +78,47 @@ func SummarizeToolContext(tool model.UnifiedTool) (behavior, destinations []stri
 }
 
 func addHardcodedMatches(destinations map[string]bool, text string) {
-	for _, match := range hardcodedURLPattern.FindAllString(text, -1) {
-		addHardcodedDestination(destinations, match)
+	if text == "" {
+		return
 	}
-	for _, match := range hardcodedHostPattern.FindAllString(text, -1) {
-		addHardcodedDestination(destinations, match)
+
+	if strings.Contains(text, "https://") || strings.Contains(text, "http://") {
+		for _, match := range hardcodedURLPattern.FindAllString(text, -1) {
+			addHardcodedDestination(destinations, match)
+		}
 	}
-	for _, match := range hardcodedEmailPattern.FindAllString(text, -1) {
-		addHardcodedEmailRecipient(destinations, match)
+
+	if mayContainHostLikeToken(text) {
+		for _, match := range hardcodedHostPattern.FindAllString(text, -1) {
+			addHardcodedDestination(destinations, match)
+		}
 	}
+
+	if strings.Contains(text, "@") {
+		for _, match := range hardcodedEmailPattern.FindAllString(text, -1) {
+			addHardcodedEmailRecipient(destinations, match)
+		}
+	}
+}
+
+func mayContainHostLikeToken(text string) bool {
+	for i := 1; i < len(text)-1; i++ {
+		if text[i] != '.' {
+			continue
+		}
+		if isHostTokenByte(text[i-1]) && isHostTokenByte(text[i+1]) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isHostTokenByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9') ||
+		b == '-'
 }
 
 func addHardcodedDestination(destinations map[string]bool, match string) {

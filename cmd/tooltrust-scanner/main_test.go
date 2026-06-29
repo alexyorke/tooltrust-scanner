@@ -116,6 +116,17 @@ func TestRunScan_JSONOutputDoesNotSuppressLaterTextOutput(t *testing.T) {
 	assert.Contains(t, buf.String(), "Scan Summary")
 }
 
+func TestShouldPrintWriteNotice_FileIsNonInteractive(t *testing.T) {
+	output, err := os.Create(filepath.Join(t.TempDir(), "stderr.txt"))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = output.Close()
+	})
+
+	assert.False(t, shouldPrintWriteNotice(output))
+	assert.False(t, shouldPrintWriteNotice(nil))
+}
+
 func TestFormatToolLabel_HidesScoreForAllowGradeA(t *testing.T) {
 	label := formatToolLabel(model.GatewayPolicy{
 		ToolName: "read_file",
