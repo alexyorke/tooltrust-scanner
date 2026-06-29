@@ -233,6 +233,8 @@ func TestProcessToolsRaw_UsesScannerJSONSummaryContract(t *testing.T) {
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(encoded, &payload))
 
+	assert.Equal(t, "1.0", payload["schema_version"])
+
 	summary, ok := payload["summary"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, summary, "require_approval")
@@ -273,6 +275,8 @@ func TestScanOneServer_EmptyToolServerUsesScannerSummaryContract(t *testing.T) {
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(encoded, &payload))
+
+	assert.Equal(t, "1.0", payload["schema_version"])
 
 	summary, ok := payload["summary"].(map[string]any)
 	require.True(t, ok)

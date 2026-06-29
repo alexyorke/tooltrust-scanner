@@ -585,8 +585,9 @@ func loadMCPConfig() (string, mcpConfig, error) {
 
 // ScanResult is the JSON shape returned by the scan tools.
 type ScanResult struct {
-	Policies []model.GatewayPolicy `json:"policies"`
-	Summary  ScanSummary           `json:"summary"`
+	SchemaVersion string                `json:"schema_version"`
+	Policies      []model.GatewayPolicy `json:"policies"`
+	Summary       ScanSummary           `json:"summary"`
 }
 
 // ScanSummary gives a high-level count of the enforcement decisions.
@@ -874,7 +875,11 @@ func processToolsRaw(ctx context.Context, tools []model.UnifiedTool) (*ScanResul
 
 	summary.AvgScore, summary.AvgGrade = avgRiskScore(policies)
 
-	return &ScanResult{Policies: policies, Summary: summary}, nil
+	return &ScanResult{
+		SchemaVersion: "1.0",
+		Policies:      policies,
+		Summary:       summary,
+	}, nil
 }
 
 func avgRiskScore(policies []model.GatewayPolicy) (int, string) {
