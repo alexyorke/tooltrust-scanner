@@ -204,14 +204,14 @@ func inferPermissions(t Tool) []model.Permission {
 		for _, propKey := range inputSchemaPropertyPaths(t.InputSchema) {
 			propLower := strings.ToLower(propKey)
 			for _, ruleKey := range entry.rule.propKeys {
-				if propLower == ruleKey || strings.Contains(propLower, ruleKey) {
+				if propertyNameMatchesRule(propLower, ruleKey, entry.permission) {
 					add(entry.permission)
 				}
 			}
 		}
 		// Check description keywords
 		for _, kw := range entry.rule.descKeywords {
-			if strings.Contains(descLower, kw) {
+			if descriptionMatchesRule(descLower, kw, entry.permission) {
 				add(entry.permission)
 			}
 		}
@@ -229,6 +229,41 @@ func inferPermissions(t Tool) []model.Permission {
 		}
 	}
 	return perms
+}
+
+func propertyNameMatchesRule(propLower, ruleKey string, permission model.Permission) bool {
+	if permission != model.PermissionFS {
+		return propLower == ruleKey || strings.Contains(propLower, ruleKey)
+	}
+	if propLower == ruleKey {
+		return true
+	}
+	for _, token := range strings.FieldsFunc(propLower, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	}) {
+		if token == ruleKey {
+			return true
+		}
+	}
+	return false
+}
+
+func descriptionMatchesRule(descLower, keyword string, permission model.Permission) bool {
+	if permission == model.PermissionFS && keyword == "file" {
+		return containsToken(descLower, keyword)
+	}
+	return strings.Contains(descLower, keyword)
+}
+
+func containsToken(s, token string) bool {
+	for _, field := range strings.FieldsFunc(s, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	}) {
+		if field == token {
+			return true
+		}
+	}
+	return false
 }
 
 func inputSchemaPropertyPaths(schema InputSchema) []string {

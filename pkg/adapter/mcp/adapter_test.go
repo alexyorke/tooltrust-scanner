@@ -71,6 +71,28 @@ func TestAdapter_Parse_NetworkTool(t *testing.T) {
 	assert.Contains(t, tools[0].Permissions, model.PermissionNetwork)
 }
 
+func TestAdapter_Parse_URLFieldsDoNotInferFilesystem(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "oauth_profile",
+			"description": "Build an OAuth redirect URL for a user profile.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"redirect_uri": {"type": "string"},
+					"profile_url": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Permissions, model.PermissionNetwork)
+	assert.NotContains(t, tools[0].Permissions, model.PermissionFS)
+}
+
 func TestAdapter_Parse_ExecTool(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{
