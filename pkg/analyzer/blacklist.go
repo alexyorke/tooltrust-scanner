@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"golang.org/x/mod/semver"
 
@@ -113,15 +114,26 @@ type BlacklistChecker struct {
 	index blacklistIndex
 }
 
+var (
+	embeddedBlacklistIndexOnce sync.Once
+	embeddedBlacklistIndex     blacklistIndex
+)
+
+func loadEmbeddedBlacklistIndex() blacklistIndex {
+	embeddedBlacklistIndexOnce.Do(func() {
+		idx, err := buildBlacklistIndex(blacklistJSON)
+		if err != nil {
+			embeddedBlacklistIndex = blacklistIndex{}
+			return
+		}
+		embeddedBlacklistIndex = idx
+	})
+	return embeddedBlacklistIndex
+}
+
 // NewBlacklistChecker returns a BlacklistChecker with the embedded blacklist.
 func NewBlacklistChecker() *BlacklistChecker {
-	idx, err := buildBlacklistIndex(blacklistJSON)
-	if err != nil {
-		// The JSON is embedded at compile time and cannot be corrupt in production;
-		// return an empty checker so the scanner still starts cleanly.
-		return &BlacklistChecker{index: blacklistIndex{}}
-	}
-	return &BlacklistChecker{index: idx}
+	return &BlacklistChecker{index: loadEmbeddedBlacklistIndex()}
 }
 
 // newBlacklistCheckerWithData constructs a BlacklistChecker from a custom JSON

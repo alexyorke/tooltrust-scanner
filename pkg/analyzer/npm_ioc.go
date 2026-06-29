@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
@@ -90,22 +91,31 @@ type NPMIOCChecker struct {
 	index  npmIOCIndex
 }
 
+var (
+	embeddedNPMIOCIndexOnce sync.Once
+	embeddedNPMIOCIndex     npmIOCIndex
+)
+
+func loadEmbeddedNPMIOCIndex() npmIOCIndex {
+	embeddedNPMIOCIndexOnce.Do(func() {
+		idx, err := buildNPMIOCIndex(npmIOCsJSON)
+		if err != nil {
+			embeddedNPMIOCIndex = npmIOCIndex{packageNames: map[string]npmIOCEntry{}}
+			return
+		}
+		embeddedNPMIOCIndex = idx
+	})
+	return embeddedNPMIOCIndex
+}
+
 func NewNPMIOCChecker() *NPMIOCChecker {
-	idx, err := buildNPMIOCIndex(npmIOCsJSON)
-	if err != nil {
-		idx = npmIOCIndex{packageNames: map[string]npmIOCEntry{}}
-	}
-	return &NPMIOCChecker{client: newHTTPNPMRegistryClient(), index: idx}
+	return &NPMIOCChecker{client: newHTTPNPMRegistryClient(), index: loadEmbeddedNPMIOCIndex()}
 }
 
 func NewNPMIOCCheckerWithMock(packages map[string]npmVersionResponse, queryErr error) *NPMIOCChecker {
-	idx, err := buildNPMIOCIndex(npmIOCsJSON)
-	if err != nil {
-		idx = npmIOCIndex{packageNames: map[string]npmIOCEntry{}}
-	}
 	return &NPMIOCChecker{
 		client: &mockNPMRegistryClient{packages: packages, err: queryErr},
-		index:  idx,
+		index:  loadEmbeddedNPMIOCIndex(),
 	}
 }
 
