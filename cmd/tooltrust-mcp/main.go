@@ -388,7 +388,16 @@ func handleScanConfig(ctx context.Context, _ mcplib.CallToolRequest) (*mcplib.Ca
 	}
 
 	if len(cfg.MCPServers) == 0 {
-		return mcplib.NewToolResultText(fmt.Sprintf("No MCP servers configured in %s.", configPath)), nil
+		out := configScanResult{
+			ConfigFile: configPath,
+			Servers:    []serverScanResult{},
+			Summary:    configScanSummary{},
+		}
+		encoded, err := json.MarshalIndent(out, "", "  ")
+		if err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("failed to serialize result: %v", err)), nil
+		}
+		return mcplib.NewToolResultText(string(encoded)), nil
 	}
 
 	// Scan all servers in parallel.

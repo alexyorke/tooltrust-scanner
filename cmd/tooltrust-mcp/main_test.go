@@ -456,8 +456,21 @@ func TestHandleScanConfig_EmptyServers(t *testing.T) {
 	result, err := handleScanConfig(context.Background(), req)
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
-	text := result.Content[0].(mcplib.TextContent).Text
-	assert.Contains(t, text, "No MCP servers configured")
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(mcplib.TextContent).Text), &payload))
+	assert.Equal(t, ".mcp.json", payload["config_file"])
+
+	servers, ok := payload["servers"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, servers)
+
+	summary, ok := payload["summary"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, float64(0), summary["total"])
+	assert.Equal(t, float64(0), summary["scanned"])
+	assert.Equal(t, float64(0), summary["errors"])
+	assert.Equal(t, float64(0), summary["skipped"])
 }
 
 func TestHandleScanConfig_NoConfigFile(t *testing.T) {
