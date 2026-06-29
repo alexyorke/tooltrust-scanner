@@ -163,7 +163,7 @@ func (c *PoisoningChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 
 	if len(issues) == 0 && hasInjectionHint {
 		for _, rule := range injectionRules {
-			if rule.pattern == jailbreakPattern && defensiveJailbreak {
+			if rule.pattern.String() == `(?i)jailbreak` && defensiveJailbreak {
 				continue
 			}
 			if rule.pattern.MatchString(desc) {
