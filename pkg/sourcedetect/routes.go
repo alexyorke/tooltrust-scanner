@@ -22,7 +22,7 @@ type routeRegistration struct {
 }
 
 var (
-	routeStartPattern  = regexp.MustCompile(`\.\s*(?:Any|GET|POST|PUT|PATCH|DELETE|Handle)\s*\(`)
+	routeStartPattern  = regexp.MustCompile(`\.\s*(?:Any|GET|POST|PUT|PATCH|DELETE|HandleFunc|Handle)\s*\(`)
 	quotedPathPattern  = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]")
 	handlerCallPattern = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.]*)\s*\(\s*c\s*\)`)
 	handlerArgPattern  = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]\\s*,\\s*([A-Za-z_][A-Za-z0-9_.]*)\\b")
