@@ -685,18 +685,21 @@ func collectDependencies(tool model.UnifiedTool) ([]dependencyEvidence, error) {
 		return nil, err
 	}
 
-	seen := make(map[string]bool, len(metaDeps))
+	index := make(map[string]int, len(metaDeps))
 	result := make([]dependencyEvidence, 0, len(metaDeps))
 	for _, dep := range metaDeps {
 		k := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
-		if seen[k] {
-			continue
-		}
-		seen[k] = true
 		source := dep.Source
 		if source == "" {
 			source = "metadata"
 		}
+		if idx, ok := index[k]; ok {
+			if sourceRank(source) > sourceRank(result[idx].Source) {
+				result[idx].Source = source
+			}
+			continue
+		}
+		index[k] = len(result)
 		result = append(result, dependencyEvidence{
 			Dependency: dep,
 			Source:     source,
@@ -713,16 +716,33 @@ func collectDependencies(tool model.UnifiedTool) ([]dependencyEvidence, error) {
 
 	for _, dep := range lockfileDepsFetcher(repoURL) {
 		k := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
-		if seen[k] {
+		source := "lockfile"
+		if idx, ok := index[k]; ok {
+			if sourceRank(source) > sourceRank(result[idx].Source) {
+				result[idx].Source = source
+			}
 			continue
 		}
-		seen[k] = true
+		index[k] = len(result)
 		result = append(result, dependencyEvidence{
 			Dependency: dep,
-			Source:     "lockfile",
+			Source:     source,
 		})
 	}
 	return result, nil
+}
+
+func sourceRank(source string) int {
+	switch source {
+	case "local_lockfile":
+		return 3
+	case "lockfile":
+		return 2
+	case "metadata":
+		return 1
+	default:
+		return 0
+	}
 }
 
 // ── Severity helpers ──────────────────────────────────────────────────────────

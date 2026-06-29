@@ -197,33 +197,62 @@ func mergeDependencies(tool *model.UnifiedTool, deps []nodeDependency) {
 		}
 	}
 
-	seen := map[string]bool{}
-	for _, dep := range existing {
+	index := map[string]int{}
+	for i, dep := range existing {
 		name := stringMapValue(dep, "name")
 		version := stringMapValue(dep, "version")
 		ecosystem := stringMapValue(dep, "ecosystem")
-		seen[ecosystem+":"+name+"@"+version] = true
-		if dep["source"] == nil || dep["source"] == "" {
-			dep["source"] = "metadata"
+		key := ecosystem + ":" + name + "@" + version
+		source := stringMapValue(dep, "source")
+		if source == "" {
+			source = "metadata"
 		}
+		if idx, ok := index[key]; ok {
+			if sourceRank(source) > sourceRank(stringMapValue(existing[idx], "source")) {
+				existing[idx]["source"] = source
+			}
+			continue
+		}
+		index[key] = i
+		dep["source"] = source
 	}
 
 	for _, dep := range deps {
 		key := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
-		if seen[key] {
+		source := dep.Source
+		if source == "" {
+			source = "local_lockfile"
+		}
+		if idx, ok := index[key]; ok {
+			if sourceRank(source) > sourceRank(stringMapValue(existing[idx], "source")) {
+				existing[idx]["source"] = source
+			}
 			continue
 		}
-		seen[key] = true
+		index[key] = len(existing)
 		existing = append(existing, map[string]any{
 			"name":      dep.Name,
 			"version":   dep.Version,
 			"ecosystem": dep.Ecosystem,
-			"source":    dep.Source,
+			"source":    source,
 		})
 	}
 
 	if len(existing) > 0 {
 		tool.Metadata["dependencies"] = existing
+	}
+}
+
+func sourceRank(source string) int {
+	switch source {
+	case "local_lockfile":
+		return 3
+	case "lockfile":
+		return 2
+	case "metadata":
+		return 1
+	default:
+		return 0
 	}
 }
 

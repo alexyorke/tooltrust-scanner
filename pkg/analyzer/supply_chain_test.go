@@ -253,6 +253,39 @@ func TestSupplyChainChecker_RepoURLLockfileDependency_IncludesEvidenceSource(t *
 	assert.Equal(t, "MALICIOUS_PACKAGE", issues[0].Code)
 }
 
+func TestSupplyChainChecker_RepoURLLockfileDependency_PromotesStrongerSource(t *testing.T) {
+	prev := analyzer.LockfileDepsFetcherForTest()
+	analyzer.SetLockfileDepsFetcherForTest(func(string) []analyzer.Dependency {
+		return []analyzer.Dependency{
+			{Name: "axios", Version: "1.14.1", Ecosystem: "npm"},
+		}
+	})
+	t.Cleanup(func() {
+		analyzer.SetLockfileDepsFetcherForTest(prev)
+	})
+
+	checker := analyzer.NewSupplyChainCheckerWithMock([]analyzer.MockVuln{
+		{ID: "CVE-2026-5001", Summary: "Prototype pollution", CVSSScore: "7.5"},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "repo_tool",
+		Metadata: map[string]any{
+			"repo_url": "https://github.com/example/repo",
+			"dependencies": []any{
+				map[string]any{"name": "axios", "version": "1.14.1", "ecosystem": "npm"},
+			},
+		},
+	}
+
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "SUPPLY_CHAIN_CVE_TRANSITIVE", issues[0].Code)
+	assert.Equal(t, model.SeverityInfo, issues[0].Severity)
+	assert.Equal(t, "lockfile", issues[0].Evidence[3].Value)
+}
+
 // ---------------------------------------------------------------------------
 // Lockfile parser unit tests
 // ---------------------------------------------------------------------------

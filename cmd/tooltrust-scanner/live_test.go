@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
 // TestDetectLocalProjectRoot_PublishedPackage verifies that a bare published-package
@@ -67,6 +69,25 @@ func TestDetectLocalProjectRoot_LocalGoFileBareFilename(t *testing.T) {
 	got := detectLocalProjectRoot([]string{"go", "run", "main.go"})
 	assert.Equal(t, tmp, got,
 		"bare local Go file launches must return the project root")
+}
+
+func TestMergeDependencies_PrefersStrongerSourceForDuplicateDependency(t *testing.T) {
+	tool := &model.UnifiedTool{
+		Metadata: map[string]any{
+			"dependencies": []map[string]any{
+				{"name": "axios", "version": "1.14.1", "ecosystem": "npm", "source": "metadata"},
+			},
+		},
+	}
+
+	mergeDependencies(tool, []nodeDependency{
+		{Name: "axios", Version: "1.14.1", Ecosystem: "npm", Source: "local_lockfile"},
+	})
+
+	rawDeps, ok := tool.Metadata["dependencies"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, rawDeps, 1)
+	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
 }
 
 func TestParseYarnLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
