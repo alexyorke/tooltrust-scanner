@@ -582,6 +582,33 @@ func TestArbitraryCodeChecker_NestedScriptInputProp_ConfirmedCritical(t *testing
 	assert.Equal(t, model.SeverityCritical, issues[0].Severity)
 }
 
+func TestArbitraryCodeChecker_ArrayNestedScriptInputProp_ConfirmedCritical(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "run_code",
+		Description: "Run code in the sandbox.",
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"payload": {
+					Type: "array",
+					Items: &jsonschema.Property{
+						Type: "object",
+						Properties: map[string]jsonschema.Property{
+							"script": {Type: "string"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	checker := NewArbitraryCodeChecker()
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "ARBITRARY_CODE_EXECUTION", issues[0].Code)
+	assert.Equal(t, model.SeverityCritical, issues[0].Severity)
+}
+
 // ---------------------------------------------------------------------------
 // Regression tests: AS-006 expression-input FP fix (Change 2)
 // ---------------------------------------------------------------------------

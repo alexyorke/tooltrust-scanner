@@ -116,14 +116,26 @@ func (s *Scanner) Scan(ctx context.Context, tool model.UnifiedTool) (model.RiskS
 // once in the risk score.  The key includes Description so distinct CVEs on the
 // same package are preserved.
 func dedupeIssues(issues []model.Issue) []model.Issue {
-	seen := make(map[string]bool, len(issues))
+	type issueKey struct {
+		ruleID      string
+		code        string
+		location    string
+		description string
+	}
+
+	seen := make(map[issueKey]struct{}, len(issues))
 	out := make([]model.Issue, 0, len(issues))
 	for _, is := range issues {
-		key := is.RuleID + "|" + is.Code + "|" + is.Location + "|" + is.Description
-		if seen[key] {
+		key := issueKey{
+			ruleID:      is.RuleID,
+			code:        is.Code,
+			location:    is.Location,
+			description: is.Description,
+		}
+		if _, ok := seen[key]; ok {
 			continue
 		}
-		seen[key] = true
+		seen[key] = struct{}{}
 		out = append(out, is)
 	}
 	return out

@@ -11,6 +11,12 @@ var dataExfiltrationDescriptionRules = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(?:transmit|send|forward|post|upload|pipe).{0,80}(?:data|info|content).{0,80}\bto\s+(?:https?://|external\s+\w+|remote\s+\w+|attacker|base64)`),
 }
 
+var dataExfiltrationDescriptionHints = []string{
+	"transmit", "send", "forward", "post", "upload", "pipe",
+	"data", "info", "content",
+	"https://", "http://", "external", "remote", "attacker", "base64",
+}
+
 type DataExfilDescriptionChecker struct{}
 
 func NewDataExfilDescriptionChecker() *DataExfilDescriptionChecker {
@@ -28,6 +34,10 @@ func (c *DataExfilDescriptionChecker) Meta() RuleMeta {
 func (c *DataExfilDescriptionChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {
 	desc := strings.TrimSpace(tool.Description)
 	if desc == "" || isDataMovementTool(tool.Name) {
+		return nil, nil
+	}
+	descLower := strings.ToLower(desc)
+	if !containsAny(descLower, dataExfiltrationDescriptionHints...) {
 		return nil, nil
 	}
 

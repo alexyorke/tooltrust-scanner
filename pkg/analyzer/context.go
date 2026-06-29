@@ -63,11 +63,12 @@ func SummarizeToolContext(tool model.UnifiedTool) (behavior, destinations []stri
 		}
 	}
 
-	for _, propName := range schemaPropertyPaths(tool.InputSchema) {
+	walkSchemaPropertyPaths(tool.InputSchema, func(propName string) bool {
 		if label := classifyDynamicDestination(propName); label != "" {
 			destinationSet[label] = true
 		}
-	}
+		return true
+	})
 
 	addHardcodedMatches(destinationSet, rawSource)
 	addHardcodedMatches(destinationSet, tool.Description)
@@ -178,11 +179,21 @@ func schemaPropertyPaths(schema jsonschema.Schema) []string {
 		return nil
 	}
 	var paths []string
-	for name, prop := range schema.Properties {
-		paths = append(paths, propertyPaths(name, prop)...)
-	}
+	walkSchemaPropertyPaths(schema, func(path string) bool {
+		paths = append(paths, path)
+		return true
+	})
 	sort.Strings(paths)
 	return paths
+}
+
+func walkSchemaPropertyPaths(schema jsonschema.Schema, visit func(string) bool) bool {
+	for name, prop := range schema.Properties {
+		if !walkPropertyPaths(name, prop, visit) {
+			return false
+		}
+	}
+	return true
 }
 
 func propertyPaths(path string, prop jsonschema.Property) []string {
@@ -198,16 +209,66 @@ func propertyPaths(path string, prop jsonschema.Property) []string {
 	return paths
 }
 
+func walkPropertyPaths(path string, prop jsonschema.Property, visit func(string) bool) bool {
+	if !visit(path) {
+		return false
+	}
+	for name, nested := range prop.Properties {
+		if !walkPropertyPaths(path+"."+name, nested, visit) {
+			return false
+		}
+	}
+	if prop.Items != nil {
+		for name, nested := range prop.Items.Properties {
+			if !walkPropertyPaths(path+"[]."+name, nested, visit) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func schemaLeafPropertyPaths(schema jsonschema.Schema) []string {
 	if len(schema.Properties) == 0 {
 		return nil
 	}
 	var paths []string
-	for name, prop := range schema.Properties {
-		paths = append(paths, leafPropertyPaths(name, prop)...)
-	}
+	walkSchemaLeafPropertyPaths(schema, func(path string) bool {
+		paths = append(paths, path)
+		return true
+	})
 	sort.Strings(paths)
 	return paths
+}
+
+func walkSchemaLeafPropertyPaths(schema jsonschema.Schema, visit func(string) bool) bool {
+	for name, prop := range schema.Properties {
+		if !walkLeafPropertyPaths(name, prop, visit) {
+			return false
+		}
+	}
+	return true
+}
+
+func countSchemaLeafProperties(schema jsonschema.Schema) int {
+	count := 0
+	walkSchemaLeafPropertyPaths(schema, func(string) bool {
+		count++
+		return true
+	})
+	return count
+}
+
+func schemaHasLeafPropertyMatching(schema jsonschema.Schema, match func(string) bool) bool {
+	return !walkSchemaLeafPropertyPaths(schema, func(path string) bool {
+		return !match(path)
+	})
+}
+
+func schemaHasPropertyMatching(schema jsonschema.Schema, match func(string) bool) bool {
+	return !walkSchemaPropertyPaths(schema, func(path string) bool {
+		return !match(path)
+	})
 }
 
 func leafPropertyPaths(path string, prop jsonschema.Property) []string {
@@ -224,6 +285,28 @@ func leafPropertyPaths(path string, prop jsonschema.Property) []string {
 		return []string{path}
 	}
 	return paths
+}
+
+func walkLeafPropertyPaths(path string, prop jsonschema.Property, visit func(string) bool) bool {
+	visitedChild := false
+	for name, nested := range prop.Properties {
+		visitedChild = true
+		if !walkLeafPropertyPaths(path+"."+name, nested, visit) {
+			return false
+		}
+	}
+	if prop.Items != nil {
+		for name, nested := range prop.Items.Properties {
+			visitedChild = true
+			if !walkLeafPropertyPaths(path+"[]."+name, nested, visit) {
+				return false
+			}
+		}
+	}
+	if !visitedChild {
+		return visit(path)
+	}
+	return true
 }
 
 func splitIdentifier(s string) []string {

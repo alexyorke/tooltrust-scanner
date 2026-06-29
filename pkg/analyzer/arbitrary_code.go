@@ -28,6 +28,12 @@ var arbitraryCodeKeywords = []string{
 	"runs user-provided",
 }
 
+type arbitraryCodeKeywordVariant struct {
+	phrase  string
+	compact string
+	snake   string
+}
+
 // arbitraryCodePatterns are compiled regexes for natural language variants
 // that the exact keyword list can't cover (e.g. "evaluates a JavaScript expression").
 var arbitraryCodePatterns = []*regexp.Regexp{
@@ -88,6 +94,8 @@ var arbitraryCodeNameSuffixes = []string{
 	"executejavascript",
 	"_runscript",
 }
+
+var arbitraryCodeKeywordVariants = buildArbitraryCodeKeywordVariants(arbitraryCodeKeywords)
 
 // arbitraryCodeSafeNamePrefixes are tool-name prefixes where evaluate/execute/analyze
 // mean "assess" or "inspect", not code execution. When a tool name starts with one
@@ -178,6 +186,18 @@ func descriptionNegatesKeyword(desc, kw string) bool {
 	return false
 }
 
+func buildArbitraryCodeKeywordVariants(keywords []string) []arbitraryCodeKeywordVariant {
+	out := make([]arbitraryCodeKeywordVariant, 0, len(keywords))
+	for _, kw := range keywords {
+		out = append(out, arbitraryCodeKeywordVariant{
+			phrase:  kw,
+			compact: strings.ReplaceAll(kw, " ", ""),
+			snake:   strings.ReplaceAll(kw, " ", "_"),
+		})
+	}
+	return out
+}
+
 // Check produces an AS-006 finding when name or description signals
 // arbitrary code/script execution capability.
 func (c *ArbitraryCodeChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {
@@ -185,23 +205,20 @@ func (c *ArbitraryCodeChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 	descLower := strings.ToLower(strings.TrimSpace(tool.Description))
 
 	// 1. Exact keyword match in name (normalised) or description.
-	for _, kw := range arbitraryCodeKeywords {
-		kwNorm := strings.ReplaceAll(kw, " ", "")
-		kwSnake := strings.ReplaceAll(kw, " ", "_")
-		nameMatch := strings.Contains(nameLower, kwNorm) ||
-			strings.Contains(nameLower, kwSnake) ||
-			strings.Contains(nameLower, strings.ReplaceAll(kw, " ", ""))
-		descMatch := strings.Contains(descLower, kw)
-		if !nameMatch && descMatch && descriptionNegatesKeyword(descLower, kw) {
+	for _, kw := range arbitraryCodeKeywordVariants {
+		nameMatch := strings.Contains(nameLower, kw.compact) ||
+			strings.Contains(nameLower, kw.snake)
+		descMatch := strings.Contains(descLower, kw.phrase)
+		if !nameMatch && descMatch && descriptionNegatesKeyword(descLower, kw.phrase) {
 			descMatch = false
 		}
 		if nameMatch || descMatch {
 			evidence := []model.Evidence{}
 			if nameMatch {
-				evidence = append(evidence, model.Evidence{Kind: "tool_name_keyword", Value: kw})
+				evidence = append(evidence, model.Evidence{Kind: "tool_name_keyword", Value: kw.phrase})
 			}
 			if descMatch {
-				evidence = append(evidence, model.Evidence{Kind: "description_keyword", Value: kw})
+				evidence = append(evidence, model.Evidence{Kind: "description_keyword", Value: kw.phrase})
 			}
 			return emitArbitraryCodeFinding(tool.Name, evidence, hasCodeExecutionCapability(tool)), nil
 		}
@@ -284,12 +301,9 @@ func hasCodeExecutionCapability(tool model.UnifiedTool) bool {
 	if tool.HasPermission(model.PermissionExec) {
 		return true
 	}
-	for _, propName := range schemaPropertyPaths(tool.InputSchema) {
-		if isCodeExecPropName(strings.ToLower(propName)) {
-			return true
-		}
-	}
-	return false
+	return schemaHasPropertyMatching(tool.InputSchema, func(propName string) bool {
+		return isCodeExecPropName(strings.ToLower(propName))
+	})
 }
 
 // isCodeExecPropName reports whether an input property name denotes a

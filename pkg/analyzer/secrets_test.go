@@ -58,6 +58,31 @@ func TestSecretChecker_NestedApiKeyParam_Finding(t *testing.T) {
 	assert.Contains(t, issues[0].Location, "credentials.api_key")
 }
 
+func TestSecretChecker_ArrayNestedApiKeyParam_Finding(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name: "api_caller",
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"credentials": {
+					Type: "array",
+					Items: &jsonschema.Property{
+						Type: "object",
+						Properties: map[string]jsonschema.Property{
+							"api_key": {Type: "string"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	issues, err := analyzer.NewSecretHandlingChecker().Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "SECRET_IN_INPUT", issues[0].Code)
+	assert.Contains(t, issues[0].Location, "credentials[].api_key")
+}
+
 func TestSecretChecker_PasswordParam_Finding(t *testing.T) {
 	tool := model.UnifiedTool{
 		Name: "login_tool",

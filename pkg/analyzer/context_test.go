@@ -178,6 +178,31 @@ func TestSummarizeToolContext_ClassifiesNestedDynamicDestination(t *testing.T) {
 	assert.Equal(t, []string{"dynamic URL input (request.url)"}, destinations)
 }
 
+func TestSummarizeToolContext_ClassifiesArrayNestedDynamicDestination(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "fetch_remote",
+		Description: "Fetch a remote resource.",
+		Permissions: []model.Permission{model.PermissionNetwork},
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"requests": {
+					Type: "array",
+					Items: &jsonschema.Property{
+						Type: "object",
+						Properties: map[string]jsonschema.Property{
+							"url": {Type: "string"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, destinations := SummarizeToolContext(tool)
+
+	assert.Equal(t, []string{"dynamic URL input (requests[].url)"}, destinations)
+}
+
 func TestSummarizeToolContext_ClassifiesSMTPHostInput(t *testing.T) {
 	tool := model.UnifiedTool{
 		Name:        "send_email",
