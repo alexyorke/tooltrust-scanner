@@ -87,10 +87,7 @@ func buildMetadata(t Tool) map[string]any {
 func convertSchema(s InputSchema) jsonschema.Schema {
 	props := make(map[string]jsonschema.Property, len(s.Properties))
 	for k, v := range s.Properties {
-		props[k] = jsonschema.Property{
-			Type:        string(v.Type),
-			Description: v.Description,
-		}
+		props[k] = convertProperty(v)
 	}
 	return jsonschema.Schema{
 		Type:        string(s.Type),
@@ -98,6 +95,25 @@ func convertSchema(s InputSchema) jsonschema.Schema {
 		Properties:  props,
 		Required:    s.Required,
 	}
+}
+
+func convertProperty(p SchemaProperty) jsonschema.Property {
+	prop := jsonschema.Property{
+		Type:        string(p.Type),
+		Description: p.Description,
+		Enum:        p.Enum,
+	}
+	if len(p.Properties) > 0 {
+		prop.Properties = make(map[string]jsonschema.Property, len(p.Properties))
+		for k, v := range p.Properties {
+			prop.Properties[k] = convertProperty(v)
+		}
+	}
+	if p.Items != nil {
+		items := convertProperty(*p.Items)
+		prop.Items = &items
+	}
+	return prop
 }
 
 // permissionRule maps keyword signals to a Permission.

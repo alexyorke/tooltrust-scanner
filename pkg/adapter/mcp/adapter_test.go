@@ -354,6 +354,46 @@ func TestAdapter_Parse_ArrayTypeField(t *testing.T) {
 	assert.Equal(t, "boolean", tools[0].InputSchema.Properties["hidden"].Type)
 }
 
+func TestAdapter_Parse_PreservesNestedSchemaDetails(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "create_ticket",
+			"description": "Create a ticket with typed metadata.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"priority": {
+						"type": "string",
+						"description": "Ticket priority",
+						"enum": ["low", "medium", "high"]
+					},
+					"labels": {
+						"type": "array",
+						"items": {"type": "string", "description": "Label name"}
+					},
+					"metadata": {
+						"type": "object",
+						"properties": {
+							"source": {"type": "string", "description": "Request source"}
+						}
+					}
+				}
+			}
+		}]
+	}`)
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+
+	props := tools[0].InputSchema.Properties
+	assert.Equal(t, []any{"low", "medium", "high"}, props["priority"].Enum)
+	require.NotNil(t, props["labels"].Items)
+	assert.Equal(t, "string", props["labels"].Items.Type)
+	require.Contains(t, props["metadata"].Properties, "source")
+	assert.Equal(t, "Request source", props["metadata"].Properties["source"].Description)
+}
+
 // TestAdapter_Parse_LichessCloudEvalDoesNotInferExec verifies that a read-only chess
 // evaluation tool whose name contains "eval" as a suffix (lichess_cloud_eval) is NOT
 // incorrectly assigned PermissionExec. The underscore before "eval" means \beval\b

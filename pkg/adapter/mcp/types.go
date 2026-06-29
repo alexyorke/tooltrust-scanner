@@ -79,6 +79,9 @@ type InputSchema struct {
 
 // SchemaProperty describes a single property within an InputSchema.
 type SchemaProperty struct {
-	Type        FlexType `json:"type,omitempty"`
-	Description string   `json:"description,omitempty"`
+	Type        FlexType                  `json:"type,omitempty"`
+	Description string                    `json:"description,omitempty"`
+	Enum        []any                     `json:"enum,omitempty"`
+	Properties  map[string]SchemaProperty `json:"properties,omitempty"`
+	Items       *SchemaProperty           `json:"items,omitempty"`
 }
