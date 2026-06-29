@@ -82,6 +82,9 @@ func (s *Store) Save(ctx context.Context, r ScanRecord) error {
 	if err != nil {
 		return fmt.Errorf("storage: marshal findings: %w", err)
 	}
+	if r.ScannedAt.IsZero() {
+		r.ScannedAt = time.Now().UTC()
+	}
 
 	_, err = s.db.ExecContext(ctx, `
 		INSERT OR REPLACE INTO scan_results

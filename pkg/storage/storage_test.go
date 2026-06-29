@@ -142,3 +142,19 @@ func TestStore_Findings_RoundTrip(t *testing.T) {
 	assert.Equal(t, "AS-004", got.Findings[0].RuleID)
 	assert.Equal(t, "CVE-2024-1234 in lodash", got.Findings[0].Description)
 }
+
+func TestStore_Save_DefaultsZeroScannedAt(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	rec := sampleRecord("default-time")
+	rec.ScannedAt = time.Time{}
+	before := time.Now().UTC().Add(-1 * time.Second)
+
+	require.NoError(t, s.Save(ctx, rec))
+
+	got, err := s.Get(ctx, "default-time")
+	require.NoError(t, err)
+	assert.False(t, got.ScannedAt.IsZero())
+	assert.True(t, got.ScannedAt.After(before) || got.ScannedAt.Equal(before))
+}
