@@ -41,9 +41,10 @@ func SummarizeToolContext(tool model.UnifiedTool) (behavior, destinations []stri
 	behaviorSet := map[string]bool{}
 	destinationSet := map[string]bool{}
 
+	rawSource := string(tool.RawSource)
 	nameLower := strings.ToLower(tool.Name)
 	descLower := strings.ToLower(tool.Description)
-	rawLower := strings.ToLower(string(tool.RawSource))
+	rawLower := strings.ToLower(rawSource)
 
 	if tool.HasPermission(model.PermissionNetwork) || tool.HasPermission(model.PermissionHTTP) {
 		behaviorSet["uses_network"] = true
@@ -68,28 +69,24 @@ func SummarizeToolContext(tool model.UnifiedTool) (behavior, destinations []stri
 		}
 	}
 
-	for _, match := range hardcodedURLPattern.FindAllString(string(tool.RawSource), -1) {
-		addHardcodedDestination(destinationSet, match)
-	}
-	for _, match := range hardcodedURLPattern.FindAllString(tool.Description, -1) {
-		addHardcodedDestination(destinationSet, match)
-	}
-	for _, match := range hardcodedHostPattern.FindAllString(string(tool.RawSource), -1) {
-		addHardcodedDestination(destinationSet, match)
-	}
-	for _, match := range hardcodedHostPattern.FindAllString(tool.Description, -1) {
-		addHardcodedDestination(destinationSet, match)
-	}
-	for _, match := range hardcodedEmailPattern.FindAllString(string(tool.RawSource), -1) {
-		addHardcodedEmailRecipient(destinationSet, match)
-	}
-	for _, match := range hardcodedEmailPattern.FindAllString(tool.Description, -1) {
-		addHardcodedEmailRecipient(destinationSet, match)
-	}
+	addHardcodedMatches(destinationSet, rawSource)
+	addHardcodedMatches(destinationSet, tool.Description)
 
 	behavior = sortedKeys(behaviorSet)
 	destinations = sortedKeys(destinationSet)
 	return behavior, destinations
+}
+
+func addHardcodedMatches(destinations map[string]bool, text string) {
+	for _, match := range hardcodedURLPattern.FindAllString(text, -1) {
+		addHardcodedDestination(destinations, match)
+	}
+	for _, match := range hardcodedHostPattern.FindAllString(text, -1) {
+		addHardcodedDestination(destinations, match)
+	}
+	for _, match := range hardcodedEmailPattern.FindAllString(text, -1) {
+		addHardcodedEmailRecipient(destinations, match)
+	}
 }
 
 func addHardcodedDestination(destinations map[string]bool, match string) {

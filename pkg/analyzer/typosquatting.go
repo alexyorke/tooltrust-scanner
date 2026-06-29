@@ -58,31 +58,70 @@ type normalizedToolName struct {
 
 var normalizedPopularMCPToolNames = buildNormalizedToolNames(popularMCPToolNames)
 
-// levenshtein computes the edit distance between two strings.
-func levenshtein(a, b string) int {
+const (
+	maxTyposquatDistance     = 2
+	smallLevenshteinRowWidth = 64
+)
+
+// levenshteinWithin computes the edit distance between two strings up to
+// maxDistance. It returns maxDistance+1 when the true distance exceeds that
+// bound so callers can cheaply reject distant names.
+func levenshteinWithin(a, b string, maxDistance int) int {
 	la, lb := len(a), len(b)
+	if la < lb {
+		a, b = b, a
+		la, lb = lb, la
+	}
 	if la == 0 {
+		if lb > maxDistance {
+			return maxDistance + 1
+		}
 		return lb
 	}
 	if lb == 0 {
+		if la > maxDistance {
+			return maxDistance + 1
+		}
 		return la
 	}
-	// Use two rows to save memory.
-	prev := make([]int, lb+1)
-	curr := make([]int, lb+1)
+	if la-lb > maxDistance {
+		return maxDistance + 1
+	}
+
+	var prevSmall [smallLevenshteinRowWidth]int
+	var currSmall [smallLevenshteinRowWidth]int
+
+	var prev, curr []int
+	if lb+1 <= smallLevenshteinRowWidth {
+		prev = prevSmall[:lb+1]
+		curr = currSmall[:lb+1]
+	} else {
+		prev = make([]int, lb+1)
+		curr = make([]int, lb+1)
+	}
 	for j := 0; j <= lb; j++ {
 		prev[j] = j
 	}
 	for i := 1; i <= la; i++ {
 		curr[0] = i
+		rowMin := curr[0]
 		for j := 1; j <= lb; j++ {
 			cost := 1
 			if a[i-1] == b[j-1] {
 				cost = 0
 			}
 			curr[j] = min3(curr[j-1]+1, prev[j]+1, prev[j-1]+cost)
+			if curr[j] < rowMin {
+				rowMin = curr[j]
+			}
+		}
+		if rowMin > maxDistance {
+			return maxDistance + 1
 		}
 		prev, curr = curr, prev
+	}
+	if prev[lb] > maxDistance {
+		return maxDistance + 1
 	}
 	return prev[lb]
 }
@@ -169,7 +208,7 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 		if isSingularPluralVariant(normName, normKnown) {
 			continue
 		}
-		dist := levenshtein(normName, normKnown)
+		dist := levenshteinWithin(normName, normKnown, maxTyposquatDistance)
 		if dist < 1 {
 			continue
 		}
@@ -195,7 +234,7 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 		if dist == 1 && len(normName) == len(normKnown) && shorter < 12 {
 			continue
 		}
-		if dist <= 2 {
+		if dist <= maxTyposquatDistance {
 			return []model.Issue{{
 				RuleID:   "AS-009",
 				ToolName: tool.Name,
