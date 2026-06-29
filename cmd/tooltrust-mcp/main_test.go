@@ -226,6 +226,41 @@ func TestRenderTextReport_CapabilitySurfaceUsesCurrentAS002Wording(t *testing.T)
 	assert.Contains(t, text, "Safer configuration: confirm the tool truly needs network access; remove it if local-only operation is enough; limit filesystem access to the intended directories only.")
 }
 
+func TestRenderTextReport_CapabilitySurfaceMentionsExecAdvice(t *testing.T) {
+	result := &ScanResult{
+		Summary: ScanSummary{
+			Total:           1,
+			Allowed:         0,
+			RequireApproval: 1,
+			Blocked:         0,
+		},
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName: "run_command",
+				Action:   model.ActionRequireApproval,
+				Score: model.RiskScore{
+					Grade: model.GradeC,
+					Issues: []model.Issue{
+						{
+							RuleID:      "AS-002",
+							Code:        "CAPABILITY_SURFACE",
+							Severity:    model.SeverityInfo,
+							Description: "declared capabilities: code/command execution",
+							Evidence: []model.Evidence{
+								{Kind: "capability", Value: "exec"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	text := renderTextReport(result)
+	assert.Contains(t, text, "declared capabilities: code/command execution")
+	assert.Contains(t, text, "remove code/command execution if it is not required")
+}
+
 func TestProcessToolsRaw_PopulatesBehaviorAndDestinationContext(t *testing.T) {
 	tools := []model.UnifiedTool{
 		{
