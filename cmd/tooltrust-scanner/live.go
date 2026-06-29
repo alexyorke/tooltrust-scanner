@@ -427,7 +427,7 @@ func parseRequirementsFile(path string) ([]nodeDependency, error) {
 			continue
 		}
 		if i := strings.Index(line, "=="); i > 0 {
-			name := strings.TrimSpace(line[:i])
+			name := normalizeRequirementName(line[:i])
 			version := strings.TrimSpace(line[i+2:])
 			if marker := strings.IndexByte(version, ';'); marker >= 0 {
 				version = strings.TrimSpace(version[:marker])
@@ -444,6 +444,14 @@ func parseRequirementsFile(path string) ([]nodeDependency, error) {
 		return nil, fmt.Errorf("scan requirements.txt %s: %w", path, err)
 	}
 	return deps, nil
+}
+
+func normalizeRequirementName(raw string) string {
+	name := strings.TrimSpace(raw)
+	if idx := strings.IndexByte(name, '['); idx >= 0 {
+		name = strings.TrimSpace(name[:idx])
+	}
+	return name
 }
 
 func parsePNPMLockfile(path string) ([]nodeDependency, error) {

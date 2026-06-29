@@ -391,13 +391,15 @@ func TestParseRequirementsFile_StripsMarkersAndInlineComments(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(`
 requests==2.31.0 ; python_version >= "3.10"
 flask==3.0.0 # web framework
+urllib3[socks]==2.2.1
 `), 0o644))
 
 	deps, err := parseRequirementsFile(path)
 	require.NoError(t, err)
-	require.Len(t, deps, 2)
+	require.Len(t, deps, 3)
 	assert.Equal(t, nodeDependency{Name: "requests", Version: "2.31.0", Ecosystem: "PyPI", Source: "local_lockfile"}, deps[0])
 	assert.Equal(t, nodeDependency{Name: "flask", Version: "3.0.0", Ecosystem: "PyPI", Source: "local_lockfile"}, deps[1])
+	assert.Equal(t, nodeDependency{Name: "urllib3", Version: "2.2.1", Ecosystem: "PyPI", Source: "local_lockfile"}, deps[2])
 }
 
 func TestParsePNPMLockfile_StripsPeerSuffixes(t *testing.T) {
