@@ -739,9 +739,9 @@ func sourceRank(source string) int {
 	switch source {
 	case "local_lockfile":
 		return 3
-	case "lockfile":
-		return 2
 	case "metadata":
+		return 2
+	case "lockfile":
 		return 1
 	default:
 		return 0

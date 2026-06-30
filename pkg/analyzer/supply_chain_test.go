@@ -253,7 +253,7 @@ func TestSupplyChainChecker_RepoURLLockfileDependency_IncludesEvidenceSource(t *
 	assert.Equal(t, "MALICIOUS_PACKAGE", issues[0].Code)
 }
 
-func TestSupplyChainChecker_RepoURLLockfileDependency_PromotesStrongerSource(t *testing.T) {
+func TestSupplyChainChecker_RepoURLLockfileDependency_KeepsMetadataSourceForDirectDependency(t *testing.T) {
 	prev := analyzer.LockfileDepsFetcherForTest()
 	analyzer.SetLockfileDepsFetcherForTest(func(string) []analyzer.Dependency {
 		return []analyzer.Dependency{
@@ -281,9 +281,9 @@ func TestSupplyChainChecker_RepoURLLockfileDependency_PromotesStrongerSource(t *
 	issues, err := checker.Check(tool)
 	require.NoError(t, err)
 	require.Len(t, issues, 1)
-	assert.Equal(t, "SUPPLY_CHAIN_CVE_TRANSITIVE", issues[0].Code)
-	assert.Equal(t, model.SeverityInfo, issues[0].Severity)
-	assert.Equal(t, "lockfile", issues[0].Evidence[3].Value)
+	assert.Equal(t, "SUPPLY_CHAIN_CVE", issues[0].Code)
+	assert.Equal(t, model.SeverityHigh, issues[0].Severity)
+	assert.Equal(t, "metadata", issues[0].Evidence[3].Value)
 }
 
 // ---------------------------------------------------------------------------

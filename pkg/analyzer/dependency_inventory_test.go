@@ -42,6 +42,22 @@ func TestDependencyInventoryChecker_MCPWithDependencies_NoFinding(t *testing.T) 
 	assert.Empty(t, issues)
 }
 
+func TestDependencyInventoryChecker_MCPWithMalformedDependencies_Fires(t *testing.T) {
+	checker := analyzer.NewDependencyInventoryChecker()
+	tool := model.UnifiedTool{
+		Name:     "bad_inventory",
+		Protocol: model.ProtocolMCP,
+		Metadata: map[string]any{
+			"dependencies": "not a dependency list",
+		},
+	}
+
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "DEPENDENCY_INVENTORY_UNAVAILABLE", issues[0].Code)
+}
+
 func TestDependencyInventoryChecker_NonMCP_NoFinding(t *testing.T) {
 	checker := analyzer.NewDependencyInventoryChecker()
 	tool := model.UnifiedTool{
