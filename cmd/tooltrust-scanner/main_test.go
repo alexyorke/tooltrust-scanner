@@ -608,3 +608,19 @@ packages:
 	assert.Contains(t, deps, nodeDependency{Name: "string-width", Version: "4.2.3", Ecosystem: "npm", Source: "local_lockfile"})
 	assert.Contains(t, deps, nodeDependency{Name: "@scope/pkg", Version: "1.2.3", Ecosystem: "npm", Source: "local_lockfile"})
 }
+
+func TestParsePNPMLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "pnpm-lock.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+lockfileVersion: '11.0'
+packages:
+  /string-width-cjs@npm:string-width@^4.2.3:
+    resolution: {}
+`), 0o644))
+
+	deps, err := parsePNPMLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, nodeDependency{Name: "string-width", Version: "^4.2.3", Ecosystem: "npm", Source: "local_lockfile"}, deps[0])
+}

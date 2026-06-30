@@ -265,7 +265,8 @@ func (c *ArbitraryCodeChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 	combined := nameLower + " " + descLower
 	if containsAny(combined, arbitraryCodePatternHints...) {
 		for _, re := range arbitraryCodePatterns {
-			if !re.MatchString(combined) {
+			matched := re.FindString(combined)
+			if matched == "" {
 				continue
 			}
 			isSafe := false
@@ -286,7 +287,6 @@ func (c *ArbitraryCodeChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 			if isSafe && !descriptionConfirmsExecution(descLower) {
 				continue
 			}
-			matched := re.FindString(combined)
 			return emitArbitraryCodeFinding(tool.Name, []model.Evidence{
 				{Kind: "pattern", Value: re.String()},
 				{Kind: "match", Value: matched},

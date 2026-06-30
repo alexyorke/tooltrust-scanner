@@ -28,6 +28,7 @@ var (
 	handlerArgPattern         = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]\\s*,\\s*([A-Za-z_][A-Za-z0-9_.]*)\\b")
 	wrappedHandlerArgPattern  = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]\\s*,\\s*[A-Za-z_][A-Za-z0-9_.]*\\s*\\([^)]*?([A-Za-z_][A-Za-z0-9_.]*)\\s*\\)")
 	trailingHandlerArgPattern = regexp.MustCompile(`,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*(?:,|\))`)
+	authRequiredPattern       = regexp.MustCompile(`\bAuthRequired\s*\(`)
 )
 
 func detectRouteAuthAsymmetry(root string, opts Options) ([]RouteFinding, []model.Issue, error) {
@@ -90,7 +91,7 @@ func extractRouteRegistrations(rel, text string) []routeRegistration {
 			Line:        startLine,
 			Path:        path,
 			Handler:     handler,
-			HasAuth:     strings.Contains(block, "AuthRequired("),
+			HasAuth:     authRequiredPattern.MatchString(block),
 			HasIPFilter: hasIPFilterCall(block),
 			Block:       block,
 		})

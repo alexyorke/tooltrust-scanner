@@ -535,6 +535,9 @@ func parsePNPMLockKey(line string) (name, version string, ok bool) {
 	if trimmed == "" {
 		return "", "", false
 	}
+	if idx := strings.Index(trimmed, "@npm:"); idx >= 0 {
+		trimmed = trimmed[idx+len("@npm:"):]
+	}
 	if idx := strings.Index(trimmed, "("); idx >= 0 {
 		trimmed = trimmed[:idx]
 	}
