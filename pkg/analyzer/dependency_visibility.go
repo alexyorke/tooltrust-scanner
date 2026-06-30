@@ -26,7 +26,7 @@ func DependencyVisibilityForTool(tool model.UnifiedTool) (visibility, note strin
 		}
 		return "No dependency data", note
 	}
-	return formatDependencyVisibility(sources), visibilityNote(tool.Metadata, sources)
+	return formatDependencyVisibility(sources), visibilityNote(tool.Metadata, sources, depsParseFailed)
 }
 
 func dependencySourcesFromMetadata(meta map[string]any) ([]string, bool) {
@@ -68,12 +68,21 @@ func dependencySourcesFromMetadata(meta map[string]any) ([]string, bool) {
 	return sources, depsParseFailed
 }
 
-func visibilityNote(meta map[string]any, sources []string) string {
+func visibilityNote(meta map[string]any, sources []string, depsParseFailed bool) string {
 	if note := metadataString(meta, "dependency_visibility_note"); note != "" {
+		if depsParseFailed && !strings.Contains(strings.ToLower(note), "could not be parsed") {
+			return note + " Tool exposed dependency metadata, but it could not be parsed, so supply-chain coverage is limited."
+		}
 		return note
 	}
 	if len(sources) == 1 && sources[0] == "repo_url" {
+		if depsParseFailed {
+			return "repo_url is available, so ToolTrust can try to inspect remote lockfiles for dependency evidence. Tool exposed dependency metadata, but it could not be parsed, so supply-chain coverage is limited."
+		}
 		return "repo_url is available, so ToolTrust can try to inspect remote lockfiles for dependency evidence."
+	}
+	if depsParseFailed {
+		return "Tool exposed dependency metadata, but it could not be parsed, so supply-chain coverage is limited."
 	}
 	return ""
 }

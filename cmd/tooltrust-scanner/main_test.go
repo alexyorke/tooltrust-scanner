@@ -522,6 +522,19 @@ func TestDependencyVisibilityForTool_MalformedDependencies(t *testing.T) {
 	assert.Contains(t, note, "could not be parsed")
 }
 
+func TestDependencyVisibilityForTool_MalformedDependenciesWithRepoURL(t *testing.T) {
+	visibility, note := dependencyVisibilityForTool(model.UnifiedTool{
+		Name: "tool",
+		Metadata: map[string]any{
+			"dependencies": "not a dependency list",
+			"repo_url":     "https://github.com/example/repo",
+		},
+	})
+
+	assert.Equal(t, "Repo URL available", visibility)
+	assert.Contains(t, note, "could not be parsed")
+}
+
 func TestToolContextLines_EmptyForAllowGradeA(t *testing.T) {
 	lines := toolContextLines(model.GatewayPolicy{
 		Action: model.ActionAllow,
