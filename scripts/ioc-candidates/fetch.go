@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -597,10 +598,102 @@ func compareLooseVersion(a, b string) int {
 	if a == b {
 		return 0
 	}
-	if a < b {
-		return -1
+	at := splitVersionTokens(a)
+	bt := splitVersionTokens(b)
+	for i := 0; i < len(at) && i < len(bt); i++ {
+		ai, aNum := atoiToken(at[i])
+		bi, bNum := atoiToken(bt[i])
+		switch {
+		case aNum && bNum:
+			if ai < bi {
+				return -1
+			}
+			if ai > bi {
+				return 1
+			}
+		case aNum != bNum:
+			if aNum {
+				return -1
+			}
+			return 1
+		default:
+			al := strings.ToLower(at[i])
+			bl := strings.ToLower(bt[i])
+			if al < bl {
+				return -1
+			}
+			if al > bl {
+				return 1
+			}
+		}
 	}
-	return 1
+	switch {
+	case len(at) > len(bt):
+		if hasPreReleaseToken(at[len(bt):]) {
+			return -1
+		}
+		return 1
+	case len(at) < len(bt):
+		if hasPreReleaseToken(bt[len(at):]) {
+			return 1
+		}
+		return -1
+	default:
+		return 0
+	}
+}
+
+func splitVersionTokens(v string) []string {
+	var tokens []string
+	var current strings.Builder
+	var currentKind rune
+	flush := func() {
+		if current.Len() > 0 {
+			tokens = append(tokens, current.String())
+			current.Reset()
+		}
+		currentKind = 0
+	}
+	for _, r := range v {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			flush()
+			continue
+		}
+		kind := rune('l')
+		if unicode.IsDigit(r) {
+			kind = 'd'
+		}
+		if currentKind != 0 && currentKind != kind {
+			flush()
+		}
+		current.WriteRune(r)
+		currentKind = kind
+	}
+	flush()
+	return tokens
+}
+
+func atoiToken(token string) (int, bool) {
+	for _, r := range token {
+		if !unicode.IsDigit(r) {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(token)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+func hasPreReleaseToken(tokens []string) bool {
+	for _, token := range tokens {
+		switch strings.ToLower(token) {
+		case "a", "alpha", "b", "beta", "rc", "dev", "pre", "preview":
+			return true
+		}
+	}
+	return false
 }
 
 func parseTime(value string) (time.Time, bool) {
@@ -609,7 +702,10 @@ func parseTime(value string) (time.Time, bool) {
 	}
 	t, err := time.Parse(time.RFC3339, value)
 	if err != nil {
-		return time.Time{}, false
+		t, err = time.Parse(time.RFC3339Nano, value)
+		if err != nil {
+			return time.Time{}, false
+		}
 	}
 	return t.UTC(), true
 }

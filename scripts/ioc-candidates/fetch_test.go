@@ -379,3 +379,62 @@ func TestBuildCandidates_SkipsVersionsCoveredByExistingBlacklistRange(t *testing
 	got, _ := buildCandidates(vulns, "github-actions", existing, now, 24*time.Hour)
 	assert.Empty(t, got)
 }
+
+func TestBuildCandidates_AcceptsRFC3339NanoPublishedTime(t *testing.T) {
+	now := time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC)
+	vulns := []osvVulnerability{
+		{
+			ID:        "MAL-2026-4244",
+			Summary:   "Malicious code in claude-mcp",
+			Details:   "This malicious package masquerades as an MCP server helper.",
+			Published: "2026-06-06T18:00:00.123Z",
+			Affected: []osvAffected{
+				{
+					Package: struct {
+						Name      string `json:"name"`
+						Ecosystem string `json:"ecosystem"`
+					}{Name: "claude-mcp", Ecosystem: "npm"},
+					Versions: []string{"1.0.0"},
+				},
+			},
+		},
+	}
+
+	got, _ := buildCandidates(vulns, "npm", nil, now, 24*time.Hour)
+	require.Len(t, got, 1)
+	assert.Equal(t, "claude-mcp", got[0].Value)
+}
+
+func TestBuildCandidates_SkipsLooseVersionRangeCoverage(t *testing.T) {
+	dir := t.TempDir()
+	existingPath := filepath.Join(dir, "existing.json")
+	err := os.WriteFile(existingPath, []byte(`[
+		{"ecosystem":"PyPI","component":"oldpkg","affected_versions":["<= 1.2.post10"]}
+	]`), 0o600)
+	require.NoError(t, err)
+
+	existing, err := readExistingBlacklist(existingPath)
+	require.NoError(t, err)
+
+	now := time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC)
+	vulns := []osvVulnerability{
+		{
+			ID:        "MAL-2026-4245",
+			Summary:   "Malicious code in oldpkg",
+			Details:   "This malicious package masquerades as an MCP server helper.",
+			Published: "2026-06-06T18:00:00Z",
+			Affected: []osvAffected{
+				{
+					Package: struct {
+						Name      string `json:"name"`
+						Ecosystem string `json:"ecosystem"`
+					}{Name: "oldpkg", Ecosystem: "PyPI"},
+					Versions: []string{"1.2.post2"},
+				},
+			},
+		},
+	}
+
+	got, _ := buildCandidates(vulns, "PyPI", existing, now, 24*time.Hour)
+	assert.Empty(t, got)
+}
