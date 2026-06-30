@@ -94,6 +94,11 @@ the grade threshold.
 }
 
 func runGate(ctx context.Context, opts gateOpts) error {
+	blockOnGrade, err := parseGrade(opts.blockOn)
+	if err != nil {
+		return err
+	}
+
 	// Derive server name.
 	serverName := opts.name
 	if serverName == "" {
@@ -111,7 +116,7 @@ func runGate(ctx context.Context, opts gateOpts) error {
 	liveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	tools, err := scanLiveServer(liveCtx, serverCmd)
+	tools, err := scanLiveServerFn(liveCtx, serverCmd)
 	if err != nil {
 		return fmt.Errorf("live server scan failed: %w", err)
 	}
@@ -173,11 +178,6 @@ func runGate(ctx context.Context, opts gateOpts) error {
 
 	// Gate decision.
 	worst := worstGrade(policies)
-	blockOnGrade, err := parseGrade(opts.blockOn)
-	if err != nil {
-		return err
-	}
-
 	proceed := gateDecision(worst, blockOnGrade, opts.force)
 	if !proceed {
 		return &blockedError{grade: worst}

@@ -148,6 +148,9 @@ func extractHandlerCall(block, path string) string {
 		if isRouteMiddleware(handler) {
 			continue
 		}
+		if isLikelyRouteHandler(handler) {
+			return handler
+		}
 		inlineHandler = handler
 	}
 	if inlineHandler != "" {
@@ -186,6 +189,13 @@ func extractHandlerCall(block, path string) string {
 		}
 	}
 	return ""
+}
+
+func isLikelyRouteHandler(handler string) bool {
+	handlerLower := strings.ToLower(handler)
+	return strings.Contains(handlerLower, "handler") ||
+		strings.HasSuffix(handlerLower, "servehttp") ||
+		strings.HasSuffix(handlerLower, "handle")
 }
 
 func hasIPFilterCall(block string) bool {

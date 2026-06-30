@@ -195,7 +195,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 		liveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
-		tools, err = scanLiveServer(liveCtx, opts.serverCmd)
+		tools, err = scanLiveServerFn(liveCtx, opts.serverCmd)
 		if err != nil {
 			return fmt.Errorf("live server scan failed (or timed out): %w", err)
 		}

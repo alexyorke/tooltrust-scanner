@@ -20,6 +20,8 @@ import (
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
+var scanLiveServerFn = scanLiveServer
+
 func scanLiveServer(ctx context.Context, serverCmd string) ([]model.UnifiedTool, error) {
 	command, env, args, err := splitServerCommand(serverCmd)
 	if err != nil {

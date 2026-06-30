@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/kballard/go-shellquote"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
@@ -99,6 +101,26 @@ func TestGateDecision_Force_Bypasses(t *testing.T) {
 	if !got {
 		t.Error("expected --force to bypass grade F block")
 	}
+}
+
+func TestRunGate_DryRunStillValidatesBlockOn(t *testing.T) {
+	prev := scanLiveServerFn
+	scanLiveServerFn = func(context.Context, string) ([]model.UnifiedTool, error) {
+		t.Fatal("scanLiveServerFn should not be called when --block-on is invalid")
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		scanLiveServerFn = prev
+	})
+
+	err := runGate(context.Background(), gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		dryRun:      true,
+		blockOn:     "bogus",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid --block-on")
 }
 
 func TestInstallViaConfig_CreatesNew(t *testing.T) {
