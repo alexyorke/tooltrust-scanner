@@ -209,3 +209,18 @@ func TestCorrelateRouteRegistrations_UsesFailOpenEvidenceFile(t *testing.T) {
 	assert.Equal(t, "fail_open_whitelist", issues[0].Evidence[2].Kind)
 	assert.Equal(t, "whitelist.go:42", issues[0].Evidence[2].Value)
 }
+
+func TestFindFailOpenWhitelistEvidence_UsesCtxNext(t *testing.T) {
+	text := `func IPWhiteList(allowed []string) HandlerFunc {
+	return func(ctx *Context) {
+		if len(allowed) == 0 {
+			ctx.Next()
+			return
+		}
+	}
+}`
+
+	ev, ok := findFailOpenWhitelistEvidence(text)
+	require.True(t, ok)
+	assert.Equal(t, "fail_open_whitelist", ev.Kind)
+}

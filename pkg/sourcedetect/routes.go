@@ -29,6 +29,7 @@ var (
 	wrappedHandlerArgPattern  = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]\\s*,\\s*[A-Za-z_][A-Za-z0-9_.]*\\s*\\([^)]*?([A-Za-z_][A-Za-z0-9_.]*)\\s*\\)")
 	trailingHandlerArgPattern = regexp.MustCompile(`,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*(?:,|\))`)
 	authRequiredPattern       = regexp.MustCompile(`\bAuthRequired\s*\(`)
+	nextCallPattern           = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*\.Next\s*\(\s*\)`)
 )
 
 func detectRouteAuthAsymmetry(root string, opts Options) ([]RouteFinding, []model.Issue, error) {
@@ -215,7 +216,7 @@ func findFailOpenWhitelistEvidence(text string) (Evidence, bool) {
 			continue
 		}
 		window := strings.Join(lines[i:intMin(i+12, len(lines))], "\n")
-		if strings.Contains(window, "len(") && strings.Contains(window, "== 0") && strings.Contains(window, "c.Next()") {
+		if strings.Contains(window, "len(") && strings.Contains(window, "== 0") && nextCallPattern.MatchString(window) {
 			return Evidence{
 				Kind:    "fail_open_whitelist",
 				Line:    i + 1,
