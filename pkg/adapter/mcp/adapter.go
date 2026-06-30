@@ -254,8 +254,15 @@ func propertyNameMatchesRule(propLower, ruleKey string, permission model.Permiss
 }
 
 func descriptionMatchesRule(descLower, keyword string, permission model.Permission) bool {
-	if permission == model.PermissionFS && keyword == "file" {
-		return containsToken(descLower, keyword) || containsToken(descLower, "files")
+	if permission == model.PermissionFS {
+		switch keyword {
+		case "file":
+			return containsToken(descLower, "file") || containsToken(descLower, "files")
+		case "directory":
+			return containsToken(descLower, "directory") || containsToken(descLower, "directories")
+		case "folder":
+			return containsToken(descLower, "folder") || containsToken(descLower, "folders")
+		}
 	}
 	return strings.Contains(descLower, keyword)
 }
