@@ -87,3 +87,21 @@ func TestDetectEmbeddedMCP_AS019NoFalsePositiveWhenAuthConsistent(t *testing.T) 
 		assert.NotEqual(t, "AS-019", issue.RuleID)
 	}
 }
+
+func TestDetectEmbeddedMCP_AS019RouteAuthAsymmetryAcrossFiles(t *testing.T) {
+	got, err := DetectEmbeddedMCP(filepath.Join("testdata", "fixtures", "go-gin-auth-asymmetry-crossfile"), Options{})
+	require.NoError(t, err)
+	require.True(t, got.HasEmbeddedMCP)
+	require.Len(t, got.Detection.RouteFindings, 1)
+	assert.Equal(t, "/mcp", got.Detection.RouteFindings[0].Authenticated.Path)
+	assert.Equal(t, "/mcp_message", got.Detection.RouteFindings[0].Unauthenticated.Path)
+	var found bool
+	for _, issue := range got.Findings {
+		if issue.RuleID == "AS-019" {
+			found = true
+			assert.Equal(t, "CRITICAL", string(issue.Severity))
+			assert.Contains(t, issue.Description, "/mcp_message")
+		}
+	}
+	assert.True(t, found, "expected AS-019 finding across files")
+}

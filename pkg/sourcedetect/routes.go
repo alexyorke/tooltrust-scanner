@@ -213,12 +213,11 @@ func findFailOpenWhitelistEvidence(text string) (Evidence, bool) {
 
 func correlateRouteRegistrations(routes []routeRegistration, failOpen map[string]Evidence) ([]RouteFinding, []model.Issue) {
 	type pairKey struct {
-		file    string
 		handler string
 	}
 	byKey := map[pairKey][]routeRegistration{}
 	for _, route := range routes {
-		byKey[pairKey{file: route.File, handler: route.Handler}] = append(byKey[pairKey{file: route.File, handler: route.Handler}], route)
+		byKey[pairKey{handler: route.Handler}] = append(byKey[pairKey{handler: route.Handler}], route)
 	}
 
 	var findings []RouteFinding
@@ -244,7 +243,7 @@ func correlateRouteRegistrations(routes []routeRegistration, failOpen map[string
 			continue
 		}
 
-		findKey := fmt.Sprintf("%s|%s|%s|%s", key.file, key.handler, authRoute.Path, unauthRoute.Path)
+		findKey := fmt.Sprintf("%s|%s|%s", key.handler, authRoute.Path, unauthRoute.Path)
 		if seen[findKey] {
 			continue
 		}
@@ -252,7 +251,7 @@ func correlateRouteRegistrations(routes []routeRegistration, failOpen map[string
 
 		rf := RouteFinding{
 			Language: "go",
-			File:     key.file,
+			File:     authRoute.File,
 			Authenticated: RouteMatch{
 				Path:    authRoute.Path,
 				Line:    authRoute.Line,
@@ -264,7 +263,10 @@ func correlateRouteRegistrations(routes []routeRegistration, failOpen map[string
 				Handler: unauthRoute.Handler,
 			},
 		}
-		if ev, ok := failOpen[key.file]; ok {
+		if ev, ok := failOpen[authRoute.File]; ok {
+			evCopy := ev
+			rf.FailOpenEvidence = &evCopy
+		} else if ev, ok := failOpen[unauthRoute.File]; ok {
 			evCopy := ev
 			rf.FailOpenEvidence = &evCopy
 		} else if unauthRoute.HasIPFilter || authRoute.HasIPFilter {
@@ -282,6 +284,10 @@ func correlateRouteRegistrations(routes []routeRegistration, failOpen map[string
 			severity = model.SeverityCritical
 			desc = fmt.Sprintf("MCP route %s appears reachable without authentication while %s protects the same handler %s. This may allow unauthenticated remote MCP tool invocation.", unauthRoute.Path, authRoute.Path, unauthRoute.Handler)
 		}
+		location := authRoute.File
+		if unauthRoute.File != authRoute.File {
+			location = authRoute.File + ", " + unauthRoute.File
+		}
 
 		evidence := []model.Evidence{
 			{Kind: "authenticated_route", Value: fmt.Sprintf("%s:%d", authRoute.File, authRoute.Line)},
@@ -290,7 +296,7 @@ func correlateRouteRegistrations(routes []routeRegistration, failOpen map[string
 		if rf.FailOpenEvidence != nil {
 			evidence = append(evidence, model.Evidence{
 				Kind:  "fail_open_whitelist",
-				Value: fmt.Sprintf("%s:%d", key.file, rf.FailOpenEvidence.Line),
+				Value: fmt.Sprintf("%s:%d", rf.File, rf.FailOpenEvidence.Line),
 			})
 		}
 
@@ -299,7 +305,7 @@ func correlateRouteRegistrations(routes []routeRegistration, failOpen map[string
 			Severity:    severity,
 			Code:        "MCP_AUTH_ASYMMETRY",
 			Description: desc,
-			Location:    key.file,
+			Location:    location,
 			Evidence:    evidence,
 		})
 	}
