@@ -145,7 +145,7 @@ func (c *PoisoningChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 
 	var issues []model.Issue
 	if hasInjectionHint {
-		if matched, ok := matchInstructionOverridePhrase(desc); ok {
+		if matched, ok := matchInstructionOverridePhrase(desc, descLower); ok {
 			issues = append(issues, model.Issue{
 				RuleID:      "AS-001",
 				ToolName:    tool.Name,
@@ -210,14 +210,14 @@ type wordSpan struct {
 	end   int
 }
 
-func matchInstructionOverridePhrase(desc string) (string, bool) {
+func matchInstructionOverridePhrase(desc, descLower string) (string, bool) {
 	spans := asciiWordSpans(desc)
 	if len(spans) == 0 {
 		return "", false
 	}
 
 	for i := 0; i < len(spans); i++ {
-		trigger := strings.ToLower(desc[spans[i].start:spans[i].end])
+		trigger := descLower[spans[i].start:spans[i].end]
 		if !isInstructionOverrideTrigger(trigger) {
 			continue
 		}
@@ -227,7 +227,7 @@ func matchInstructionOverridePhrase(desc string) (string, bool) {
 			limit = len(spans) - 1
 		}
 		for j := i + 1; j <= limit; j++ {
-			target := strings.ToLower(desc[spans[j].start:spans[j].end])
+			target := descLower[spans[j].start:spans[j].end]
 			if isInstructionOverrideTarget(target) {
 				return desc[spans[i].start:spans[j].end], true
 			}

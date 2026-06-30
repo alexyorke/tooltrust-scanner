@@ -16,7 +16,7 @@ import (
 //go:embed data/npm_iocs.json
 var npmIOCsJSON []byte
 
-var urlPattern = regexp.MustCompile(`https?://[^\s"'()<>]+`)
+var urlPattern = regexp.MustCompile(`(?:https?:)?//[^\s"'()<>]+`)
 
 type npmIOCEntry struct {
 	Ecosystem       string `json:"ecosystem"`
@@ -315,6 +315,9 @@ func extractURLs(script string) []string {
 	seen := map[string]bool{}
 	for i := range matches {
 		token := strings.Trim(matches[i], `"'()[]{}<>.,;`)
+		if strings.HasPrefix(token, "//") {
+			token = "https:" + token
+		}
 		parsed, err := url.Parse(token)
 		if err != nil || parsed.Host == "" {
 			continue

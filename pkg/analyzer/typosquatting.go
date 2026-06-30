@@ -90,6 +90,13 @@ func levenshteinWithin(a, b string, maxDistance int) int {
 		return maxDistance + 1
 	}
 
+	// This checker only asks for distances up to 2. Use a tiny banded DP for
+	// that hot path so we only evaluate the cells that can still produce a
+	// result within the threshold.
+	if maxDistance <= 2 {
+		return levenshteinWithinBounded(a, b, la, lb, maxDistance)
+	}
+
 	var prevSmall [smallLevenshteinRowWidth]int
 	var currSmall [smallLevenshteinRowWidth]int
 
@@ -126,6 +133,85 @@ func levenshteinWithin(a, b string, maxDistance int) int {
 		return maxDistance + 1
 	}
 	return prev[lb]
+}
+
+func levenshteinWithinBounded(a, b string, la, lb, maxDistance int) int {
+	const bandWidth = 5 // maxDistance <= 2, so the active band is at most 5 cells wide.
+
+	var prev [bandWidth]int
+	var curr [bandWidth]int
+
+	prevStart := 0
+	prevEnd := lb
+	if prevEnd > maxDistance {
+		prevEnd = maxDistance
+	}
+	for j := prevStart; j <= prevEnd; j++ {
+		prev[j-prevStart] = j
+	}
+
+	for i := 1; i <= la; i++ {
+		start := i - maxDistance
+		if start < 0 {
+			start = 0
+		}
+		end := i + maxDistance
+		if end > lb {
+			end = lb
+		}
+
+		for k := range curr {
+			curr[k] = maxDistance + 1
+		}
+
+		rowMin := maxDistance + 1
+		for j := start; j <= end; j++ {
+			idx := j - start
+			if j == 0 {
+				curr[idx] = i
+				if curr[idx] < rowMin {
+					rowMin = curr[idx]
+				}
+				continue
+			}
+
+			del := maxDistance + 1
+			if j >= prevStart && j <= prevEnd {
+				del = prev[j-prevStart] + 1
+			}
+
+			ins := maxDistance + 1
+			if j > start {
+				ins = curr[idx-1] + 1
+			}
+
+			sub := maxDistance + 1
+			if j-1 >= prevStart && j-1 <= prevEnd {
+				cost := 1
+				if a[i-1] == b[j-1] {
+					cost = 0
+				}
+				sub = prev[(j-1)-prevStart] + cost
+			}
+
+			curr[idx] = min3(ins, del, sub)
+			if curr[idx] < rowMin {
+				rowMin = curr[idx]
+			}
+		}
+
+		if rowMin > maxDistance {
+			return maxDistance + 1
+		}
+
+		prev, curr = curr, prev
+		prevStart, prevEnd = start, end
+	}
+
+	if lb < prevStart || lb > prevEnd {
+		return maxDistance + 1
+	}
+	return prev[lb-prevStart]
 }
 
 func min3(a, b, c int) int {
