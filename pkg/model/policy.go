@@ -33,7 +33,7 @@ type RateLimit struct {
 type GatewayPolicy struct {
 	ToolName             string     `json:"tool_name"`
 	Action               Action     `json:"action"`
-	RateLimit            *RateLimit `json:"rate_limit,omitempty"`
+	RateLimit            *RateLimit `json:"rate_limit"`
 	Reason               string     `json:"reason,omitempty"`
 	Behavior             []string   `json:"behavior,omitempty"`
 	Destinations         []string   `json:"destinations,omitempty"`
