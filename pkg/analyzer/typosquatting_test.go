@@ -19,6 +19,7 @@ func TestLevenshteinWithin(t *testing.T) {
 		{name: "exact", a: "readfile", b: "readfile", maxDistance: 2, want: 0},
 		{name: "distance one", a: "readfle", b: "readfile", maxDistance: 2, want: 1},
 		{name: "distance two", a: "naviage", b: "navigate", maxDistance: 2, want: 2},
+		{name: "same length substitutions", a: "abcd", b: "abxy", maxDistance: 2, want: 2},
 		{name: "beyond threshold", a: "lstfls", b: "listfiles", maxDistance: 2, want: 3},
 		{name: "asymmetric input lengths", a: "playwrightnavigate", b: "playwrightnaviage", maxDistance: 2, want: 2},
 	}

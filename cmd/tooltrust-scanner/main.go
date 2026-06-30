@@ -122,7 +122,7 @@ func newScanCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&inputFile, "input", "i", "", "path to tool definition file")
 	cmd.Flags().StringVarP(&serverCmd, "server", "s", "", "live MCP server to scan (e.g. 'npx @modelcontextprotocol/server-filesystem /tmp')")
-	cmd.Flags().StringVarP(&protocol, "protocol", "p", "mcp", "protocol format: mcp | openai | skills")
+	cmd.Flags().StringVarP(&protocol, "protocol", "p", "mcp", "protocol format: mcp")
 	cmd.Flags().StringVarP(&output, "output", "o", "text", "output format: text (default) | json")
 	cmd.Flags().StringVar(&outputFile, "file", "", "write output to file instead of stdout")
 	cmd.Flags().StringVar(&failOn, "fail-on", "", "exit non-zero if any tool reaches this action: allow | approval | block")

@@ -60,6 +60,16 @@ func TestCheckFailOn_InvalidValue(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid --fail-on")
 }
 
+func TestNewScanCmd_ProtocolFlagIsMCPOnly(t *testing.T) {
+	cmd := newScanCmd()
+	flag := cmd.Flags().Lookup("protocol")
+	if assert.NotNil(t, flag) {
+		assert.Contains(t, flag.Usage, "mcp")
+		assert.NotContains(t, flag.Usage, "openai")
+		assert.NotContains(t, flag.Usage, "skills")
+	}
+}
+
 func TestRunScan_InvalidFailOnDoesNotWriteReport(t *testing.T) {
 	tmp := t.TempDir()
 	input := filepath.Join(tmp, "tools.json")

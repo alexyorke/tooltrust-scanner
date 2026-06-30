@@ -90,6 +90,19 @@ func levenshteinWithin(a, b string, maxDistance int) int {
 		return maxDistance + 1
 	}
 
+	if la == lb {
+		mismatches := 0
+		for i := 0; i < la; i++ {
+			if a[i] != b[i] {
+				mismatches++
+				if mismatches > maxDistance {
+					return maxDistance + 1
+				}
+			}
+		}
+		return mismatches
+	}
+
 	// This checker only asks for distances up to 2. Use a tiny banded DP for
 	// that hot path so we only evaluate the cells that can still produce a
 	// result within the threshold.
