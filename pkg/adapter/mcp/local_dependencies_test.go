@@ -58,3 +58,10 @@ func TestEnrichLiveToolsWithLocalDependencyMetadata_DetectsBarePythonScriptProje
 	assert.Equal(t, "Verified from local lockfile", visibility)
 	assert.Contains(t, note, "Local dependency artifacts scanned")
 }
+
+func TestParsePNPMLockKey_NPMAliasUsesRealPackageName(t *testing.T) {
+	name, version, ok := parsePNPMLockKey(`/string-width-cjs@npm:string-width@^4.2.3:`)
+	require.True(t, ok)
+	assert.Equal(t, "string-width", name)
+	assert.Equal(t, "^4.2.3", version)
+}
