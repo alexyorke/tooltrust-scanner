@@ -482,6 +482,13 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 			Skipped: "tooltrust-mcp (self)",
 		}
 	}
+	if strings.TrimSpace(entry.Command) == "" {
+		return serverScanResult{
+			Server: name,
+			Status: "error",
+			Error:  "empty server command",
+		}
+	}
 
 	args := append([]string{entry.Command}, entry.Args...)
 

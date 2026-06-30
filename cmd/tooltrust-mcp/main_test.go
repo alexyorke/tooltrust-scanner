@@ -623,6 +623,16 @@ func TestSortedMCPServerNames_Deterministic(t *testing.T) {
 	assert.Equal(t, []string{"alpha", "beta", "zeta"}, got)
 }
 
+func TestScanOneServer_MissingCommandReturnsError(t *testing.T) {
+	result := scanOneServer(context.Background(), "bad-server", mcpServerEntry{
+		Args: []string{"server.js"},
+	})
+
+	assert.Equal(t, "bad-server", result.Server)
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "empty server command")
+}
+
 func isolateUserHome(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("HOME", dir)

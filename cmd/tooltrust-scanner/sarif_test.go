@@ -25,6 +25,7 @@ func TestWriteSarifOutput_RegistersAllEmittedRuleIDs(t *testing.T) {
 					Issues: []model.Issue{
 						{RuleID: "AS-008", Severity: model.SeverityCritical, Description: "known compromised package"},
 						{RuleID: "AS-016", Severity: model.SeverityCritical, Description: "npm IOC dependency"},
+						{RuleID: "CUSTOM-001", Severity: model.SeverityHigh, Description: "custom rule finding"},
 					},
 				},
 			},
@@ -61,8 +62,9 @@ func TestWriteSarifOutput_RegistersAllEmittedRuleIDs(t *testing.T) {
 
 	assert.True(t, rules["AS-008"], "SARIF rules must include known compromised package findings")
 	assert.True(t, rules["AS-016"], "SARIF rules must include npm IOC findings")
-	require.Len(t, doc.Runs[0].Results, 2)
+	require.Len(t, doc.Runs[0].Results, 3)
 	for _, result := range doc.Runs[0].Results {
+		assert.True(t, rules[result.RuleID], "SARIF result rule %q must be registered", result.RuleID)
 		assert.Nil(t, result.RuleIndex)
 	}
 }

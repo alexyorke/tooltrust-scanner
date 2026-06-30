@@ -44,10 +44,12 @@ func writeSarifOutput(opts scanOpts, report ScanReport) error {
 
 	run := sarif.NewRunWithInformationURI("ToolTrust Scanner", "https://github.com/AgentSafe-AI/tooltrust-scanner")
 
+	registeredRules := make(map[string]bool, len(sarifRuleDefinitions))
 	for _, rule := range sarifRuleDefinitions {
 		run.AddRule(rule.id).
 			WithShortDescription(sarif.NewMultiformatMessageString(rule.title)).
 			WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
+		registeredRules[rule.id] = true
 	}
 
 	sarifReport.AddRun(run)
@@ -68,6 +70,12 @@ func writeSarifOutput(opts scanOpts, report ScanReport) error {
 			ruleId := issue.RuleID
 			if ruleId == "" {
 				ruleId = issue.Code // fallback if rule ID is missing
+			}
+			if ruleId != "" && !registeredRules[ruleId] {
+				run.AddRule(ruleId).
+					WithShortDescription(sarif.NewMultiformatMessageString(ruleId)).
+					WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
+				registeredRules[ruleId] = true
 			}
 
 			loc := sarif.NewLocationWithPhysicalLocation(sarif.NewPhysicalLocation().

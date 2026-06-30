@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -310,30 +311,18 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 }
 
 func writeTextOutputFile(path string, report ScanReport) error {
-	f, err := os.Create(path) // #nosec G304 -- path is the explicit --file output destination.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- path is the explicit --file output destination.
 	if err != nil {
 		return fmt.Errorf("failed to write output file: %w", err)
 	}
 
-	prevPtermOutput := pterm.Output
-	pterm.EnableOutput()
-	pterm.SetDefaultOutput(f)
-	defer func() {
-		if prevPtermOutput {
-			pterm.EnableOutput()
-		} else {
-			pterm.DisableOutput()
-		}
-		pterm.SetDefaultOutput(os.Stdout)
-	}()
-
-	if err := printPtermUI(report); err != nil {
+	if err := printPtermUITo(f, report); err != nil {
 		if closeErr := f.Close(); closeErr != nil {
 			return fmt.Errorf("render report: %w; close output file: %v", err, closeErr)
 		}
 		return err
 	}
-	printStarPrompt()
+	printStarPromptTo(f)
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("failed to close output file: %w", err)
 	}
@@ -355,8 +344,12 @@ func shouldPrintWriteNotice(f *os.File) bool {
 
 // printPtermUI renders the scan report as a pterm tree + summary box.
 func printPtermUI(report ScanReport) error {
+	return printPtermUITo(nil, report)
+}
+
+func printPtermUITo(w io.Writer, report ScanReport) error {
 	// ── Emergency alert for AS-008 BLOCK findings ─────────────────────────────
-	printSupplyChainAlert(report.Policies)
+	printSupplyChainAlertTo(w, report.Policies)
 
 	// ── Build the tree ────────────────────────────────────────────────────────
 	var rootChildren []pterm.TreeNode
@@ -422,11 +415,15 @@ func printPtermUI(report ScanReport) error {
 		})
 	}
 
-	pterm.Println() // blank line before tree
-	if err := pterm.DefaultTree.WithRoot(pterm.TreeNode{
+	ptermPrintln(w) // blank line before tree
+	tree := pterm.DefaultTree.WithRoot(pterm.TreeNode{
 		Text:     pterm.Bold.Sprint("Scan Results"),
 		Children: rootChildren,
-	}).Render(); err != nil {
+	})
+	if w != nil {
+		tree = tree.WithWriter(w)
+	}
+	if err := tree.Render(); err != nil {
 		return fmt.Errorf("render tree: %w", err)
 	}
 
@@ -449,20 +446,39 @@ func printPtermUI(report ScanReport) error {
 		riskLine,
 		s.ScannedAt.Format("2006-01-02 15:04:05 UTC"),
 	)
-	pterm.DefaultBox.
+	box := pterm.DefaultBox.
 		WithTitle(pterm.Bold.Sprint("Scan Summary")).
-		WithTitleTopCenter().
-		Println(summaryContent)
+		WithTitleTopCenter()
+	if w != nil {
+		box = box.WithWriter(w)
+	}
+	box.Println(summaryContent)
 
 	// ── Per-grade action guide ─────────────────────────────────────────────
-	printGradeGuide(worstGrade(report.Policies))
+	printGradeGuideTo(w, worstGrade(report.Policies))
 
 	return nil
 }
 
 func printStarPrompt() {
-	pterm.Println()
-	pterm.Info.Println("If ToolTrust helped, star us: github.com/AgentSafe-AI/tooltrust-scanner")
+	printStarPromptTo(nil)
+}
+
+func printStarPromptTo(w io.Writer) {
+	ptermPrintln(w)
+	if w == nil {
+		pterm.Info.Println("If ToolTrust helped, star us: github.com/AgentSafe-AI/tooltrust-scanner")
+		return
+	}
+	pterm.Info.WithWriter(w).Println("If ToolTrust helped, star us: github.com/AgentSafe-AI/tooltrust-scanner")
+}
+
+func ptermPrintln(w io.Writer, a ...any) {
+	if w == nil {
+		pterm.Println(a...)
+		return
+	}
+	pterm.Fprintln(w, a...)
 }
 
 func dependencyVisibilityLines(policy model.GatewayPolicy) (line, note string) {
@@ -533,6 +549,23 @@ func printSupplyChainAlert(policies []model.GatewayPolicy) {
 	red.Println("  3. Check for persistence: ~/.config/sysmon/ and systemd user services.")
 	red.Println("  4. Audit recent agent actions — your environment may be compromised.")
 	pterm.Println()
+}
+
+func printSupplyChainAlertTo(w io.Writer, policies []model.GatewayPolicy) {
+	if w == nil {
+		printSupplyChainAlert(policies)
+		return
+	}
+	for i := range policies {
+		policy := policies[i]
+		for _, issue := range policy.Score.Issues {
+			if issue.RuleID == "AS-008" && issue.Code == "SUPPLY_CHAIN_BLOCK" {
+				ptermPrintln(w)
+				ptermPrintln(w, pterm.FgRed.Sprintf("SUPPLY CHAIN ATTACK DETECTED: %s", issue.Location))
+				ptermPrintln(w, pterm.FgRed.Sprint(issue.Description))
+			}
+		}
+	}
 }
 
 // worstGrade returns the highest-risk grade across all policies.
@@ -644,6 +677,21 @@ func printGradeGuide(grade model.Grade) {
 		WithTitle(pterm.NewStyle(g.color, pterm.Bold).Sprintf("%s  What to do with Grade %s", g.icon, grade)).
 		WithTitleTopLeft().
 		Println(pterm.NewStyle(g.color).Sprint(content))
+}
+
+func printGradeGuideTo(w io.Writer, grade model.Grade) {
+	if w == nil {
+		printGradeGuide(grade)
+		return
+	}
+	switch grade {
+	case model.GradeA:
+		ptermPrintln(w)
+		ptermPrintln(w, pterm.FgGreen.Sprint("No action required - all tools are within safe thresholds."))
+	case model.GradeB, model.GradeC, model.GradeD, model.GradeF:
+		ptermPrintln(w)
+		ptermPrintln(w, pterm.NewStyle(pterm.FgYellow, pterm.Bold).Sprintf("Review guidance for grade %s in the findings above.", grade))
+	}
 }
 
 func summarizeToolReason(policy model.GatewayPolicy) string {

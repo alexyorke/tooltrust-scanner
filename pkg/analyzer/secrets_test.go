@@ -238,6 +238,9 @@ func TestSecretChecker_ModelTokenFields_NoFalsePositive(t *testing.T) {
 		"output_tokens",
 		"token_count",
 		"tokenizer",
+		"tokenize_text",
+		"tokenizer_config",
+		"tokenization_options",
 	} {
 		tool := model.UnifiedTool{
 			Name: "completion_tool",

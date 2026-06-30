@@ -260,6 +260,36 @@ func TestWriteOutput_TextHonorsOutputFile(t *testing.T) {
 	assert.Contains(t, string(data), "Scan Summary")
 }
 
+func TestWriteOutput_TextOutputFileRestoresPtermOutput(t *testing.T) {
+	prevOutput := pterm.Output
+	pterm.EnableOutput()
+	t.Cleanup(func() {
+		if prevOutput {
+			pterm.EnableOutput()
+		} else {
+			pterm.DisableOutput()
+		}
+		pterm.SetDefaultOutput(os.Stdout)
+	})
+
+	var buf bytes.Buffer
+	pterm.SetDefaultOutput(&buf)
+
+	out := filepath.Join(t.TempDir(), "report.txt")
+	report := ScanReport{
+		Policies: []model.GatewayPolicy{},
+		Summary: ScanSummary{
+			ScannedAt: time.Now().UTC(),
+		},
+	}
+
+	require.NoError(t, writeOutput(scanOpts{output: "text", outputFile: out}, report))
+
+	buf.Reset()
+	require.NoError(t, printPtermUI(report))
+	assert.Contains(t, buf.String(), "Scan Summary")
+}
+
 func TestShouldPrintWriteNotice_FileIsNonInteractive(t *testing.T) {
 	output, err := os.Create(filepath.Join(t.TempDir(), "stderr.txt"))
 	require.NoError(t, err)

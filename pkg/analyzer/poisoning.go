@@ -73,6 +73,12 @@ var injectionRuleHints = []string{
 	"jailbreak",
 }
 
+var instructionOverrideTriggerHints = []string{
+	"ignore",
+	"disregard",
+	"bypass",
+}
+
 // defensiveJailbreakContexts are substrings whose presence (anywhere in the
 // description) indicates the tool is describing detection / prevention of
 // jailbreaks rather than performing one. Match is case-insensitive on a
@@ -130,7 +136,7 @@ func (c *PoisoningChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 	hasInjectionHint := containsAny(descLower, injectionRuleHints...)
 
 	var issues []model.Issue
-	if hasInjectionHint {
+	if hasInjectionHint && containsAny(descLower, instructionOverrideTriggerHints...) {
 		if matched, ok := matchInstructionOverridePhrase(desc, descLower); ok {
 			issues = append(issues, model.Issue{
 				RuleID:      "AS-001",
@@ -149,7 +155,7 @@ func (c *PoisoningChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 
 	if len(issues) == 0 && hasInjectionHint {
 		for _, rule := range injectionRules {
-			if rule.pattern.String() == `(?i)jailbreak` && defensiveJailbreak {
+			if rule.pattern == jailbreakPattern && defensiveJailbreak {
 				continue
 			}
 			if matched := rule.pattern.FindString(desc); matched != "" {

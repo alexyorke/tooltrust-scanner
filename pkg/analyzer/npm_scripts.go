@@ -183,7 +183,6 @@ func (c *NPMLifecycleScriptChecker) Check(tool model.UnifiedTool) ([]model.Issue
 					{Kind: "script_severity", Value: string(sev)},
 				},
 			})
-			break
 		}
 	}
 
