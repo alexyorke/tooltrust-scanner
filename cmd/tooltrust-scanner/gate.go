@@ -309,8 +309,11 @@ func installServer(ctx context.Context, opts gateOpts, serverName, serverCmd str
 // installViaCLI uses the claude CLI to add the server.
 func installViaCLI(ctx context.Context, claudePath, serverName string, opts gateOpts) error {
 	args := []string{"mcp", "add", serverName}
-	if opts.scope == "user" {
-		args = append(args, "-s", "user")
+	switch opts.scope {
+	case "project", "user":
+		args = append(args, "-s", opts.scope)
+	default:
+		return fmt.Errorf("invalid --scope %q (use: project or user)", opts.scope)
 	}
 	args = append(args, "--", "npx", "-y", opts.packageName)
 	args = append(args, opts.extraArgs...)
@@ -332,12 +335,18 @@ func installViaConfig(serverName string, opts gateOpts) error {
 	}
 
 	cfg := mcpConfig{MCPServers: make(map[string]mcpServerEntry)}
+	document := map[string]json.RawMessage{}
 
 	// Read existing config if present.
 	data, readErr := os.ReadFile(configPath) // #nosec G304 -- configPath is resolved to the project/user MCP config.
 	if readErr == nil {
-		if uErr := json.Unmarshal(data, &cfg); uErr != nil {
+		if uErr := json.Unmarshal(data, &document); uErr != nil {
 			return fmt.Errorf("failed to parse existing config %s: %w", configPath, uErr)
+		}
+		if serversRaw, ok := document["mcpServers"]; ok {
+			if uErr := json.Unmarshal(serversRaw, &cfg.MCPServers); uErr != nil {
+				return fmt.Errorf("failed to parse existing mcpServers in %s: %w", configPath, uErr)
+			}
 		}
 		if cfg.MCPServers == nil {
 			cfg.MCPServers = make(map[string]mcpServerEntry)
@@ -354,7 +363,12 @@ func installViaConfig(serverName string, opts gateOpts) error {
 	}
 
 	// Write config.
-	encoded, err := json.MarshalIndent(cfg, "", "  ")
+	servers, err := json.Marshal(cfg.MCPServers)
+	if err != nil {
+		return fmt.Errorf("failed to encode mcpServers: %w", err)
+	}
+	document["mcpServers"] = servers
+	encoded, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to encode config: %w", err)
 	}

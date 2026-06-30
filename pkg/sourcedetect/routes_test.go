@@ -144,3 +144,36 @@ func TestExtractRouteRegistrations_InlineHandlerUsesForwardedMCPHandler(t *testi
 	assert.Equal(t, "mcpHandler", routes[1].Handler)
 	assert.False(t, routes[1].HasAuth)
 }
+
+func TestCorrelateRouteRegistrations_UsesFailOpenEvidenceFile(t *testing.T) {
+	routes := []routeRegistration{
+		{
+			File:    "router.go",
+			Line:    10,
+			Path:    "/mcp",
+			Handler: "mcpHandler",
+			HasAuth: true,
+		},
+		{
+			File:        "router.go",
+			Line:        20,
+			Path:        "/mcp_message",
+			Handler:     "mcpHandler",
+			HasIPFilter: true,
+		},
+	}
+	failOpen := map[string]Evidence{
+		"whitelist.go": {
+			Kind:    "fail_open_whitelist",
+			Line:    42,
+			Snippet: "IPWhiteList(allowed)",
+		},
+	}
+
+	_, issues := correlateRouteRegistrations(routes, failOpen)
+
+	require.Len(t, issues, 1)
+	require.Len(t, issues[0].Evidence, 3)
+	assert.Equal(t, "fail_open_whitelist", issues[0].Evidence[2].Kind)
+	assert.Equal(t, "whitelist.go:42", issues[0].Evidence[2].Value)
+}

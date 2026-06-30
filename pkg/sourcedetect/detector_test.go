@@ -1,6 +1,7 @@
 package sourcedetect
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -56,6 +57,33 @@ func TestDetectEmbeddedMCP_SkipAndIgnoreRules(t *testing.T) {
 			assert.False(t, got.HasEmbeddedMCP)
 		})
 	}
+}
+
+func TestDetectEmbeddedMCP_IgnorePatternCoversNestedPaths(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "internal", "pkg"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, ".tooltrust-ignore"),
+		[]byte("internal/*\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "internal", "pkg", "server.go"),
+		[]byte(`package server
+
+import "github.com/modelcontextprotocol/go-sdk/mcp"
+
+func Run() {
+	_ = mcp.NewServer(nil, nil)
+}
+`),
+		0o644,
+	))
+
+	got, err := DetectEmbeddedMCP(dir, Options{})
+	require.NoError(t, err)
+	assert.False(t, got.HasEmbeddedMCP)
+	assert.Empty(t, got.Findings)
 }
 
 func TestDetectEmbeddedMCP_AS019RouteAuthAsymmetry(t *testing.T) {

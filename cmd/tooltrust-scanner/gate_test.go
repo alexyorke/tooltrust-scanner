@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/kballard/go-shellquote"
 
@@ -216,4 +220,129 @@ func TestInstallViaConfig_MergesExisting(t *testing.T) {
 	if _, ok := got.MCPServers["server-memory"]; !ok {
 		t.Error("server-memory was not added")
 	}
+}
+
+func TestInstallViaConfig_PreservesUserClaudeConfigFields(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+
+	configPath := filepath.Join(dir, ".claude.json")
+	existing := []byte(`{
+  "projects": {
+    "/repo": {
+      "allowedTools": ["Read"]
+    }
+  },
+  "mcpServers": {
+    "existing-server": {
+      "command": "node",
+      "args": ["server.js"]
+    }
+  }
+}`)
+	if err := os.WriteFile(configPath, existing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := installViaConfig("server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "user",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := raw["projects"]; !ok {
+		t.Fatal("projects field was not preserved")
+	}
+
+	var got mcpConfig
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got.MCPServers["existing-server"]; !ok {
+		t.Error("existing-server was not preserved")
+	}
+	if _, ok := got.MCPServers["server-memory"]; !ok {
+		t.Error("server-memory was not added")
+	}
+}
+
+func TestInstallViaCLI_PassesProjectScopeExplicitly(t *testing.T) {
+	dir := t.TempDir()
+	fakeClaude := buildFakeClaude(t, dir)
+	argvPath := filepath.Join(dir, "argv.txt")
+	t.Setenv("CLAUDE_ARGV_OUT", argvPath)
+
+	err := installViaCLI(context.Background(), fakeClaude, "server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(argvPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Fields(string(data))
+	want := []string{"mcp", "add", "server-memory", "-s", "project", "--", "npx", "-y", "@modelcontextprotocol/server-memory"}
+	if len(got) != len(want) {
+		t.Fatalf("argv length = %d, want %d: %q", len(got), len(want), string(data))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("argv[%d] = %q, want %q (argv %q)", i, got[i], want[i], string(data))
+		}
+	}
+}
+
+func buildFakeClaude(t *testing.T, dir string) string {
+	t.Helper()
+
+	sourcePath := filepath.Join(dir, "fake_claude.go")
+	source := `package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+)
+
+func main() {
+	path := os.Getenv("CLAUDE_ARGV_OUT")
+	if path == "" {
+		fmt.Fprintln(os.Stderr, "CLAUDE_ARGV_OUT is not set")
+		os.Exit(2)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(os.Args[1:], " ")), 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+}
+`
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	binaryPath := filepath.Join(dir, "fake-claude")
+	if strings.EqualFold(filepath.Ext(os.Args[0]), ".exe") {
+		binaryPath += ".exe"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", binaryPath, sourcePath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build fake claude: %v\n%s", err, out)
+	}
+	return binaryPath
 }

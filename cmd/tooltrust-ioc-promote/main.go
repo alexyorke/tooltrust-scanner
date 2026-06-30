@@ -98,12 +98,12 @@ func run(args []string) error {
 	seen := make(map[string]bool, len(current))
 	for i := range current {
 		entry := current[i]
-		seen[npmIOCSeenKey(entry.IOCType, firstNonEmpty(entry.Value, entry.Name), entry.Match)] = true
+		seen[npmIOCSeenKey(entry.IOCType, firstNonEmpty(entry.Value, entry.Name), normalizeNPMIOCMatch(entry.IOCType, entry.Match))] = true
 	}
 	seenBlacklist := make(map[string]bool, len(blacklist))
 	for i := range blacklist {
 		entry := blacklist[i]
-		seenBlacklist[strings.ToLower(entry.Ecosystem)+":"+strings.ToLower(entry.Component)+":"+strings.Join(entry.AffectedVersions, ",")] = true
+		seenBlacklist[blacklistSeenKey(entry.Ecosystem, entry.Component, entry.AffectedVersions)] = true
 	}
 
 	var addedNPMIOCs int
@@ -125,14 +125,7 @@ func run(args []string) error {
 			}
 
 			value := strings.TrimSpace(candidate.Value)
-			match := strings.TrimSpace(candidate.Match)
-			if match == "" {
-				if candidate.IOCType == "package_name" || candidate.IOCType == "dependency_name" {
-					match = "exact"
-				} else {
-					match = "contains"
-				}
-			}
+			match := normalizeNPMIOCMatch(candidate.IOCType, candidate.Match)
 			key := npmIOCSeenKey(candidate.IOCType, value, match)
 			if seen[key] {
 				continue
@@ -173,7 +166,7 @@ func run(args []string) error {
 				return fmt.Errorf("invalid candidate %q: blacklist severity must be CRITICAL/HIGH/MEDIUM/LOW", candidate.Value)
 			}
 
-			key := strings.ToLower(candidate.Ecosystem) + ":" + strings.ToLower(candidate.Value) + ":" + strings.Join(candidate.AffectedVers, ",")
+			key := blacklistSeenKey(candidate.Ecosystem, candidate.Value, candidate.AffectedVers)
 			if seenBlacklist[key] {
 				continue
 			}
@@ -230,6 +223,30 @@ func run(args []string) error {
 
 func npmIOCSeenKey(iocType, value, match string) string {
 	return strings.ToLower(strings.TrimSpace(iocType)) + ":" + strings.ToLower(strings.TrimSpace(value)) + ":" + strings.ToLower(strings.TrimSpace(match))
+}
+
+func normalizeNPMIOCMatch(iocType, match string) string {
+	normalized := strings.TrimSpace(match)
+	if normalized != "" {
+		return normalized
+	}
+	switch strings.TrimSpace(iocType) {
+	case "package_name", "dependency_name":
+		return "exact"
+	default:
+		return "contains"
+	}
+}
+
+func blacklistSeenKey(ecosystem, component string, affectedVersions []string) string {
+	versions := append([]string(nil), affectedVersions...)
+	sort.Slice(versions, func(i, j int) bool {
+		return strings.ToLower(strings.TrimSpace(versions[i])) < strings.ToLower(strings.TrimSpace(versions[j]))
+	})
+	for i := range versions {
+		versions[i] = strings.ToLower(strings.TrimSpace(versions[i]))
+	}
+	return strings.ToLower(strings.TrimSpace(ecosystem)) + ":" + strings.ToLower(strings.TrimSpace(component)) + ":" + strings.Join(versions, ",")
 }
 
 func firstNonEmpty(values ...string) string {

@@ -268,16 +268,20 @@ func correlateRouteRegistrations(routes []routeRegistration, failOpen map[string
 				Handler: unauthRoute.Handler,
 			},
 		}
+		failOpenFile := ""
 		if ev, ok := failOpen[authRoute.File]; ok {
 			evCopy := ev
 			rf.FailOpenEvidence = &evCopy
+			failOpenFile = authRoute.File
 		} else if ev, ok := failOpen[unauthRoute.File]; ok {
 			evCopy := ev
 			rf.FailOpenEvidence = &evCopy
+			failOpenFile = unauthRoute.File
 		} else if unauthRoute.HasIPFilter || authRoute.HasIPFilter {
-			for _, ev := range failOpen {
+			for file, ev := range failOpen {
 				evCopy := ev
 				rf.FailOpenEvidence = &evCopy
+				failOpenFile = file
 				break
 			}
 		}
@@ -301,7 +305,7 @@ func correlateRouteRegistrations(routes []routeRegistration, failOpen map[string
 		if rf.FailOpenEvidence != nil {
 			evidence = append(evidence, model.Evidence{
 				Kind:  "fail_open_whitelist",
-				Value: fmt.Sprintf("%s:%d", rf.File, rf.FailOpenEvidence.Line),
+				Value: fmt.Sprintf("%s:%d", failOpenFile, rf.FailOpenEvidence.Line),
 			})
 		}
 
