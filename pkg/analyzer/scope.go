@@ -113,7 +113,7 @@ func (c *ScopeChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {
 			}
 		}
 		if !hasLocalWritePerm {
-			if !(hasRemoteWritePerm && isCloudAPIName(nameLower)) {
+			if !hasRemoteWritePerm || !isCloudAPIName(nameLower) {
 				issues = append(issues, model.Issue{
 					RuleID:      "AS-003",
 					ToolName:    tool.Name,

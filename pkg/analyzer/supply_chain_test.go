@@ -10,24 +10,6 @@ import (
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
-// ---------------------------------------------------------------------------
-// Mock OSV client
-// ---------------------------------------------------------------------------
-
-// mockOSVClient implements the internal osvClient interface via a test double.
-// It is wired in through newSupplyChainCheckerWithClient (unexported helper
-// exposed to the _test package via the same package-level test file).
-type mockOSVResponse struct {
-	vulns []osvVulnFixture
-	err   error
-}
-
-type osvVulnFixture struct {
-	id       string
-	summary  string
-	severity string // CVSS v3 score string, e.g. "9.8"
-}
-
 // We cannot directly use the unexported osvClient interface from the test
 // package, so we use the exported Engine.ScanWithSupplyChain helper instead.
 // For direct SupplyChainChecker testing we use the exported

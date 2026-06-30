@@ -315,7 +315,7 @@ func installViaCLI(ctx context.Context, claudePath, serverName string, opts gate
 	args = append(args, "--", "npx", "-y", opts.packageName)
 	args = append(args, opts.extraArgs...)
 
-	cmd := exec.CommandContext(ctx, claudePath, args...)
+	cmd := exec.CommandContext(ctx, claudePath, args...) // #nosec G204 -- claudePath is resolved with LookPath and args are intentionally user/package supplied.
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if cmdErr := cmd.Run(); cmdErr != nil {
@@ -334,7 +334,7 @@ func installViaConfig(serverName string, opts gateOpts) error {
 	cfg := mcpConfig{MCPServers: make(map[string]mcpServerEntry)}
 
 	// Read existing config if present.
-	data, readErr := os.ReadFile(configPath)
+	data, readErr := os.ReadFile(configPath) // #nosec G304 -- configPath is resolved to the project/user MCP config.
 	if readErr == nil {
 		if uErr := json.Unmarshal(data, &cfg); uErr != nil {
 			return fmt.Errorf("failed to parse existing config %s: %w", configPath, uErr)
@@ -361,12 +361,12 @@ func installViaConfig(serverName string, opts gateOpts) error {
 
 	// Ensure parent directory exists.
 	if dir := filepath.Dir(configPath); dir != "." {
-		if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
+		if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
 			return fmt.Errorf("failed to create config directory: %w", mkErr)
 		}
 	}
 
-	if err := os.WriteFile(configPath, encoded, 0o644); err != nil {
+	if err := os.WriteFile(configPath, encoded, 0o600); err != nil {
 		return fmt.Errorf("failed to write config %s: %w", configPath, err)
 	}
 

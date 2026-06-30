@@ -49,10 +49,3 @@ func (c *DependencyInventoryChecker) Check(tool model.UnifiedTool) ([]model.Issu
 		},
 	}}, nil
 }
-
-func metadataNote(meta map[string]any) string {
-	if note, ok := meta["dependency_visibility_note"].(string); ok {
-		return note
-	}
-	return ""
-}

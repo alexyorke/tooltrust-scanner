@@ -281,7 +281,7 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 			return fmt.Errorf("failed to encode report: %w", err)
 		}
 		if opts.outputFile != "" {
-			if writeErr := os.WriteFile(opts.outputFile, encoded, 0o644); writeErr != nil {
+			if writeErr := os.WriteFile(opts.outputFile, encoded, 0o600); writeErr != nil {
 				return fmt.Errorf("failed to write output file: %w", writeErr)
 			}
 			if shouldPrintWriteNotice(os.Stderr) {
@@ -310,11 +310,10 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 }
 
 func writeTextOutputFile(path string, report ScanReport) error {
-	f, err := os.Create(path)
+	f, err := os.Create(path) // #nosec G304 -- path is the explicit --file output destination.
 	if err != nil {
 		return fmt.Errorf("failed to write output file: %w", err)
 	}
-	defer f.Close()
 
 	prevPtermOutput := pterm.Output
 	pterm.EnableOutput()
@@ -329,9 +328,15 @@ func writeTextOutputFile(path string, report ScanReport) error {
 	}()
 
 	if err := printPtermUI(report); err != nil {
+		if closeErr := f.Close(); closeErr != nil {
+			return fmt.Errorf("render report: %w; close output file: %v", err, closeErr)
+		}
 		return err
 	}
 	printStarPrompt()
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("failed to close output file: %w", err)
+	}
 	return nil
 }
 

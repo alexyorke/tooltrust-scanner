@@ -232,6 +232,9 @@ func scanLiveServer(ctx context.Context, args, extraEnv []string) ([]model.Unifi
 	if err != nil {
 		return nil, fmt.Errorf("tools/list map failed: %w", err)
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("tools/list map failed: empty response")
+	}
 
 	// We serialize the response back to JSON so we can use our existing adapter,
 	// which also runs the inference rules for permissions.
@@ -285,6 +288,12 @@ func handleLookup(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Call
 	resp, err := http.DefaultClient.Do(reqHTTP)
 	if err != nil {
 		return mcplib.NewToolResultText(fmt.Sprintf("Failed to query ToolTrust Directory: %v", err)), nil
+	}
+	if resp == nil {
+		return mcplib.NewToolResultText("Failed to query ToolTrust Directory: empty response"), nil
+	}
+	if resp.Body == nil {
+		return mcplib.NewToolResultText("Failed to query ToolTrust Directory: empty response body"), nil
 	}
 	defer resp.Body.Close() //nolint:errcheck // defer close on read-only request
 
@@ -389,9 +398,9 @@ func handleScanConfig(ctx context.Context, _ mcplib.CallToolRequest) (*mcplib.Ca
 			Servers:    []serverScanResult{},
 			Summary:    configScanSummary{},
 		}
-		encoded, err := json.MarshalIndent(out, "", "  ")
-		if err != nil {
-			return mcplib.NewToolResultError(fmt.Sprintf("failed to serialize result: %v", err)), nil
+		encoded, marshalErr := json.MarshalIndent(out, "", "  ")
+		if marshalErr != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("failed to serialize result: %v", marshalErr)), nil
 		}
 		return mcplib.NewToolResultText(string(encoded)), nil
 	}
@@ -492,12 +501,12 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 	}
 
 	if len(tools) == 0 {
-		emptyResult, err := processToolsRaw(ctx, nil)
-		if err != nil {
+		emptyResult, processErr := processToolsRaw(ctx, nil)
+		if processErr != nil {
 			return serverScanResult{
 				Server: name,
 				Status: "error",
-				Error:  err.Error(),
+				Error:  processErr.Error(),
 			}
 		}
 		return serverScanResult{
@@ -550,10 +559,7 @@ func referencesTooltrustMCP(token string) bool {
 		return true
 	}
 	base := strings.ToLower(filepath.Base(filepath.Clean(token)))
-	if strings.TrimSuffix(base, filepath.Ext(base)) == "tooltrust-mcp" {
-		return true
-	}
-	return false
+	return strings.TrimSuffix(base, filepath.Ext(base)) == "tooltrust-mcp"
 }
 
 // loadMCPConfig searches for the MCP config file and parses it.
@@ -622,15 +628,6 @@ func processTools(ctx context.Context, tools []model.UnifiedTool) (*mcplib.CallT
 			},
 		},
 	}, nil
-}
-
-// severityWeight mirrors the CLI scanner weights for display.
-var severityWeight = map[model.Severity]int{
-	model.SeverityCritical: 25,
-	model.SeverityHigh:     15,
-	model.SeverityMedium:   8,
-	model.SeverityLow:      2,
-	model.SeverityInfo:     0,
 }
 
 // gradeEmoji returns the emoji prefix for a tool's final grade.
@@ -922,7 +919,7 @@ func processToolsRaw(ctx context.Context, tools []model.UnifiedTool) (*ScanResul
 	}, nil
 }
 
-func avgRiskScore(policies []model.GatewayPolicy) (int, string) {
+func avgRiskScore(policies []model.GatewayPolicy) (score int, grade string) {
 	if len(policies) == 0 {
 		return 0, string(model.GradeA)
 	}

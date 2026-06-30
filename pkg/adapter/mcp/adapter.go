@@ -260,6 +260,7 @@ func nameMatchesRule(nameLower, keyword string, permission model.Permission) boo
 		if !containsAnyTerm(nameLower, networkNameContextTerms) {
 			return false
 		}
+	default:
 	}
 	return strings.Contains(nameLower, keyword)
 }

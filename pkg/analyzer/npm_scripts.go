@@ -76,6 +76,12 @@ func (c *httpNPMRegistryClient) FetchVersion(ctx context.Context, pkg, version s
 	if err != nil {
 		return npmVersionResponse{}, fmt.Errorf("npm: request: %w", err)
 	}
+	if resp == nil {
+		return npmVersionResponse{}, fmt.Errorf("npm: empty response")
+	}
+	if resp.Body == nil {
+		return npmVersionResponse{}, fmt.Errorf("npm: empty response body")
+	}
 	defer func() {
 		//nolint:errcheck // best-effort close on a short-lived registry lookup
 		_ = resp.Body.Close()

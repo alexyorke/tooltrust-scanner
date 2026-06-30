@@ -174,19 +174,6 @@ func isEmailRecipientProperty(propLower string) bool {
 	return false
 }
 
-func schemaPropertyPaths(schema jsonschema.Schema) []string {
-	if len(schema.Properties) == 0 && schema.Items == nil {
-		return nil
-	}
-	var paths []string
-	walkSchemaPropertyPaths(schema, func(path string) bool {
-		paths = append(paths, path)
-		return true
-	})
-	sort.Strings(paths)
-	return paths
-}
-
 func walkSchemaPropertyPaths(schema jsonschema.Schema, visit func(string) bool) bool {
 	for name, prop := range schema.Properties {
 		if !walkPropertyPaths(name, prop, visit) {
@@ -199,19 +186,6 @@ func walkSchemaPropertyPaths(schema jsonschema.Schema, visit func(string) bool) 
 		}
 	}
 	return true
-}
-
-func propertyPaths(path string, prop jsonschema.Property) []string {
-	paths := []string{path}
-	for name, nested := range prop.Properties {
-		paths = append(paths, propertyPaths(path+"."+name, nested)...)
-	}
-	if prop.Items != nil {
-		for name, nested := range prop.Items.Properties {
-			paths = append(paths, propertyPaths(path+"[]."+name, nested)...)
-		}
-	}
-	return paths
 }
 
 func walkPropertyPaths(path string, prop jsonschema.Property, visit func(string) bool) bool {
@@ -231,19 +205,6 @@ func walkPropertyPaths(path string, prop jsonschema.Property, visit func(string)
 		}
 	}
 	return true
-}
-
-func schemaLeafPropertyPaths(schema jsonschema.Schema) []string {
-	if len(schema.Properties) == 0 && schema.Items == nil {
-		return nil
-	}
-	var paths []string
-	walkSchemaLeafPropertyPaths(schema, func(path string) bool {
-		paths = append(paths, path)
-		return true
-	})
-	sort.Strings(paths)
-	return paths
 }
 
 func walkSchemaLeafPropertyPaths(schema jsonschema.Schema, visit func(string) bool) bool {
@@ -279,22 +240,6 @@ func schemaHasPropertyMatching(schema jsonschema.Schema, match func(string) bool
 	return !walkSchemaPropertyPaths(schema, func(path string) bool {
 		return !match(path)
 	})
-}
-
-func leafPropertyPaths(path string, prop jsonschema.Property) []string {
-	var paths []string
-	for name, nested := range prop.Properties {
-		paths = append(paths, leafPropertyPaths(path+"."+name, nested)...)
-	}
-	if prop.Items != nil {
-		for name, nested := range prop.Items.Properties {
-			paths = append(paths, leafPropertyPaths(path+"[]."+name, nested)...)
-		}
-	}
-	if len(paths) == 0 {
-		return []string{path}
-	}
-	return paths
 }
 
 func walkLeafPropertyPaths(path string, prop jsonschema.Property, visit func(string) bool) bool {
@@ -341,7 +286,7 @@ func normalizeHost(match string) string {
 	host := strings.TrimSpace(match)
 	host = strings.TrimPrefix(host, "https://")
 	host = strings.TrimPrefix(host, "http://")
-	host = strings.SplitN(host, "/", 2)[0]
+	host, _, _ = strings.Cut(host, "/")
 	host = strings.TrimSuffix(host, ".")
 	return host
 }

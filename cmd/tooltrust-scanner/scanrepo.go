@@ -64,7 +64,7 @@ func runScanRepo(ctx context.Context, opts scanRepoOpts) error {
 	}
 
 	if opts.outputFile != "" {
-		if writeErr := os.WriteFile(opts.outputFile, out, 0o644); writeErr != nil {
+		if writeErr := os.WriteFile(opts.outputFile, out, 0o600); writeErr != nil {
 			return fmt.Errorf("write output file %s: %w", opts.outputFile, writeErr)
 		}
 		return nil

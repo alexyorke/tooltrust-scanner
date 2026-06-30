@@ -173,7 +173,7 @@ func parseDependencyArtifact(artifact dependencyArtifact) ([]localDependency, er
 }
 
 func parseNodeLockfile(path string) ([]localDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read node lockfile %s: %w", path, err)
 	}
@@ -298,7 +298,7 @@ func findLocalDependencyArtifacts(root string) []dependencyArtifact {
 
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
+	return err == nil && info != nil && !info.IsDir()
 }
 
 func stringMapValue(m map[string]any, key string) string {
@@ -309,7 +309,7 @@ func stringMapValue(m map[string]any, key string) string {
 }
 
 func parseGoSumFile(path string) ([]localDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read go.sum %s: %w", path, err)
 	}
@@ -339,7 +339,7 @@ func parseGoSumFile(path string) ([]localDependency, error) {
 }
 
 func parseRequirementsFile(path string) ([]localDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read requirements.txt %s: %w", path, err)
 	}
@@ -379,7 +379,7 @@ func normalizeRequirementName(raw string) string {
 }
 
 func parsePNPMLockfile(path string) ([]localDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read pnpm lockfile %s: %w", path, err)
 	}
@@ -426,7 +426,7 @@ func parsePNPMLockKey(line string) (name, version string, ok bool) {
 }
 
 func parseYarnLockfile(path string) ([]localDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read yarn.lock %s: %w", path, err)
 	}

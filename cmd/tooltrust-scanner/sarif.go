@@ -91,7 +91,7 @@ func writeSarifOutput(opts scanOpts, report ScanReport) error {
 	}
 
 	if opts.outputFile != "" {
-		if writeErr := os.WriteFile(opts.outputFile, encoded, 0o644); writeErr != nil {
+		if writeErr := os.WriteFile(opts.outputFile, encoded, 0o600); writeErr != nil {
 			return fmt.Errorf("failed to write output file: %w", writeErr)
 		}
 	} else {

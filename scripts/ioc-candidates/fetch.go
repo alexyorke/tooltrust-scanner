@@ -108,7 +108,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("marshal candidates: %w", err)
 	}
 	out = append(out, '\n')
-	if err := os.WriteFile(cfg.OutPath, out, 0o644); err != nil {
+	if err := os.WriteFile(cfg.OutPath, out, 0o600); err != nil {
 		return fmt.Errorf("write candidates file: %w", err)
 	}
 	if _, writeErr := fmt.Fprintf(stdout, "Wrote %d IOC blacklist candidate(s) to %s\n", len(entries), cfg.OutPath); writeErr != nil {
@@ -214,9 +214,14 @@ func fetchEcosystemFeed(ctx context.Context, client httpDoer, baseURL, ecosystem
 			return nil, "", fmt.Errorf("build request for %s: %w", ecosystem, err)
 		}
 		resp, err := client.Do(req)
-		if err != nil {
+		switch {
+		case err != nil:
 			lastErr = err
-		} else {
+		case resp == nil:
+			lastErr = fmt.Errorf("empty response from %s", feedURL)
+		case resp.Body == nil:
+			lastErr = fmt.Errorf("empty response body from %s", feedURL)
+		default:
 			body, readErr := io.ReadAll(resp.Body)
 			closeErr := resp.Body.Close()
 			switch {
@@ -522,7 +527,7 @@ func maliciousOriginSources(vuln osvVulnerability) []string {
 }
 
 func readExistingBlacklist(path string) (map[string]struct{}, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is an explicit caller-provided blacklist file.
 	if err != nil {
 		return nil, fmt.Errorf("read existing blacklist: %w", err)
 	}

@@ -84,6 +84,10 @@ func scanLiveServer(ctx context.Context, serverCmd string) ([]model.UnifiedTool,
 		spinner.Fail("Failed to fetch tools")
 		return nil, fmt.Errorf("tools/list map failed: %w", err)
 	}
+	if resp == nil {
+		spinner.Fail("Failed to fetch tools")
+		return nil, fmt.Errorf("tools/list map failed: empty response")
+	}
 
 	spinner.Success("Connected and tools fetched!")
 
@@ -187,12 +191,12 @@ func hasRepoURL(meta map[string]any) bool {
 }
 
 func mergeDependencies(tool *model.UnifiedTool, deps []nodeDependency) {
-	var existing []map[string]any
+	existing := []map[string]any{}
 	if raw, ok := tool.Metadata["dependencies"]; ok {
 		b, err := json.Marshal(raw)
 		if err == nil {
 			if err := json.Unmarshal(b, &existing); err != nil {
-				existing = nil
+				existing = []map[string]any{}
 			}
 		}
 	}
@@ -296,7 +300,7 @@ func parseDependencyArtifact(artifact dependencyArtifact) ([]nodeDependency, err
 }
 
 func parseNodeLockfile(path string) ([]nodeDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read node lockfile %s: %w", path, err)
 	}
@@ -421,7 +425,7 @@ func findLocalDependencyArtifacts(root string) []dependencyArtifact {
 
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
+	return err == nil && info != nil && !info.IsDir()
 }
 
 func stringMapValue(m map[string]any, key string) string {
@@ -432,7 +436,7 @@ func stringMapValue(m map[string]any, key string) string {
 }
 
 func parseGoSumFile(path string) ([]nodeDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read go.sum %s: %w", path, err)
 	}
@@ -462,7 +466,7 @@ func parseGoSumFile(path string) ([]nodeDependency, error) {
 }
 
 func parseRequirementsFile(path string) ([]nodeDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read requirements.txt %s: %w", path, err)
 	}
@@ -502,7 +506,7 @@ func normalizeRequirementName(raw string) string {
 }
 
 func parsePNPMLockfile(path string) ([]nodeDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read pnpm lockfile %s: %w", path, err)
 	}
@@ -549,7 +553,7 @@ func parsePNPMLockKey(line string) (name, version string, ok bool) {
 }
 
 func parseYarnLockfile(path string) ([]nodeDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read yarn.lock %s: %w", path, err)
 	}

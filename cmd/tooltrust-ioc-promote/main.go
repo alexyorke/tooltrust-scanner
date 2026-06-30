@@ -66,7 +66,7 @@ func run(args []string) error {
 	}
 
 	candidatePath := args[0]
-	data, err := os.ReadFile(candidatePath)
+	data, err := os.ReadFile(candidatePath) // #nosec G304,G703 -- candidate path is the explicit CLI input.
 	if err != nil {
 		return fmt.Errorf("read candidate file: %w", err)
 	}
@@ -205,7 +205,7 @@ func run(args []string) error {
 		return fmt.Errorf("marshal npm_iocs.json: %w", err)
 	}
 	out = append(out, '\n')
-	if writeErr := os.WriteFile(npmIOCPath, out, 0o644); writeErr != nil {
+	if writeErr := os.WriteFile(npmIOCPath, out, 0o600); writeErr != nil {
 		return fmt.Errorf("write npm_iocs.json: %w", writeErr)
 	}
 	sort.Slice(blacklist, func(i, j int) bool {
@@ -219,7 +219,7 @@ func run(args []string) error {
 		return fmt.Errorf("marshal blacklist.json: %w", err)
 	}
 	blacklistOut = append(blacklistOut, '\n')
-	if err := os.WriteFile(blacklistPath, blacklistOut, 0o644); err != nil {
+	if err := os.WriteFile(blacklistPath, blacklistOut, 0o600); err != nil {
 		return fmt.Errorf("write blacklist.json: %w", err)
 	}
 
@@ -242,7 +242,7 @@ func firstNonEmpty(values ...string) string {
 }
 
 func readNPMIOCs(path string) ([]npmIOCEntry, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is derived from the repository data directory.
 	if err != nil {
 		return nil, fmt.Errorf("read npm_iocs.json: %w", err)
 	}
@@ -254,7 +254,7 @@ func readNPMIOCs(path string) ([]npmIOCEntry, error) {
 }
 
 func readBlacklist(path string) ([]blacklistEntry, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is derived from the repository data directory.
 	if err != nil {
 		return nil, fmt.Errorf("read blacklist.json: %w", err)
 	}

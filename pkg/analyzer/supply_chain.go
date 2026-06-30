@@ -126,6 +126,12 @@ func (c *httpOSVClient) Query(ctx context.Context, dep Dependency) ([]osvVuln, e
 	if err != nil {
 		return nil, fmt.Errorf("osv: http request: %w", err)
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("osv: empty response")
+	}
+	if resp.Body == nil {
+		return nil, fmt.Errorf("osv: empty response body")
+	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
 			_ = closeErr
@@ -455,8 +461,8 @@ func fetchLockfileDeps(repoURL string) []Dependency {
 				break
 			}
 			resp, err := client.Do(req)
-			if err != nil || resp.StatusCode != http.StatusOK {
-				if resp != nil {
+			if err != nil || resp == nil || resp.Body == nil || resp.StatusCode != http.StatusOK {
+				if resp != nil && resp.Body != nil {
 					if closeErr := resp.Body.Close(); closeErr != nil {
 						_ = closeErr
 					}
@@ -491,20 +497,6 @@ func rawGitHubURL(repoURL, branch, filePath string) (string, bool) {
 	}
 	raw := strings.Replace(clean, "github.com/", "raw.githubusercontent.com/", 1)
 	return fmt.Sprintf("%s/%s/%s", raw, branch, filePath), true
-}
-
-// mergeDependencies merges two dep slices, deduplicating by ecosystem+name+version.
-func mergeDependencies(a, b []Dependency) []Dependency {
-	seen := make(map[string]bool, len(a)+len(b))
-	result := make([]Dependency, 0, len(a)+len(b))
-	for _, dep := range append(a, b...) {
-		k := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
-		if !seen[k] {
-			seen[k] = true
-			result = append(result, dep)
-		}
-	}
-	return result
 }
 
 // ── SupplyChainChecker ────────────────────────────────────────────────────────

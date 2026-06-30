@@ -14,20 +14,6 @@ type patternRule struct {
 	severity model.Severity
 }
 
-// legitimateDataMovementTools lists tool-name keywords that indicate sending
-// or forwarding data is the tool's intended purpose — not an injection signal.
-var legitimateDataMovementTools = []string{
-	"email", "mail", "reply", "forward", "draft", "message",
-	"send", "notification", "webhook", "publish", "broadcast",
-}
-
-// suspiciousNameTerms cancels the data-movement skip when found in a tool
-// name: a name like "send_to_url" or "forward_to_remote_host" is itself a
-// red flag, so the data-exfiltration patterns must still run.
-var suspiciousNameTerms = []string{
-	"external", "remote", "http", "url", "attacker", "exfil",
-}
-
 // jailbreakPattern is the single-keyword "jailbreak" rule. It is the only
 // AS-001 pattern broad enough that a defensive security tool ("scan input
 // for jailbreak attempts", "block jailbreak prompts") trips it without
@@ -282,24 +268,4 @@ func isInstructionOverrideTarget(word string) bool {
 	default:
 		return false
 	}
-}
-
-// isDataMovementTool returns true when the tool name contains a data-movement
-// keyword (email/reply/forward/…) but does NOT also contain an
-// external-destination term (url/remote/external/…) that would itself be a
-// red flag.  The dual check prevents a malicious tool named "send_to_url"
-// or "forward_to_remote_host" from bypassing the data-exfiltration patterns.
-func isDataMovementTool(name string) bool {
-	nameLower := strings.ToLower(name)
-	for _, s := range suspiciousNameTerms {
-		if strings.Contains(nameLower, s) {
-			return false
-		}
-	}
-	for _, kw := range legitimateDataMovementTools {
-		if strings.Contains(nameLower, kw) {
-			return true
-		}
-	}
-	return false
 }

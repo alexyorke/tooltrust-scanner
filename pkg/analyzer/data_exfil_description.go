@@ -100,7 +100,7 @@ func indexAnyAfter(text string, needles []string, start int) int {
 	return pos
 }
 
-func indexAnyAfterWithLen(text string, needles []string, start int) (int, int) {
+func indexAnyAfterWithLen(text string, needles []string, start int) (index, length int) {
 	bestPos := -1
 	bestLen := 0
 	for _, needle := range needles {
