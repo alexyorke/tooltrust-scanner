@@ -223,8 +223,9 @@ func inferPermissions(t Tool) []model.Permission {
 	for _, entry := range permissionRules {
 		// Check schema property names
 		for _, propKey := range propPaths {
+			propTokens := propertyNameTokens(propKey)
 			for _, ruleKey := range entry.rule.propKeys {
-				if propertyNameMatchesRule(propKey, ruleKey, entry.permission) {
+				if propertyNameMatchesRule(propKey, propTokens, ruleKey, entry.permission) {
 					add(entry.permission)
 				}
 			}
@@ -275,12 +276,12 @@ func containsAnyTerm(s string, terms []string) bool {
 	return false
 }
 
-func propertyNameMatchesRule(propName, ruleKey string, permission model.Permission) bool {
+func propertyNameMatchesRule(propName string, propTokens []string, ruleKey string, permission model.Permission) bool {
 	propLower := strings.ToLower(propName)
 	if propLower == ruleKey {
 		return true
 	}
-	for _, token := range propertyNameTokens(propName) {
+	for _, token := range propTokens {
 		if token == ruleKey {
 			return true
 		}
