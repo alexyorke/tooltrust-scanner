@@ -162,6 +162,21 @@ func TestExtractRouteRegistrations_InlineHandlerPrefersForwardedHandlerOverTrail
 	assert.True(t, routes[0].HasAuth)
 }
 
+func TestExtractRouteRegistrations_InlineHandlerSupportsCtxParameterName(t *testing.T) {
+	text := `func Register(api Router, mcpHandler Handler) {
+	api.Any("/mcp", func(ctx *Context) {
+		mcpHandler(ctx)
+	})
+}
+`
+
+	routes := extractRouteRegistrations("router.go", text)
+
+	require.Len(t, routes, 1)
+	assert.Equal(t, "/mcp", routes[0].Path)
+	assert.Equal(t, "mcpHandler", routes[0].Handler)
+}
+
 func TestCorrelateRouteRegistrations_UsesFailOpenEvidenceFile(t *testing.T) {
 	routes := []routeRegistration{
 		{

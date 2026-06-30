@@ -24,7 +24,7 @@ type routeRegistration struct {
 var (
 	routeStartPattern         = regexp.MustCompile(`\.\s*(?:Any|GET|POST|PUT|PATCH|DELETE|HandleFunc|Handle)\s*\(`)
 	quotedPathPattern         = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]")
-	handlerCallPattern        = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.]*)\s*\(\s*c\s*\)`)
+	handlerCallPattern        = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.]*)\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)`)
 	handlerArgPattern         = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]\\s*,\\s*([A-Za-z_][A-Za-z0-9_.]*)\\b")
 	wrappedHandlerArgPattern  = regexp.MustCompile("[\"`](/[^\"`]+)[\"`]\\s*,\\s*[A-Za-z_][A-Za-z0-9_.]*\\s*\\([^)]*?([A-Za-z_][A-Za-z0-9_.]*)\\s*\\)")
 	trailingHandlerArgPattern = regexp.MustCompile(`,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*(?:,|\))`)
