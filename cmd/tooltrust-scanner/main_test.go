@@ -510,6 +510,18 @@ func TestDependencyVisibilityForTool_MetadataAndRepoURL(t *testing.T) {
 	assert.Empty(t, note)
 }
 
+func TestDependencyVisibilityForTool_MalformedDependencies(t *testing.T) {
+	visibility, note := dependencyVisibilityForTool(model.UnifiedTool{
+		Name: "tool",
+		Metadata: map[string]any{
+			"dependencies": "not a dependency list",
+		},
+	})
+
+	assert.Equal(t, "No dependency data", visibility)
+	assert.Contains(t, note, "could not be parsed")
+}
+
 func TestToolContextLines_EmptyForAllowGradeA(t *testing.T) {
 	lines := toolContextLines(model.GatewayPolicy{
 		Action: model.ActionAllow,

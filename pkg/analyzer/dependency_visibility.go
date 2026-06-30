@@ -14,20 +14,25 @@ func DependencyVisibilityForTool(tool model.UnifiedTool) (visibility, note strin
 		return "No dependency data", "No metadata.dependencies or repo_url were exposed by this MCP server."
 	}
 
-	sources := dependencySourcesFromMetadata(tool.Metadata)
+	sources, depsParseFailed := dependencySourcesFromMetadata(tool.Metadata)
 	if len(sources) == 0 {
 		note = metadataString(tool.Metadata, "dependency_visibility_note")
 		if note == "" {
-			note = "No metadata.dependencies or repo_url were exposed by this MCP server."
+			if depsParseFailed {
+				note = "Tool exposed dependency metadata, but it could not be parsed, so supply-chain coverage is limited."
+			} else {
+				note = "No metadata.dependencies or repo_url were exposed by this MCP server."
+			}
 		}
 		return "No dependency data", note
 	}
 	return formatDependencyVisibility(sources), visibilityNote(tool.Metadata, sources)
 }
 
-func dependencySourcesFromMetadata(meta map[string]any) []string {
+func dependencySourcesFromMetadata(meta map[string]any) ([]string, bool) {
 	seen := map[string]bool{}
 	var sources []string
+	depsParseFailed := false
 
 	if raw, ok := meta["dependencies"]; ok {
 		b, err := json.Marshal(raw)
@@ -46,7 +51,11 @@ func dependencySourcesFromMetadata(meta map[string]any) []string {
 						sources = append(sources, source)
 					}
 				}
+			} else {
+				depsParseFailed = true
 			}
+		} else {
+			depsParseFailed = true
 		}
 	}
 
@@ -56,7 +65,7 @@ func dependencySourcesFromMetadata(meta map[string]any) []string {
 		}
 	}
 
-	return sources
+	return sources, depsParseFailed
 }
 
 func visibilityNote(meta map[string]any, sources []string) string {
