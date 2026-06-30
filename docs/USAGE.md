@@ -112,13 +112,13 @@ alias mcp-add='tooltrust-scanner gate'
 
 ### Git pre-commit hook
 
-If `.mcp.json` is checked into your repo, scan it on every commit:
+If you check in an MCP `tools/list` JSON fixture, scan it on every commit:
 
 ```bash
 # .git/hooks/pre-commit
 #!/bin/sh
-if git diff --cached --name-only | grep -q '\.mcp\.json'; then
-  tooltrust-scanner scan --input .mcp.json --fail-on block || exit 1
+if git diff --cached --name-only | grep -q 'tools\.json'; then
+  tooltrust-scanner scan --input tools.json --fail-on block || exit 1
 fi
 ```
 

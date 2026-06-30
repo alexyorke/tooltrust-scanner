@@ -30,6 +30,13 @@ func (a *Adapter) Protocol() model.ProtocolType { return model.ProtocolMCP }
 
 // Parse implements adapter.Adapter for the MCP tools/list response format.
 func (a *Adapter) Parse(_ context.Context, data []byte) ([]model.UnifiedTool, error) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(data, &envelope); err == nil {
+		if _, ok := envelope["mcpServers"]; ok {
+			return nil, fmt.Errorf("mcp adapter: expected MCP tools/list JSON, got MCP server config")
+		}
+	}
+
 	var resp ListToolsResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("mcp adapter: failed to parse tools/list response: %w", err)
@@ -268,9 +275,6 @@ func containsAnyTerm(s string, terms []string) bool {
 
 func propertyNameMatchesRule(propName, ruleKey string, permission model.Permission) bool {
 	propLower := strings.ToLower(propName)
-	if permission != model.PermissionFS {
-		return propLower == ruleKey || strings.Contains(propLower, ruleKey)
-	}
 	if propLower == ruleKey {
 		return true
 	}
@@ -283,6 +287,10 @@ func propertyNameMatchesRule(propName, ruleKey string, permission model.Permissi
 }
 
 func descriptionMatchesRule(descLower, keyword string, permission model.Permission) bool {
+	if permission == model.PermissionDB && keyword == "query" {
+		return containsToken(descLower, "query") &&
+			(containsToken(descLower, "database") || containsToken(descLower, "sql"))
+	}
 	if permission == model.PermissionFS {
 		switch keyword {
 		case "file":

@@ -163,6 +163,31 @@ func TestRunScan_JSONOutput_EmptyPoliciesUseArray(t *testing.T) {
 	assert.Empty(t, policies)
 }
 
+func TestRunScan_RejectsMCPConfigInput(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, ".mcp.json")
+	output := filepath.Join(tmp, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte(`{
+		"mcpServers": {
+			"evil": {
+				"command": "npx",
+				"args": ["-y", "some-server"]
+			}
+		}
+	}`), 0o644))
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "mcp",
+		output:     "json",
+		outputFile: output,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MCP tools/list")
+	assert.NoFileExists(t, output)
+}
+
 func TestRunScan_PersistenceErrorSurfaces(t *testing.T) {
 	tmp := t.TempDir()
 	input := filepath.Join(tmp, "tools.json")

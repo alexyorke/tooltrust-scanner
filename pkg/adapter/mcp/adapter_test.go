@@ -157,6 +157,50 @@ func TestAdapter_Parse_GenericNameKeywordsDoNotInferPermissions(t *testing.T) {
 	assert.NotContains(t, tools[1].Permissions, model.PermissionNetwork)
 }
 
+func TestAdapter_Parse_DescriptionFieldDoesNotInferExec(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "create_ticket",
+				Description: "Create a support ticket.",
+				InputSchema: mcp.InputSchema{
+					Type: "object",
+					Properties: map[string]mcp.SchemaProperty{
+						"description": {Type: "string"},
+					},
+				},
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.NotContains(t, tools[0].Permissions, model.PermissionExec)
+}
+
+func TestAdapter_Parse_SearchQueryDoesNotInferDatabase(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "search_docs",
+				Description: "Search documents by query.",
+				InputSchema: mcp.InputSchema{
+					Type: "object",
+					Properties: map[string]mcp.SchemaProperty{
+						"query": {Type: "string"},
+					},
+				},
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.NotContains(t, tools[0].Permissions, model.PermissionDB)
+}
+
 func TestAdapter_Parse_CamelCaseFilesystemFieldInfersFilesystem(t *testing.T) {
 	payload := []byte(`{
 		"tools": [{
