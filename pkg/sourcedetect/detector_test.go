@@ -133,3 +133,30 @@ func TestDetectEmbeddedMCP_AS019RouteAuthAsymmetryAcrossFiles(t *testing.T) {
 	}
 	assert.True(t, found, "expected AS-019 finding across files")
 }
+
+func TestDetectEmbeddedMCP_MaxMatchesPerLanguageDoesNotStopOtherLanguages(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo\n\ngo 1.21\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "server.go"), []byte(`package main
+
+import "github.com/modelcontextprotocol/go-sdk/mcp"
+
+func main() {
+	_ = mcp.NewServer(nil, nil)
+}
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("demo")
+`), 0o644))
+
+	got, err := DetectEmbeddedMCP(dir, Options{MaxMatchesPerLanguage: 1})
+	require.NoError(t, err)
+	assert.True(t, got.HasEmbeddedMCP)
+	languages := map[string]bool{}
+	for _, match := range got.Detection.Matches {
+		languages[match.Language] = true
+	}
+	assert.True(t, languages["go"], "expected Go detection to remain")
+	assert.True(t, languages["python"], "expected Python detection to remain after Go hit cap")
+}
