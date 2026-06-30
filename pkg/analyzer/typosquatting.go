@@ -59,6 +59,7 @@ type normalizedToolName struct {
 
 var normalizedPopularMCPToolNames = buildNormalizedToolNames(popularMCPToolNames)
 var normalizedPopularMCPToolNameBuckets = buildNormalizedToolNameBuckets(normalizedPopularMCPToolNames)
+var normalizedPopularMCPToolNameSet = buildNormalizedToolNameSet(normalizedPopularMCPToolNames)
 
 const (
 	maxTyposquatDistance     = 2
@@ -268,6 +269,14 @@ func buildNormalizedToolNameBuckets(names []normalizedToolName) map[int][]normal
 	return buckets
 }
 
+func buildNormalizedToolNameSet(names []normalizedToolName) map[string]struct{} {
+	out := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		out[name.normalized] = struct{}{}
+	}
+	return out
+}
+
 // TyposquattingChecker detects tool names within edit distance ≤ 2 of a known
 // popular MCP tool name — a signal that the tool may be impersonating a trusted
 // tool to gain execution in a user's agent environment.
@@ -297,10 +306,8 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 	// the distance loop so we don't accidentally flag it against a different
 	// entry that happens to be within edit-distance 2 (e.g. search_code vs
 	// search_nodes).
-	for _, known := range normalizedPopularMCPToolNames {
-		if normName == known.normalized {
-			return nil, nil
-		}
+	if _, ok := normalizedPopularMCPToolNameSet[normName]; ok {
+		return nil, nil
 	}
 
 	for length := len(normName) - maxTyposquatDistance; length <= len(normName)+maxTyposquatDistance; length++ {
