@@ -70,6 +70,16 @@ func TestNewScanCmd_ProtocolFlagIsMCPOnly(t *testing.T) {
 	}
 }
 
+func TestNewScanCmd_OutputFlagListsSupportedFormats(t *testing.T) {
+	cmd := newScanCmd()
+	flag := cmd.Flags().Lookup("output")
+	if assert.NotNil(t, flag) {
+		assert.Contains(t, flag.Usage, "text")
+		assert.Contains(t, flag.Usage, "json")
+		assert.Contains(t, flag.Usage, "sarif")
+	}
+}
+
 func TestRunScan_InvalidFailOnDoesNotWriteReport(t *testing.T) {
 	tmp := t.TempDir()
 	input := filepath.Join(tmp, "tools.json")
@@ -207,6 +217,22 @@ func TestPrintPtermUI_UsesPrecomputedSummary(t *testing.T) {
 
 	require.NoError(t, printPtermUI(report))
 	assert.Contains(t, buf.String(), "Avg Risk Score   : 99 (grade Z)")
+}
+
+func TestWriteOutput_TextHonorsOutputFile(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "report.txt")
+	report := ScanReport{
+		Policies: []model.GatewayPolicy{},
+		Summary: ScanSummary{
+			ScannedAt: time.Now().UTC(),
+		},
+	}
+
+	require.NoError(t, writeOutput(scanOpts{output: "text", outputFile: out}, report))
+
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "Scan Summary")
 }
 
 func TestShouldPrintWriteNotice_FileIsNonInteractive(t *testing.T) {

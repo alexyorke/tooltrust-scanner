@@ -123,7 +123,7 @@ func newScanCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&inputFile, "input", "i", "", "path to tool definition file")
 	cmd.Flags().StringVarP(&serverCmd, "server", "s", "", "live MCP server to scan (e.g. 'npx @modelcontextprotocol/server-filesystem /tmp')")
 	cmd.Flags().StringVarP(&protocol, "protocol", "p", "mcp", "protocol format: mcp")
-	cmd.Flags().StringVarP(&output, "output", "o", "text", "output format: text (default) | json")
+	cmd.Flags().StringVarP(&output, "output", "o", "text", "output format: text (default) | json | sarif")
 	cmd.Flags().StringVar(&outputFile, "file", "", "write output to file instead of stdout")
 	cmd.Flags().StringVar(&failOn, "fail-on", "", "exit non-zero if any tool reaches this action: allow | approval | block")
 	cmd.Flags().StringVar(&dbPath, "db", "", "persist scan results to SQLite database at this path")
@@ -297,7 +297,37 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 		return writeSarifOutput(opts, report)
 	}
 
+	if opts.outputFile != "" {
+		return writeTextOutputFile(opts.outputFile, report)
+	}
+
 	// Default: text mode — render with pterm.
+	if err := printPtermUI(report); err != nil {
+		return err
+	}
+	printStarPrompt()
+	return nil
+}
+
+func writeTextOutputFile(path string, report ScanReport) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+	defer f.Close()
+
+	prevPtermOutput := pterm.Output
+	pterm.EnableOutput()
+	pterm.SetDefaultOutput(f)
+	defer func() {
+		if prevPtermOutput {
+			pterm.EnableOutput()
+		} else {
+			pterm.DisableOutput()
+		}
+		pterm.SetDefaultOutput(os.Stdout)
+	}()
+
 	if err := printPtermUI(report); err != nil {
 		return err
 	}

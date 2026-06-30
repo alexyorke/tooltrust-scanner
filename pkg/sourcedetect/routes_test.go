@@ -121,3 +121,26 @@ func TestExtractRouteRegistrations_AuthRequiredWhitespaceStillCountsAsAuth(t *te
 	assert.Equal(t, "mcpHandler", routes[1].Handler)
 	assert.False(t, routes[1].HasAuth)
 }
+
+func TestExtractRouteRegistrations_InlineHandlerUsesForwardedMCPHandler(t *testing.T) {
+	text := `func Register(api Router, mcpHandler Handler) {
+	api.Any("/mcp", AuthRequired(), func(c *Context) {
+		audit(c)
+		mcpHandler(c)
+	})
+	api.Any("/mcp_message", func(c *Context) {
+		mcpHandler(c)
+	})
+}
+`
+
+	routes := extractRouteRegistrations("router.go", text)
+
+	require.Len(t, routes, 2)
+	assert.Equal(t, "/mcp", routes[0].Path)
+	assert.Equal(t, "mcpHandler", routes[0].Handler)
+	assert.True(t, routes[0].HasAuth)
+	assert.Equal(t, "/mcp_message", routes[1].Path)
+	assert.Equal(t, "mcpHandler", routes[1].Handler)
+	assert.False(t, routes[1].HasAuth)
+}

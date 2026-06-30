@@ -20,6 +20,7 @@ var broadOAuthScopes = []string{
 	"all",
 	"full_access",
 	"manage",
+	"https://www.googleapis.com/auth/drive",
 }
 
 // privilegedDescriptionPatterns detect tools that describe acquiring elevated

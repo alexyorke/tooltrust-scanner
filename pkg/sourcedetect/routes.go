@@ -139,6 +139,7 @@ func captureCallBlock(lines []string, start int) (block string, endLine int) {
 
 func extractHandlerCall(block, path string) string {
 	matches := handlerCallPattern.FindAllStringSubmatch(block, -1)
+	var inlineHandler string
 	for _, match := range matches {
 		if len(match) < 2 {
 			continue
@@ -147,7 +148,10 @@ func extractHandlerCall(block, path string) string {
 		if isRouteMiddleware(handler) {
 			continue
 		}
-		return handler
+		inlineHandler = handler
+	}
+	if inlineHandler != "" {
+		return inlineHandler
 	}
 	for _, match := range handlerArgPattern.FindAllStringSubmatch(block, -1) {
 		if len(match) < 3 || match[1] != path {
