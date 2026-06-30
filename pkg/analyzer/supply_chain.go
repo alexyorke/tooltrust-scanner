@@ -536,7 +536,7 @@ func newSupplyChainCheckerWithClient(c osvClient) *SupplyChainChecker {
 // Check queries OSV for all known dependencies and emits AS-004 findings.
 func (c *SupplyChainChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {
 	deps, err := collectDependencies(tool)
-	if err != nil {
+	if err != nil && len(deps) == 0 {
 		return nil, nil
 	}
 	if len(deps) == 0 {
@@ -676,37 +676,36 @@ func extractDependencies(tool model.UnifiedTool) ([]Dependency, error) {
 
 func collectDependencies(tool model.UnifiedTool) ([]dependencyEvidence, error) {
 	metaDeps, err := extractDependencies(tool)
-	if err != nil {
-		return nil, err
-	}
 
 	index := make(map[string]int, len(metaDeps))
 	result := make([]dependencyEvidence, 0, len(metaDeps))
-	for _, dep := range metaDeps {
-		k := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
-		source := dep.Source
-		if source == "" {
-			source = "metadata"
-		}
-		if idx, ok := index[k]; ok {
-			if sourceRank(source) > sourceRank(result[idx].Source) {
-				result[idx].Source = source
+	if err == nil {
+		for _, dep := range metaDeps {
+			k := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
+			source := dep.Source
+			if source == "" {
+				source = "metadata"
 			}
-			continue
+			if idx, ok := index[k]; ok {
+				if sourceRank(source) > sourceRank(result[idx].Source) {
+					result[idx].Source = source
+				}
+				continue
+			}
+			index[k] = len(result)
+			result = append(result, dependencyEvidence{
+				Dependency: dep,
+				Source:     source,
+			})
 		}
-		index[k] = len(result)
-		result = append(result, dependencyEvidence{
-			Dependency: dep,
-			Source:     source,
-		})
 	}
 
 	if tool.Metadata == nil {
-		return result, nil
+		return result, err
 	}
 	repoURL, ok := tool.Metadata["repo_url"].(string)
 	if !ok || repoURL == "" {
-		return result, nil
+		return result, err
 	}
 
 	for _, dep := range lockfileDepsFetcher(repoURL) {
@@ -724,7 +723,7 @@ func collectDependencies(tool model.UnifiedTool) ([]dependencyEvidence, error) {
 			Source:     source,
 		})
 	}
-	return result, nil
+	return result, err
 }
 
 func sourceRank(source string) int {

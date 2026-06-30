@@ -268,6 +268,36 @@ func TestSupplyChainChecker_RepoURLLockfileDependency_KeepsMetadataSourceForDire
 	assert.Equal(t, "metadata", issues[0].Evidence[3].Value)
 }
 
+func TestSupplyChainChecker_MalformedMetadataWithRepoURL_StillUsesLockfileDeps(t *testing.T) {
+	prev := analyzer.LockfileDepsFetcherForTest()
+	analyzer.SetLockfileDepsFetcherForTest(func(string) []analyzer.Dependency {
+		return []analyzer.Dependency{
+			{Name: "axios", Version: "1.14.1", Ecosystem: "npm"},
+		}
+	})
+	t.Cleanup(func() {
+		analyzer.SetLockfileDepsFetcherForTest(prev)
+	})
+
+	checker := analyzer.NewSupplyChainCheckerWithMock([]analyzer.MockVuln{
+		{ID: "MAL-2026-9000", Summary: "Known malicious package", CVSSScore: "9.8"},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "broken_metadata_tool",
+		Metadata: map[string]any{
+			"repo_url":     "https://github.com/example/repo",
+			"dependencies": "not a dependency list",
+		},
+	}
+
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "MALICIOUS_PACKAGE", issues[0].Code)
+	assert.Equal(t, "lockfile", issues[0].Evidence[3].Value)
+}
+
 // ---------------------------------------------------------------------------
 // Lockfile parser unit tests
 // ---------------------------------------------------------------------------

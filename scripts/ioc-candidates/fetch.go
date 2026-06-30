@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"golang.org/x/mod/semver"
 )
 
 const (
@@ -166,7 +168,7 @@ type httpDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-func fetchCandidatesWithClient(ctx context.Context, cfg config, client httpDoer, existing map[string]struct{}) ([]blacklistEntry, []string, error) {
+func fetchCandidatesWithClient(ctx context.Context, cfg config, client httpDoer, existing []blacklistEntry) ([]blacklistEntry, []string, error) {
 	var (
 		allCandidates  []blacklistEntry
 		warnings       []string
@@ -293,7 +295,7 @@ type candidateStats struct {
 	MCPRelevant   int
 }
 
-func buildCandidates(vulns []osvVulnerability, ecosystem string, existing map[string]struct{}, now time.Time, since time.Duration) ([]blacklistEntry, candidateStats) {
+func buildCandidates(vulns []osvVulnerability, ecosystem string, existing []blacklistEntry, now time.Time, since time.Duration) ([]blacklistEntry, candidateStats) {
 	var out []blacklistEntry
 	var stats candidateStats
 	seen := map[string]struct{}{}
@@ -329,8 +331,7 @@ func buildCandidates(vulns []osvVulnerability, ecosystem string, existing map[st
 
 			var filtered []string
 			for _, version := range versions {
-				key := strings.ToLower(ecosystem) + ":" + strings.ToLower(component) + "@" + version
-				if _, exists := existing[key]; exists {
+				if existingBlacklistContains(existing, ecosystem, component, version) {
 					continue
 				}
 				filtered = append(filtered, version)
@@ -526,7 +527,7 @@ func maliciousOriginSources(vuln osvVulnerability) []string {
 	return out
 }
 
-func readExistingBlacklist(path string) (map[string]struct{}, error) {
+func readExistingBlacklist(path string) ([]blacklistEntry, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- path is an explicit caller-provided blacklist file.
 	if err != nil {
 		return nil, fmt.Errorf("read existing blacklist: %w", err)
@@ -535,15 +536,71 @@ func readExistingBlacklist(path string) (map[string]struct{}, error) {
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("parse existing blacklist: %w", err)
 	}
-	seen := make(map[string]struct{}, len(entries))
+	return entries, nil
+}
+
+func existingBlacklistContains(entries []blacklistEntry, ecosystem, component, version string) bool {
 	for i := range entries {
 		entry := entries[i]
-		for _, version := range entry.AffectedVersions {
-			key := strings.ToLower(entry.Ecosystem) + ":" + strings.ToLower(firstNonEmpty(entry.Value, entry.Component)) + "@" + version
-			seen[key] = struct{}{}
+		if !strings.EqualFold(entry.Ecosystem, ecosystem) {
+			continue
+		}
+		if !strings.EqualFold(firstNonEmpty(entry.Value, entry.Component), component) {
+			continue
+		}
+		for _, expr := range entry.AffectedVersions {
+			if versionMatchesConstraint(version, expr) {
+				return true
+			}
 		}
 	}
-	return seen, nil
+	return false
+}
+
+func versionMatchesConstraint(version, expr string) bool {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return false
+	}
+	if expr == "*" {
+		return true
+	}
+	if strings.HasPrefix(expr, "<=") {
+		return semverCompare(version, strings.TrimSpace(expr[2:])) <= 0
+	}
+	if strings.HasPrefix(expr, "<") {
+		return semverCompare(version, strings.TrimSpace(expr[1:])) < 0
+	}
+	return strings.EqualFold(normalizeVersion(version), normalizeVersion(expr))
+}
+
+func semverCompare(version, bound string) int {
+	a, b := ensureSemverPrefix(version), ensureSemverPrefix(bound)
+	if semver.IsValid(a) && semver.IsValid(b) {
+		return semver.Compare(a, b)
+	}
+	return compareLooseVersion(normalizeVersion(version), normalizeVersion(bound))
+}
+
+func ensureSemverPrefix(v string) string {
+	if !strings.HasPrefix(v, "v") {
+		return "v" + v
+	}
+	return v
+}
+
+func normalizeVersion(v string) string {
+	return strings.TrimPrefix(strings.TrimSpace(v), "v")
+}
+
+func compareLooseVersion(a, b string) int {
+	if a == b {
+		return 0
+	}
+	if a < b {
+		return -1
+	}
+	return 1
 }
 
 func parseTime(value string) (time.Time, bool) {
