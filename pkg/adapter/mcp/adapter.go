@@ -255,7 +255,7 @@ func propertyNameMatchesRule(propLower, ruleKey string, permission model.Permiss
 
 func descriptionMatchesRule(descLower, keyword string, permission model.Permission) bool {
 	if permission == model.PermissionFS && keyword == "file" {
-		return containsToken(descLower, keyword)
+		return containsToken(descLower, keyword) || containsToken(descLower, "files")
 	}
 	return strings.Contains(descLower, keyword)
 }

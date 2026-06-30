@@ -49,6 +49,22 @@ func TestAdapter_Parse_BasicTool(t *testing.T) {
 	assert.Contains(t, tool.Permissions, model.PermissionFS)
 }
 
+func TestAdapter_Parse_ReadFilesInfersFilesystem(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "read_files",
+				Description: "Reads files from disk.",
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Permissions, model.PermissionFS)
+}
+
 func TestAdapter_Parse_NetworkTool(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{
