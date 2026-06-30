@@ -170,6 +170,29 @@ func TestBlacklist_RepoURLLockfileDependency_Hit(t *testing.T) {
 	assert.Contains(t, issues[0].Description, "axios@1.14.1")
 }
 
+func TestBlacklist_MetadataAndLockfileMixedCaseEcosystem_DedupesSingleIssue(t *testing.T) {
+	withLockfileDepsForTest(t, []analyzer.Dependency{
+		{Name: "litellm", Version: "1.82.8", Ecosystem: "PyPI"},
+	})
+
+	bc := analyzer.NewBlacklistChecker()
+	tool := model.UnifiedTool{
+		Name: "mixed-case-tool",
+		Metadata: map[string]any{
+			"repo_url": "https://github.com/example/repo",
+			"dependencies": []any{
+				map[string]any{"name": "litellm", "version": "1.82.8", "ecosystem": "pypi"},
+			},
+		},
+	}
+
+	issues, err := bc.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "metadata", issues[0].Evidence[3].Value)
+	assert.Equal(t, "SUPPLY_CHAIN_BLOCK", issues[0].Code)
+}
+
 // ---------------------------------------------------------------------------
 // Range version tests (langflow < 1.9.0)
 // ---------------------------------------------------------------------------

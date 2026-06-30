@@ -681,7 +681,7 @@ func collectDependencies(tool model.UnifiedTool) ([]dependencyEvidence, error) {
 	result := make([]dependencyEvidence, 0, len(metaDeps))
 	if err == nil {
 		for _, dep := range metaDeps {
-			k := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
+			k := strings.ToLower(dep.Ecosystem) + ":" + strings.ToLower(dep.Name) + "@" + dep.Version
 			source := dep.Source
 			if source == "" {
 				source = "metadata"
@@ -709,7 +709,7 @@ func collectDependencies(tool model.UnifiedTool) ([]dependencyEvidence, error) {
 	}
 
 	for _, dep := range lockfileDepsFetcher(repoURL) {
-		k := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
+		k := strings.ToLower(dep.Ecosystem) + ":" + strings.ToLower(dep.Name) + "@" + dep.Version
 		source := "lockfile"
 		if idx, ok := index[k]; ok {
 			if sourceRank(source) > sourceRank(result[idx].Source) {
