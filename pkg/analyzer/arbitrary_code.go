@@ -131,6 +131,27 @@ var arbitraryCodeSafeNameSubstrings = []string{
 	"policy_evaluate",
 }
 
+var executionSignals = []string{
+	"eval(", "eval (", "run script",
+	"run code", "execute code", "execute script",
+	"execute javascript", "execute js",
+	"run javascript", "run js code",
+	"javascript eval", "javascript execution",
+	"javascript code", "js injection",
+	"arbitrary code", "arbitrary script",
+	"browser context",
+	"page.evaluate", "frame.evaluate",
+}
+
+var negationPrefixes = []string{
+	"does not ",
+	"do not ",
+	"doesn't ",
+	"don't ",
+	"not ",
+	"without ",
+}
+
 // ArbitraryCodeChecker detects tools that can execute arbitrary script or
 // code (e.g. evaluate_script, execute JavaScript, browser injection).
 // These are AS-006 with CRITICAL severity — equivalent risk to exec.
@@ -150,17 +171,6 @@ func NewArbitraryCodeChecker() *ArbitraryCodeChecker { return &ArbitraryCodeChec
 // descriptionConfirmsExecution checks whether the description independently
 // contains strong signals of actual code/script execution (not just analysis).
 func descriptionConfirmsExecution(desc string) bool {
-	executionSignals := []string{
-		"eval(", "eval (", "run script",
-		"run code", "execute code", "execute script",
-		"execute javascript", "execute js",
-		"run javascript", "run js code",
-		"javascript eval", "javascript execution",
-		"javascript code", "js injection",
-		"arbitrary code", "arbitrary script",
-		"browser context",
-		"page.evaluate", "frame.evaluate",
-	}
 	for _, sig := range executionSignals {
 		if strings.Contains(desc, sig) {
 			return true
@@ -170,16 +180,8 @@ func descriptionConfirmsExecution(desc string) bool {
 }
 
 func descriptionNegatesKeyword(desc, kw string) bool {
-	negatedForms := []string{
-		"does not " + kw,
-		"do not " + kw,
-		"doesn't " + kw,
-		"don't " + kw,
-		"not " + kw,
-		"without " + kw,
-	}
-	for _, negated := range negatedForms {
-		if strings.Contains(desc, negated) {
+	for _, prefix := range negationPrefixes {
+		if strings.Contains(desc, prefix+kw) {
 			return true
 		}
 	}

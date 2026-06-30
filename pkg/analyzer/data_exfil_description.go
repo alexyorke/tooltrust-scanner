@@ -44,10 +44,8 @@ func (c *DataExfilDescriptionChecker) Check(tool model.UnifiedTool) ([]model.Iss
 		return nil, nil
 	}
 	descLower := strings.ToLower(desc)
-	if isDataMovementTool(tool.Name) && !containsAny(descLower, dataExfiltrationDescriptionHints...) {
-		return nil, nil
-	}
-	if !containsAny(descLower, dataExfiltrationDescriptionHints...) {
+	hasHint := containsAny(descLower, dataExfiltrationDescriptionHints...)
+	if !hasHint {
 		return nil, nil
 	}
 
