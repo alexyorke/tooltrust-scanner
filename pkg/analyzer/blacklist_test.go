@@ -193,6 +193,29 @@ func TestBlacklist_MetadataAndLockfileMixedCaseEcosystem_DedupesSingleIssue(t *t
 	assert.Equal(t, "SUPPLY_CHAIN_BLOCK", issues[0].Code)
 }
 
+func TestBlacklist_MetadataAndLockfileEquivalentVersionForms_DedupesSingleIssue(t *testing.T) {
+	withLockfileDepsForTest(t, []analyzer.Dependency{
+		{Name: "litellm", Version: "1.82.8", Ecosystem: "PyPI"},
+	})
+
+	bc := analyzer.NewBlacklistChecker()
+	tool := model.UnifiedTool{
+		Name: "version-form-tool",
+		Metadata: map[string]any{
+			"repo_url": "https://github.com/example/repo",
+			"dependencies": []any{
+				map[string]any{"name": "litellm", "version": "v1.82.8", "ecosystem": "PyPI"},
+			},
+		},
+	}
+
+	issues, err := bc.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "metadata", issues[0].Evidence[3].Value)
+	assert.Equal(t, "SUPPLY_CHAIN_BLOCK", issues[0].Code)
+}
+
 // ---------------------------------------------------------------------------
 // Range version tests (langflow < 1.9.0)
 // ---------------------------------------------------------------------------
