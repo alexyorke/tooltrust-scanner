@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
@@ -78,6 +79,9 @@ func (s *Store) Close() error {
 // Save persists a ScanRecord.  If a record with the same ID already exists it
 // is replaced.
 func (s *Store) Save(ctx context.Context, r ScanRecord) error {
+	if strings.TrimSpace(r.ID) == "" {
+		return fmt.Errorf("storage: missing id")
+	}
 	findings, err := json.Marshal(r.Findings)
 	if err != nil {
 		return fmt.Errorf("storage: marshal findings: %w", err)

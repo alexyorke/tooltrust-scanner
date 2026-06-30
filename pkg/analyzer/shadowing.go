@@ -64,6 +64,9 @@ func (c *ShadowingChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 		}}, nil
 	}
 
+	if c.seen == nil {
+		c.seen = make(map[string]string)
+	}
 	c.seen[norm] = name
 	return nil, nil
 }

@@ -20,7 +20,7 @@ func TestWriteSarifOutput_RegistersAllEmittedRuleIDs(t *testing.T) {
 		SchemaVersion: "1.0",
 		Policies: []model.GatewayPolicy{
 			{
-				ToolName: "compromised_package",
+				ToolName: "run shell",
 				Score: model.RiskScore{
 					Issues: []model.Issue{
 						{RuleID: "AS-008", Severity: model.SeverityCritical, Description: "known compromised package"},
@@ -49,6 +49,13 @@ func TestWriteSarifOutput_RegistersAllEmittedRuleIDs(t *testing.T) {
 			Results []struct {
 				RuleID    string `json:"ruleId"`
 				RuleIndex *int   `json:"ruleIndex,omitempty"`
+				Locations []struct {
+					PhysicalLocation struct {
+						ArtifactLocation struct {
+							URI string `json:"uri"`
+						} `json:"artifactLocation"`
+					} `json:"physicalLocation"`
+				} `json:"locations"`
 			} `json:"results"`
 		} `json:"runs"`
 	}
@@ -66,5 +73,7 @@ func TestWriteSarifOutput_RegistersAllEmittedRuleIDs(t *testing.T) {
 	for _, result := range doc.Runs[0].Results {
 		assert.True(t, rules[result.RuleID], "SARIF result rule %q must be registered", result.RuleID)
 		assert.Nil(t, result.RuleIndex)
+		require.NotEmpty(t, result.Locations)
+		assert.NotContains(t, result.Locations[0].PhysicalLocation.ArtifactLocation.URI, " ")
 	}
 }

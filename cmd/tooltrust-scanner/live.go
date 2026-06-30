@@ -21,13 +21,11 @@ import (
 )
 
 func scanLiveServer(ctx context.Context, serverCmd string) ([]model.UnifiedTool, error) {
-	args, err := shellquote.Split(serverCmd)
+	command, env, args, err := splitServerCommand(serverCmd)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse server command: %w", err)
+		return nil, err
 	}
-	if len(args) == 0 {
-		return nil, fmt.Errorf("empty server command")
-	}
+	launchArgs := append([]string{command}, args...)
 
 	importTransport := true
 	_ = importTransport // To avoid unused variable issue during plan stage if I mess up imports
@@ -41,7 +39,7 @@ func scanLiveServer(ctx context.Context, serverCmd string) ([]model.UnifiedTool,
 	execCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	stdioTransport := transport.NewStdioWithOptions(args[0], nil, args[1:])
+	stdioTransport := transport.NewStdioWithOptions(command, env, args)
 	if startErr := stdioTransport.Start(execCtx); startErr != nil {
 		if execCtx.Err() == context.DeadlineExceeded {
 			spinner.Fail("Connection to MCP server timed out after 30 seconds.")
@@ -108,8 +106,39 @@ func scanLiveServer(ctx context.Context, serverCmd string) ([]model.UnifiedTool,
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse tools: %w", err)
 	}
-	tools = enrichLiveToolsWithLocalNodeDependencies(args, tools)
+	tools = enrichLiveToolsWithLocalNodeDependencies(launchArgs, tools)
 	return tools, nil
+}
+
+func splitServerCommand(serverCmd string) (command string, env, args []string, err error) {
+	parts, err := shellquote.Split(serverCmd)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("failed to parse server command: %w", err)
+	}
+	for len(parts) > 0 && isEnvAssignment(parts[0]) {
+		env = append(env, parts[0])
+		parts = parts[1:]
+	}
+	if len(parts) == 0 {
+		return "", nil, nil, fmt.Errorf("empty server command")
+	}
+	return parts[0], env, parts[1:], nil
+}
+
+func isEnvAssignment(arg string) bool {
+	idx := strings.IndexByte(arg, '=')
+	if idx <= 0 {
+		return false
+	}
+	name := arg[:idx]
+	for i := 0; i < len(name); i++ {
+		ch := name[i]
+		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_' || (i > 0 && ch >= '0' && ch <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func enrichLiveToolsWithLocalNodeDependencies(args []string, tools []model.UnifiedTool) []model.UnifiedTool {

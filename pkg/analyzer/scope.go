@@ -101,28 +101,31 @@ func (c *ScopeChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {
 	writeLocalPerms := []model.Permission{model.PermissionFS, model.PermissionDB, model.PermissionExec}
 	if isWriteName && len(tool.Permissions) > 0 {
 		hasLocalWritePerm := false
-		hasRemoteWritePerm := false
+		hasHTTPWritePerm := false
+		hasNetworkWritePerm := false
 		for _, perm := range tool.Permissions {
 			for _, lp := range writeLocalPerms {
 				if perm == lp {
 					hasLocalWritePerm = true
 				}
 			}
-			if perm == model.PermissionNetwork || perm == model.PermissionHTTP {
-				hasRemoteWritePerm = true
+			if perm == model.PermissionHTTP {
+				hasHTTPWritePerm = true
+			}
+			if perm == model.PermissionNetwork {
+				hasNetworkWritePerm = true
 			}
 		}
-		if !hasLocalWritePerm {
-			if !hasRemoteWritePerm || !isCloudAPIName(nameLower) {
-				issues = append(issues, model.Issue{
-					RuleID:      "AS-003",
-					ToolName:    tool.Name,
-					Severity:    model.SeverityMedium,
-					Code:        "SCOPE_MISMATCH",
-					Description: fmt.Sprintf("tool name %q implies local write operation but only remote/network-class permissions were detected", tool.Name),
-					Location:    "name+permissions",
-				})
-			}
+		hasScopedRemoteWritePerm := hasHTTPWritePerm || (hasNetworkWritePerm && isCloudAPIName(nameLower))
+		if !hasLocalWritePerm && !hasScopedRemoteWritePerm {
+			issues = append(issues, model.Issue{
+				RuleID:      "AS-003",
+				ToolName:    tool.Name,
+				Severity:    model.SeverityMedium,
+				Code:        "SCOPE_MISMATCH",
+				Description: fmt.Sprintf("tool name %q implies write operation but no write-class permissions were detected", tool.Name),
+				Location:    "name+permissions",
+			})
 		}
 	}
 

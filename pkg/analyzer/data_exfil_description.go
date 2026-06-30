@@ -7,17 +7,17 @@ import (
 )
 
 var dataExfiltrationDescriptionHints = []string{
-	"transmit", "send", "forward", "post", "upload", "pipe",
-	"data", "info", "content",
+	"transmit", "send", "forward", "post", "upload", "pipe", "exfiltrat",
+	"data", "info", "content", "results",
 	"https://", "http://", "external", "remote", "attacker", "base64",
 }
 
 var dataExfiltrationDescriptionTriggers = []string{
-	"transmit", "send", "forward", "post", "upload", "pipe",
+	"transmit", "send", "forward", "post", "upload", "pipe", "exfiltrat",
 }
 
 var dataExfiltrationDescriptionPayloads = []string{
-	"data", "info", "content",
+	"data", "info", "content", "results",
 }
 
 var dataExfiltrationDescriptionDestinations = []string{

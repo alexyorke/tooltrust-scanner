@@ -84,6 +84,16 @@ func TestStore_Save_Replace(t *testing.T) {
 	assert.Equal(t, model.GradeF, got.Grade)
 }
 
+func TestStore_Save_RejectsEmptyID(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("")
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing id")
+}
+
 func TestStore_Count(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

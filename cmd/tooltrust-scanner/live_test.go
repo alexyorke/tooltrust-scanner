@@ -71,6 +71,21 @@ func TestDetectLocalProjectRoot_LocalGoFileBareFilename(t *testing.T) {
 		"bare local Go file launches must return the project root")
 }
 
+func TestSplitServerCommand_PreservesLeadingEnvAssignments(t *testing.T) {
+	command, env, args, err := splitServerCommand(`API_KEY=secret OTHER=value node ./server.js --flag`)
+	require.NoError(t, err)
+
+	assert.Equal(t, "node", command)
+	assert.Equal(t, []string{"API_KEY=secret", "OTHER=value"}, env)
+	assert.Equal(t, []string{"./server.js", "--flag"}, args)
+}
+
+func TestSplitServerCommand_RejectsOnlyEnvAssignments(t *testing.T) {
+	_, _, _, err := splitServerCommand(`API_KEY=secret`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty server command")
+}
+
 func TestMergeDependencies_PrefersStrongerSourceForDuplicateDependency(t *testing.T) {
 	tool := &model.UnifiedTool{
 		Metadata: map[string]any{

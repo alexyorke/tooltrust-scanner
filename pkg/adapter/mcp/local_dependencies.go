@@ -125,33 +125,48 @@ func mergeDependencies(tool *model.UnifiedTool, deps []localDependency) {
 		}
 	}
 
-	seen := map[string]bool{}
+	seen := map[string]map[string]any{}
 	for _, dep := range existing {
 		name := stringMapValue(dep, "name")
 		version := stringMapValue(dep, "version")
 		ecosystem := stringMapValue(dep, "ecosystem")
-		seen[ecosystem+":"+name+"@"+version] = true
 		if dep["source"] == nil || dep["source"] == "" {
 			dep["source"] = "metadata"
 		}
+		seen[ecosystem+":"+name+"@"+version] = dep
 	}
 
 	for _, dep := range deps {
 		key := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
-		if seen[key] {
+		if existingDep, ok := seen[key]; ok {
+			if dependencySourceRank(dep.Source) > dependencySourceRank(stringMapValue(existingDep, "source")) {
+				existingDep["source"] = dep.Source
+			}
 			continue
 		}
-		seen[key] = true
-		existing = append(existing, map[string]any{
+		newDep := map[string]any{
 			"name":      dep.Name,
 			"version":   dep.Version,
 			"ecosystem": dep.Ecosystem,
 			"source":    dep.Source,
-		})
+		}
+		existing = append(existing, newDep)
+		seen[key] = newDep
 	}
 
 	if len(existing) > 0 {
 		tool.Metadata["dependencies"] = existing
+	}
+}
+
+func dependencySourceRank(source string) int {
+	switch source {
+	case "local_lockfile":
+		return 2
+	case "metadata":
+		return 1
+	default:
+		return 0
 	}
 }
 

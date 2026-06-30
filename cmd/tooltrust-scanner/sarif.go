@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 
 	"github.com/owenrumney/go-sarif/v2/sarif"
@@ -79,7 +80,7 @@ func writeSarifOutput(opts scanOpts, report ScanReport) error {
 			}
 
 			loc := sarif.NewLocationWithPhysicalLocation(sarif.NewPhysicalLocation().
-				WithArtifactLocation(sarif.NewSimpleArtifactLocation(policy.ToolName)))
+				WithArtifactLocation(sarif.NewSimpleArtifactLocation(sarifToolURI(policy.ToolName))))
 
 			result := sarif.NewRuleResult(ruleId).
 				WithMessage(sarif.NewTextMessage(issue.Description)).
@@ -106,4 +107,11 @@ func writeSarifOutput(opts scanOpts, report ScanReport) error {
 		fmt.Println(string(encoded))
 	}
 	return nil
+}
+
+func sarifToolURI(toolName string) string {
+	if toolName == "" {
+		return "tooltrust://tool/unknown"
+	}
+	return "tooltrust://tool/" + url.PathEscape(toolName)
 }

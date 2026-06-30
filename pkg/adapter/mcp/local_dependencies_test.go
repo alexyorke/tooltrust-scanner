@@ -59,6 +59,45 @@ func TestEnrichLiveToolsWithLocalDependencyMetadata_DetectsBarePythonScriptProje
 	assert.Contains(t, note, "Local dependency artifacts scanned")
 }
 
+func TestEnrichLiveToolsWithLocalDependencyMetadata_PrefersLocalLockfileSource(t *testing.T) {
+	tmp := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte(`{"name":"demo"}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "server.js"), []byte("// stub\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package-lock.json"), []byte(`{
+  "packages": {
+    "": {"version": "1.0.0"},
+    "node_modules/axios": {"version": "1.14.1"}
+  }
+}`), 0o644))
+
+	prevWD, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(tmp))
+	t.Cleanup(func() {
+		_ = os.Chdir(prevWD)
+	})
+
+	tools := EnrichLiveToolsWithLocalDependencyMetadata([]string{"node", "./server.js"}, []model.UnifiedTool{
+		{
+			Name: "node_server",
+			Metadata: map[string]any{
+				"dependencies": []map[string]any{
+					{"name": "axios", "version": "1.14.1", "ecosystem": "npm"},
+				},
+			},
+		},
+	})
+
+	require.Len(t, tools, 1)
+	deps, ok := tools[0].Metadata["dependencies"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "local_lockfile", deps[0]["source"])
+	visibility, note := analyzer.DependencyVisibilityForTool(tools[0])
+	assert.Equal(t, "Verified from local lockfile", visibility)
+	assert.Contains(t, note, "Local dependency artifacts scanned")
+}
+
 func TestParsePNPMLockKey_NPMAliasUsesRealPackageName(t *testing.T) {
 	name, version, ok := parsePNPMLockKey(`/string-width-cjs@npm:string-width@^4.2.3:`)
 	require.True(t, ok)
