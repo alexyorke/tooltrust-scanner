@@ -125,6 +125,58 @@ func TestAdapter_Parse_URLFieldsDoNotInferFilesystem(t *testing.T) {
 	assert.NotContains(t, tools[0].Permissions, model.PermissionFS)
 }
 
+func TestAdapter_Parse_GenericNameKeywordsDoNotInferPermissions(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "create_ticket",
+				Description: "Create a support ticket.",
+				InputSchema: mcp.InputSchema{
+					Type:       "object",
+					Properties: map[string]mcp.SchemaProperty{"id": {Type: "string"}},
+				},
+			},
+			{
+				Name:        "search_notes",
+				Description: "Search user notes.",
+				InputSchema: mcp.InputSchema{
+					Type:       "object",
+					Properties: map[string]mcp.SchemaProperty{"query": {Type: "string"}},
+				},
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 2)
+
+	assert.NotContains(t, tools[0].Permissions, model.PermissionFS)
+	assert.NotContains(t, tools[0].Permissions, model.PermissionNetwork)
+	assert.NotContains(t, tools[1].Permissions, model.PermissionFS)
+	assert.NotContains(t, tools[1].Permissions, model.PermissionNetwork)
+}
+
+func TestAdapter_Parse_CamelCaseFilesystemFieldInfersFilesystem(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "read_file",
+			"description": "Read a file from disk.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"filePath": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Permissions, model.PermissionFS)
+}
+
 func TestAdapter_Parse_ExecTool(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{

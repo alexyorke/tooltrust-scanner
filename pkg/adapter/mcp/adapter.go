@@ -11,6 +11,14 @@ import (
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
+var filesystemNameContextTerms = []string{
+	"file", "files", "folder", "folders", "dir", "dirs", "directory", "directories", "path", "filesystem",
+}
+
+var networkNameContextTerms = []string{
+	"url", "uri", "host", "endpoint", "remote", "network", "http", "https", "api", "web", "webhook",
+}
+
 // Adapter converts MCP tools/list payloads into []model.UnifiedTool.
 type Adapter struct{}
 
@@ -207,9 +215,8 @@ func inferPermissions(t Tool) []model.Permission {
 	for _, entry := range permissionRules {
 		// Check schema property names
 		for _, propKey := range inputSchemaPropertyPaths(t.InputSchema) {
-			propLower := strings.ToLower(propKey)
 			for _, ruleKey := range entry.rule.propKeys {
-				if propertyNameMatchesRule(propLower, ruleKey, entry.permission) {
+				if propertyNameMatchesRule(propKey, ruleKey, entry.permission) {
 					add(entry.permission)
 				}
 			}
@@ -222,7 +229,7 @@ func inferPermissions(t Tool) []model.Permission {
 		}
 		// Check tool name keywords
 		for _, kw := range entry.rule.nameKeywords {
-			if strings.Contains(nameLower, kw) {
+			if nameMatchesRule(nameLower, kw, entry.permission) {
 				add(entry.permission)
 			}
 		}
@@ -236,16 +243,38 @@ func inferPermissions(t Tool) []model.Permission {
 	return perms
 }
 
-func propertyNameMatchesRule(propLower, ruleKey string, permission model.Permission) bool {
+func nameMatchesRule(nameLower, keyword string, permission model.Permission) bool {
+	switch permission {
+	case model.PermissionFS:
+		if !containsAnyTerm(nameLower, filesystemNameContextTerms) {
+			return false
+		}
+	case model.PermissionNetwork:
+		if !containsAnyTerm(nameLower, networkNameContextTerms) {
+			return false
+		}
+	}
+	return strings.Contains(nameLower, keyword)
+}
+
+func containsAnyTerm(s string, terms []string) bool {
+	for _, term := range terms {
+		if strings.Contains(s, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func propertyNameMatchesRule(propName, ruleKey string, permission model.Permission) bool {
+	propLower := strings.ToLower(propName)
 	if permission != model.PermissionFS {
 		return propLower == ruleKey || strings.Contains(propLower, ruleKey)
 	}
 	if propLower == ruleKey {
 		return true
 	}
-	for _, token := range strings.FieldsFunc(propLower, func(r rune) bool {
-		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
-	}) {
+	for _, token := range propertyNameTokens(propName) {
 		if token == ruleKey {
 			return true
 		}
@@ -276,6 +305,37 @@ func containsToken(s, token string) bool {
 		}
 	}
 	return false
+}
+
+func propertyNameTokens(name string) []string {
+	parts := strings.FieldsFunc(name, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+	})
+	tokens := make([]string, 0, len(parts)*2)
+	for _, part := range parts {
+		tokens = append(tokens, camelCaseTokens(part)...)
+	}
+	return tokens
+}
+
+func camelCaseTokens(part string) []string {
+	if part == "" {
+		return nil
+	}
+	var tokens []string
+	start := 0
+	for i := 1; i < len(part); i++ {
+		prev := part[i-1]
+		curr := part[i]
+		nextUpperBoundary := prev >= 'a' && prev <= 'z' && curr >= 'A' && curr <= 'Z'
+		acronymBoundary := prev >= 'A' && prev <= 'Z' && curr >= 'A' && curr <= 'Z' && i+1 < len(part) && part[i+1] >= 'a' && part[i+1] <= 'z'
+		if nextUpperBoundary || acronymBoundary {
+			tokens = append(tokens, strings.ToLower(part[start:i]))
+			start = i
+		}
+	}
+	tokens = append(tokens, strings.ToLower(part[start:]))
+	return tokens
 }
 
 func inputSchemaPropertyPaths(schema InputSchema) []string {

@@ -153,6 +153,26 @@ func TestRunScan_JSONOutput_EmptyPoliciesUseArray(t *testing.T) {
 	assert.Empty(t, policies)
 }
 
+func TestRunScan_PersistenceErrorSurfaces(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "tools.json")
+	output := filepath.Join(tmp, "report.json")
+	dbPath := filepath.Join(tmp, "missing", "scans.db")
+	require.NoError(t, os.WriteFile(input, []byte(`{"tools":[]}`), 0o644))
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "mcp",
+		output:     "json",
+		outputFile: output,
+		dbPath:     dbPath,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "persist")
+	assert.NoFileExists(t, dbPath)
+}
+
 func TestPrintPtermUI_UsesPrecomputedSummary(t *testing.T) {
 	prevOutput := pterm.Output
 	pterm.EnableOutput()

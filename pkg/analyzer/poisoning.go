@@ -166,8 +166,7 @@ func (c *PoisoningChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 			if rule.pattern.String() == `(?i)jailbreak` && defensiveJailbreak {
 				continue
 			}
-			if rule.pattern.MatchString(desc) {
-				matched := rule.pattern.FindString(desc)
+			if matched := rule.pattern.FindString(desc); matched != "" {
 				issues = append(issues, model.Issue{
 					RuleID:      "AS-001",
 					ToolName:    tool.Name,

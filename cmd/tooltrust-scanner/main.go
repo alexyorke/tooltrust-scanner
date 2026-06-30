@@ -262,7 +262,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 
 	if opts.dbPath != "" {
 		if persistErr := persistResults(ctx, opts.dbPath, tools, policies); persistErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to persist results: %v\n", persistErr)
+			return persistErr
 		}
 	}
 
