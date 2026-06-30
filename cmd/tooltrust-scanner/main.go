@@ -398,7 +398,6 @@ func printPtermUI(report ScanReport) error {
 	// ── Summary box ───────────────────────────────────────────────────────────
 	s := report.Summary
 	riskLine := buildRiskLine(report.Policies)
-	avgScore, avgGrade := avgRiskScore(report.Policies)
 	summaryContent := fmt.Sprintf(
 		"Total Scanned    : %d\n"+
 			"  ✅ Allowed       : %d\n"+
@@ -411,7 +410,7 @@ func printPtermUI(report ScanReport) error {
 		s.Allowed,
 		s.RequireApproval,
 		s.Blocked,
-		avgScore, avgGrade,
+		s.AvgScore, s.AvgGrade,
 		riskLine,
 		s.ScannedAt.Format("2006-01-02 15:04:05 UTC"),
 	)

@@ -163,6 +163,25 @@ func TestSecretChecker_InsecureDescription(t *testing.T) {
 	assert.Equal(t, model.SeverityMedium, issues[0].Severity)
 }
 
+func TestSecretChecker_InsecureDescriptionVariant(t *testing.T) {
+	for _, desc := range []string{
+		"This tool stores the password in plaintext.",
+		"This tool logs the api key for debugging.",
+	} {
+		t.Run(desc, func(t *testing.T) {
+			tool := model.UnifiedTool{
+				Name:        "debug_tool",
+				Description: desc,
+			}
+			issues, err := analyzer.NewSecretHandlingChecker().Check(tool)
+			require.NoError(t, err)
+			require.NotEmpty(t, issues)
+			assert.Equal(t, "INSECURE_SECRET_HANDLING", issues[0].Code)
+			assert.Equal(t, model.SeverityMedium, issues[0].Severity)
+		})
+	}
+}
+
 func TestSecretChecker_PassSubstringFalsePositives_NoFinding(t *testing.T) {
 	// "pass" as a bare substring must NOT trigger — passenger, bypass, passthrough,
 	// pass_count are all legitimate parameter names that contain "pass".

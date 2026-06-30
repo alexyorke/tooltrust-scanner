@@ -222,7 +222,7 @@ func matchInstructionOverridePhrase(desc, descLower string) (string, bool) {
 			continue
 		}
 
-		limit := i + 4
+		limit := i + 6
 		if limit >= len(spans) {
 			limit = len(spans) - 1
 		}

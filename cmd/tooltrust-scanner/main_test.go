@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/pterm/pterm"
 	"github.com/stretchr/testify/assert"
@@ -140,6 +141,42 @@ func TestRunScan_JSONOutput_EmptyPoliciesUseArray(t *testing.T) {
 	policies, ok := payload["policies"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, policies)
+}
+
+func TestPrintPtermUI_UsesPrecomputedSummary(t *testing.T) {
+	prevOutput := pterm.Output
+	pterm.EnableOutput()
+	t.Cleanup(func() {
+		if prevOutput {
+			pterm.EnableOutput()
+		} else {
+			pterm.DisableOutput()
+		}
+		pterm.SetDefaultOutput(os.Stdout)
+	})
+
+	var buf bytes.Buffer
+	pterm.SetDefaultOutput(&buf)
+
+	report := ScanReport{
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName: "read_file",
+				Action:   model.ActionAllow,
+				Score:    model.RiskScore{Score: 1, Grade: model.GradeA},
+			},
+		},
+		Summary: ScanSummary{
+			Total:     1,
+			Allowed:   1,
+			AvgScore:  99,
+			AvgGrade:  "Z",
+			ScannedAt: time.Now().UTC(),
+		},
+	}
+
+	require.NoError(t, printPtermUI(report))
+	assert.Contains(t, buf.String(), "Avg Risk Score   : 99 (grade Z)")
 }
 
 func TestShouldPrintWriteNotice_FileIsNonInteractive(t *testing.T) {

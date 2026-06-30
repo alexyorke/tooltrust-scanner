@@ -55,7 +55,9 @@ var secretParamAllowlist = map[string]bool{
 // credentials are logged or stored in an insecure manner.
 var secretDescriptionPatterns = []string{
 	"log the api key",
+	"logs the api key",
 	"store password",
+	"stores the password",
 	"print token",
 	"output credential",
 	"write secret",

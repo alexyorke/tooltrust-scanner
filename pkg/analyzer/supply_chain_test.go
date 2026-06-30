@@ -396,6 +396,21 @@ packages:
 	assert.Equal(t, "2.3.4", names["@scope/sdk"])
 }
 
+func TestParsePNPMLockYAML_NPMAliasUsesRealPackageName(t *testing.T) {
+	data := []byte(`
+lockfileVersion: '9.0'
+packages:
+  /string-width-cjs@npm:string-width@^4.2.3:
+    resolution: {integrity: sha512-abc}
+`)
+	deps, err := analyzer.ParsePNPMLockYAMLForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "string-width", deps[0].Name)
+	assert.Equal(t, "^4.2.3", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+}
+
 func TestParseYarnLock(t *testing.T) {
 	data := []byte(`
 "axios@^1.14.1":
