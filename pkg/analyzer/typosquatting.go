@@ -321,6 +321,19 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 			if diff > 2 {
 				continue
 			}
+			shorter := len(normName)
+			if len(normKnown) < shorter {
+				shorter = len(normKnown)
+			}
+			// Distance-1 and distance-2 matches are both suppressed for short
+			// same-length names, and distance-2 matches are suppressed for any
+			// pair with a shorter normalized length below 15. Skip those pairs
+			// before running Levenshtein, since they cannot produce a finding.
+			if shorter < 15 {
+				if len(normName) == len(normKnown) || diff > 1 {
+					continue
+				}
+			}
 			// Skip simple singular/plural variants (e.g. create_relation vs
 			// create_relations). Do not skip arbitrary prefixes/suffixes such as
 			// read_file2, which are still typosquat-like.
@@ -330,10 +343,6 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 			dist := levenshteinWithin(normName, normKnown, maxTyposquatDistance)
 			if dist < 1 {
 				continue
-			}
-			shorter := len(normName)
-			if len(normKnown) < shorter {
-				shorter = len(normKnown)
 			}
 			// Distance-2 matching on short/medium names produces too many false
 			// positives: generic verb+noun patterns (list_pages vs list_tags,
