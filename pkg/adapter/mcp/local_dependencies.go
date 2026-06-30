@@ -133,11 +133,11 @@ func mergeDependencies(tool *model.UnifiedTool, deps []localDependency) {
 		if dep["source"] == nil || dep["source"] == "" {
 			dep["source"] = "metadata"
 		}
-		seen[ecosystem+":"+name+"@"+version] = dep
+		seen[dependencyMergeKey(ecosystem, name, version)] = dep
 	}
 
 	for _, dep := range deps {
-		key := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
+		key := dependencyMergeKey(dep.Ecosystem, dep.Name, dep.Version)
 		if existingDep, ok := seen[key]; ok {
 			if dependencySourceRank(dep.Source) > dependencySourceRank(stringMapValue(existingDep, "source")) {
 				existingDep["source"] = dep.Source
@@ -168,6 +168,10 @@ func dependencySourceRank(source string) int {
 	default:
 		return 0
 	}
+}
+
+func dependencyMergeKey(ecosystem, name, version string) string {
+	return strings.ToLower(ecosystem) + ":" + strings.ToLower(name) + "@" + strings.ToLower(strings.TrimPrefix(version, "v"))
 }
 
 func parseDependencyArtifact(artifact dependencyArtifact) ([]localDependency, error) {

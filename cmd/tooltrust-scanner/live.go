@@ -237,7 +237,7 @@ func mergeDependencies(tool *model.UnifiedTool, deps []nodeDependency) {
 		name := stringMapValue(dep, "name")
 		version := stringMapValue(dep, "version")
 		ecosystem := stringMapValue(dep, "ecosystem")
-		key := ecosystem + ":" + name + "@" + version
+		key := dependencyMergeKey(ecosystem, name, version)
 		source := stringMapValue(dep, "source")
 		if source == "" {
 			source = "metadata"
@@ -253,7 +253,7 @@ func mergeDependencies(tool *model.UnifiedTool, deps []nodeDependency) {
 	}
 
 	for _, dep := range deps {
-		key := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
+		key := dependencyMergeKey(dep.Ecosystem, dep.Name, dep.Version)
 		source := dep.Source
 		if source == "" {
 			source = "local_lockfile"
@@ -289,6 +289,10 @@ func sourceRank(source string) int {
 	default:
 		return 0
 	}
+}
+
+func dependencyMergeKey(ecosystem, name, version string) string {
+	return strings.ToLower(ecosystem) + ":" + strings.ToLower(name) + "@" + strings.ToLower(strings.TrimPrefix(version, "v"))
 }
 
 type nodeLockfile struct {

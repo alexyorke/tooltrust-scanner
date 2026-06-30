@@ -98,6 +98,25 @@ func TestEnrichLiveToolsWithLocalDependencyMetadata_PrefersLocalLockfileSource(t
 	assert.Contains(t, note, "Local dependency artifacts scanned")
 }
 
+func TestMergeDependencies_NormalizesCaseAndVersionBeforeDeduping(t *testing.T) {
+	tool := &model.UnifiedTool{
+		Metadata: map[string]any{
+			"dependencies": []map[string]any{
+				{"name": "litellm", "version": "v1.82.8", "ecosystem": "pypi", "source": "metadata"},
+			},
+		},
+	}
+
+	mergeDependencies(tool, []localDependency{
+		{Name: "litellm", Version: "1.82.8", Ecosystem: "PyPI", Source: "local_lockfile"},
+	})
+
+	rawDeps, ok := tool.Metadata["dependencies"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, rawDeps, 1)
+	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
+}
+
 func TestParsePNPMLockKey_NPMAliasUsesRealPackageName(t *testing.T) {
 	name, version, ok := parsePNPMLockKey(`/string-width-cjs@npm:string-width@^4.2.3:`)
 	require.True(t, ok)

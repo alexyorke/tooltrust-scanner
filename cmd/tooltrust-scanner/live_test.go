@@ -105,6 +105,25 @@ func TestMergeDependencies_PrefersStrongerSourceForDuplicateDependency(t *testin
 	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
 }
 
+func TestMergeDependencies_NormalizesCaseAndVersionBeforeDeduping(t *testing.T) {
+	tool := &model.UnifiedTool{
+		Metadata: map[string]any{
+			"dependencies": []map[string]any{
+				{"name": "litellm", "version": "v1.82.8", "ecosystem": "pypi", "source": "metadata"},
+			},
+		},
+	}
+
+	mergeDependencies(tool, []nodeDependency{
+		{Name: "litellm", Version: "1.82.8", Ecosystem: "PyPI", Source: "local_lockfile"},
+	})
+
+	rawDeps, ok := tool.Metadata["dependencies"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, rawDeps, 1)
+	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
+}
+
 func TestParseYarnLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "yarn.lock")
 	require.NoError(t, os.WriteFile(path, []byte(`
