@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AgentSafe-AI/tooltrust-scanner/internal/jsonschema"
-	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/analyzer"
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
@@ -166,7 +164,7 @@ func TestRenderTextReport_IncludesBehaviorAndDestinationContext(t *testing.T) {
 	assert.Contains(t, text, "Destination: dynamic email recipient (bcc); hardcoded domain: api.postmarkapp.com")
 }
 
-func TestRenderTextReport_IncludesDependencyVisibilityContext(t *testing.T) {
+func TestRenderTextReport_OmitsDependencyVisibilityContext(t *testing.T) {
 	result := &ScanResult{
 		Summary: ScanSummary{
 			Total:           1,
@@ -176,18 +174,18 @@ func TestRenderTextReport_IncludesDependencyVisibilityContext(t *testing.T) {
 		},
 		Policies: []model.GatewayPolicy{
 			{
-				ToolName:             "deploy_site",
-				Action:               model.ActionRequireApproval,
-				DependencyVisibility: "Verified from local lockfile + Repo URL available",
-				DependencyNote:       "Local dependency artifacts scanned from package-lock.json.",
-				Score:                model.RiskScore{Grade: model.GradeC},
+				ToolName:     "deploy_site",
+				Action:       model.ActionRequireApproval,
+				Behavior:     []string{"uses_network"},
+				Destinations: []string{"dynamic URL input (url)"},
+				Score:        model.RiskScore{Grade: model.GradeC},
 			},
 		},
 	}
 
 	text := renderTextReport(result)
-	assert.Contains(t, text, "Dependency visibility: Verified from local lockfile + Repo URL available")
-	assert.Contains(t, text, "Local dependency artifacts scanned from package-lock.json.")
+	assert.NotContains(t, text, "Dependency visibility:")
+	assert.NotContains(t, text, "dependency artifacts scanned")
 }
 
 func TestRenderTextReport_CapabilitySurfaceUsesCurrentAS002Wording(t *testing.T) {
@@ -223,10 +221,10 @@ func TestRenderTextReport_CapabilitySurfaceUsesCurrentAS002Wording(t *testing.T)
 
 	text := renderTextReport(result)
 	assert.Contains(t, text, "declared capabilities: network access, filesystem access")
-	assert.Contains(t, text, "Safer configuration: confirm the tool truly needs network access; remove it if local-only operation is enough; limit filesystem access to the intended directories only.")
+	assert.NotContains(t, text, "Safer configuration:")
 }
 
-func TestRenderTextReport_CapabilitySurfaceMentionsExecAdvice(t *testing.T) {
+func TestRenderTextReport_DoesNotAddCapabilitySpecificExecOrHTTPAdvice(t *testing.T) {
 	result := &ScanResult{
 		Summary: ScanSummary{
 			Total:           1,
@@ -245,43 +243,9 @@ func TestRenderTextReport_CapabilitySurfaceMentionsExecAdvice(t *testing.T) {
 							RuleID:      "AS-002",
 							Code:        "CAPABILITY_SURFACE",
 							Severity:    model.SeverityInfo,
-							Description: "declared capabilities: code/command execution",
+							Description: "declared capabilities: code/command execution, HTTP requests",
 							Evidence: []model.Evidence{
 								{Kind: "capability", Value: "exec"},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	text := renderTextReport(result)
-	assert.Contains(t, text, "declared capabilities: code/command execution")
-	assert.Contains(t, text, "remove code/command execution if it is not required")
-}
-
-func TestRenderTextReport_CapabilitySurfaceMentionsHTTPAdvice(t *testing.T) {
-	result := &ScanResult{
-		Summary: ScanSummary{
-			Total:           1,
-			Allowed:         0,
-			RequireApproval: 1,
-			Blocked:         0,
-		},
-		Policies: []model.GatewayPolicy{
-			{
-				ToolName: "http_client",
-				Action:   model.ActionRequireApproval,
-				Score: model.RiskScore{
-					Grade: model.GradeC,
-					Issues: []model.Issue{
-						{
-							RuleID:      "AS-002",
-							Code:        "CAPABILITY_SURFACE",
-							Severity:    model.SeverityInfo,
-							Description: "declared capabilities: HTTP requests",
-							Evidence: []model.Evidence{
 								{Kind: "capability", Value: "http"},
 							},
 						},
@@ -292,8 +256,9 @@ func TestRenderTextReport_CapabilitySurfaceMentionsHTTPAdvice(t *testing.T) {
 	}
 
 	text := renderTextReport(result)
-	assert.Contains(t, text, "declared capabilities: HTTP requests")
-	assert.Contains(t, text, "remove HTTP requests if it is not required")
+	assert.Contains(t, text, "declared capabilities: code/command execution, HTTP requests")
+	assert.NotContains(t, text, "remove code/command execution if it is not required")
+	assert.NotContains(t, text, "remove HTTP requests if it is not required")
 }
 
 func TestProcessToolsRaw_PopulatesBehaviorAndDestinationContext(t *testing.T) {
@@ -731,35 +696,6 @@ func TestScanLiveServer_WithExtraEnv(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestScanLiveServer_EnrichesLocalDependencyMetadata(t *testing.T) {
-	cwd, err := os.Getwd()
-	require.NoError(t, err)
-
-	repoRoot := filepath.Clean(filepath.Join(cwd, "..", ".."))
-	require.NoError(t, os.Chdir(repoRoot))
-	t.Cleanup(func() {
-		_ = os.Chdir(cwd)
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-
-	tools, err := scanLiveServer(ctx, []string{"go", "run", "./cmd/tooltrust-mcp"}, nil)
-	require.NoError(t, err)
-	require.NotEmpty(t, tools)
-
-	foundLocalLockfile := false
-	for _, tool := range tools {
-		visibility, note := analyzer.DependencyVisibilityForTool(tool)
-		if strings.Contains(visibility, "Verified from local lockfile") {
-			foundLocalLockfile = true
-			assert.Contains(t, note, "Local dependency artifacts scanned")
-			break
-		}
-	}
-	assert.True(t, foundLocalLockfile, "live MCP scan should enrich tools with local dependency evidence")
-}
-
 // ── processToolsRaw tests ───────────────────────────────────────────────────
 
 func TestProcessToolsRaw_EmptySlice(t *testing.T) {
@@ -784,23 +720,4 @@ func TestProcessToolsRaw_SingleCleanTool(t *testing.T) {
 	result, err := processToolsRaw(context.Background(), tools)
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Summary.Total)
-}
-
-func TestProcessToolsRaw_PopulatesDependencyVisibility(t *testing.T) {
-	tools := []model.UnifiedTool{
-		{
-			Name: "deploy_site",
-			Metadata: map[string]any{
-				"repo_url": "https://github.com/example/site",
-				"dependencies": []map[string]any{
-					{"name": "axios", "version": "1.14.1", "ecosystem": "npm", "source": "local_lockfile"},
-				},
-			},
-		},
-	}
-
-	result, err := processToolsRaw(context.Background(), tools)
-	require.NoError(t, err)
-	require.Len(t, result.Policies, 1)
-	assert.Equal(t, "Verified from local lockfile + Repo URL available", result.Policies[0].DependencyVisibility)
 }

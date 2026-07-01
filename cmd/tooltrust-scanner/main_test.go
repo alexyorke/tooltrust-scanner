@@ -163,6 +163,34 @@ func TestRunScan_JSONOutput_EmptyPoliciesUseArray(t *testing.T) {
 	assert.Empty(t, policies)
 }
 
+func TestWriteOutput_JSONOmitsDependencyVisibilityFields(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "report.json")
+	report := ScanReport{
+		SchemaVersion: "1.0",
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName: "read_file",
+				Action:   model.ActionAllow,
+				Score:    model.RiskScore{Grade: model.GradeA},
+			},
+		},
+		Summary: ScanSummary{
+			Total:     1,
+			Allowed:   1,
+			AvgScore:  0,
+			AvgGrade:  "A",
+			ScannedAt: time.Now().UTC(),
+		},
+	}
+
+	require.NoError(t, writeOutput(scanOpts{output: "json", outputFile: out}, report))
+
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "dependency_visibility")
+	assert.NotContains(t, string(data), "dependency_note")
+}
+
 func TestRunScan_RejectsMCPConfigInput(t *testing.T) {
 	tmp := t.TempDir()
 	input := filepath.Join(tmp, ".mcp.json")
@@ -242,6 +270,43 @@ func TestPrintPtermUI_UsesPrecomputedSummary(t *testing.T) {
 
 	require.NoError(t, printPtermUI(report))
 	assert.Contains(t, buf.String(), "Avg Risk Score   : 99 (grade Z)")
+}
+
+func TestPrintPtermUI_OmitsDependencyVisibilityContext(t *testing.T) {
+	prevOutput := pterm.Output
+	pterm.EnableOutput()
+	t.Cleanup(func() {
+		if prevOutput {
+			pterm.EnableOutput()
+		} else {
+			pterm.DisableOutput()
+		}
+		pterm.SetDefaultOutput(os.Stdout)
+	})
+
+	var buf bytes.Buffer
+	pterm.SetDefaultOutput(&buf)
+
+	report := ScanReport{
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName: "deploy_site",
+				Action:   model.ActionRequireApproval,
+				Behavior: []string{"uses_network"},
+				Score:    model.RiskScore{Grade: model.GradeC},
+			},
+		},
+		Summary: ScanSummary{
+			Total:           1,
+			RequireApproval: 1,
+			AvgGrade:        "C",
+			ScannedAt:       time.Now().UTC(),
+		},
+	}
+
+	require.NoError(t, printPtermUI(report))
+	assert.NotContains(t, buf.String(), "Dependency visibility:")
+	assert.NotContains(t, buf.String(), "dependency artifacts")
 }
 
 func TestWriteOutput_TextHonorsOutputFile(t *testing.T) {
@@ -486,55 +551,6 @@ func TestToolReasonLabel_ForBlock(t *testing.T) {
 	assert.Equal(t, "Why blocked: ", toolReasonLabel(model.GatewayPolicy{Action: model.ActionBlock}))
 }
 
-func TestDependencyVisibilityForTool_None(t *testing.T) {
-	visibility, note := dependencyVisibilityForTool(model.UnifiedTool{
-		Name: "plain_tool",
-	})
-
-	assert.Equal(t, "No dependency data", visibility)
-	assert.Contains(t, note, "No metadata.dependencies or repo_url")
-}
-
-func TestDependencyVisibilityForTool_MetadataAndRepoURL(t *testing.T) {
-	visibility, note := dependencyVisibilityForTool(model.UnifiedTool{
-		Name: "tool",
-		Metadata: map[string]any{
-			"repo_url": "https://github.com/example/repo",
-			"dependencies": []map[string]any{
-				{"name": "axios", "version": "1.14.1", "ecosystem": "npm", "source": "local_lockfile"},
-			},
-		},
-	})
-
-	assert.Equal(t, "Verified from local lockfile + Repo URL available", visibility)
-	assert.Empty(t, note)
-}
-
-func TestDependencyVisibilityForTool_MalformedDependencies(t *testing.T) {
-	visibility, note := dependencyVisibilityForTool(model.UnifiedTool{
-		Name: "tool",
-		Metadata: map[string]any{
-			"dependencies": "not a dependency list",
-		},
-	})
-
-	assert.Equal(t, "No dependency data", visibility)
-	assert.Contains(t, note, "could not be parsed")
-}
-
-func TestDependencyVisibilityForTool_MalformedDependenciesWithRepoURL(t *testing.T) {
-	visibility, note := dependencyVisibilityForTool(model.UnifiedTool{
-		Name: "tool",
-		Metadata: map[string]any{
-			"dependencies": "not a dependency list",
-			"repo_url":     "https://github.com/example/repo",
-		},
-	})
-
-	assert.Equal(t, "Repo URL available", visibility)
-	assert.Contains(t, note, "could not be parsed")
-}
-
 func TestToolContextLines_EmptyForAllowGradeA(t *testing.T) {
 	lines := toolContextLines(model.GatewayPolicy{
 		Action: model.ActionAllow,
@@ -570,18 +586,6 @@ func TestToolContextLines_ForFlaggedTool(t *testing.T) {
 	}, lines)
 }
 
-func TestDependencyVisibilityLines_HiddenForAllowGradeAWithoutCoverage(t *testing.T) {
-	line, note := dependencyVisibilityLines(model.GatewayPolicy{
-		Action:               model.ActionAllow,
-		Score:                model.RiskScore{Grade: model.GradeA},
-		DependencyVisibility: "No dependency data",
-		DependencyNote:       "No metadata.dependencies or repo_url were exposed by this MCP server.",
-	})
-
-	assert.Equal(t, "", line)
-	assert.Equal(t, "", note)
-}
-
 func TestFormatIssueLabel_HidesAS014NoiseForAllowGradeA(t *testing.T) {
 	label := formatIssueLabel(model.Issue{
 		RuleID:      "AS-014",
@@ -596,69 +600,6 @@ func TestFormatIssueLabel_HidesAS014NoiseForAllowGradeA(t *testing.T) {
 	}, true)
 
 	assert.Equal(t, "", label)
-}
-
-func TestEnrichLiveToolsWithLocalNodeDependencies(t *testing.T) {
-	// Use a path-based arg (node ./server.js) so detectLocalProjectRoot finds the
-	// local project via arg-based detection (CWD-seeding was removed in 0.3.16).
-	tmp := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte(`{"name":"demo"}`), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package-lock.json"), []byte(`{
-  "packages": {
-    "": {"version": "1.0.0"},
-    "node_modules/axios": {"version": "1.14.1"}
-  }
-}`), 0o644))
-	// server.js must exist so os.Stat succeeds during arg-based path resolution.
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "server.js"), []byte("// stub"), 0o644))
-
-	prevWD, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(tmp))
-	t.Cleanup(func() {
-		_ = os.Chdir(prevWD)
-	})
-
-	// OLD behaviour (before 0.3.16): ["npm", "run", "dev"] would pick up the CWD.
-	// NEW behaviour: only path-based args trigger local project detection.
-	tools := enrichLiveToolsWithLocalNodeDependencies([]string{"node", "./server.js"}, []model.UnifiedTool{{
-		Name: "deploy_site",
-	}})
-	require.Len(t, tools, 1)
-	visibility, note := dependencyVisibilityForTool(tools[0])
-	assert.Equal(t, "Verified from local lockfile", visibility)
-	assert.Contains(t, note, "Local dependency artifacts scanned")
-
-	rawDeps, ok := tools[0].Metadata["dependencies"].([]map[string]any)
-	require.True(t, ok)
-	require.Len(t, rawDeps, 1)
-	assert.Equal(t, "axios", rawDeps[0]["name"])
-	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
-}
-
-func TestEnrichLiveToolsWithLocalNodeDependencies_PreservesRepoURLNote(t *testing.T) {
-	tmp := t.TempDir()
-
-	prevWD, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(tmp))
-	t.Cleanup(func() {
-		_ = os.Chdir(prevWD)
-	})
-
-	tools := enrichLiveToolsWithLocalNodeDependencies([]string{"npx", "-y", "example-mcp"}, []model.UnifiedTool{
-		{
-			Name: "lookup_repo",
-			Metadata: map[string]any{
-				"repo_url": "https://github.com/example/repo",
-			},
-		},
-	})
-
-	require.Len(t, tools, 1)
-	visibility, note := dependencyVisibilityForTool(tools[0])
-	assert.Equal(t, "Repo URL available", visibility)
-	assert.Equal(t, "repo_url is available, so ToolTrust can try to inspect remote lockfiles for dependency evidence.", note)
 }
 
 func TestParseRequirementsFile_StripsMarkersAndInlineComments(t *testing.T) {

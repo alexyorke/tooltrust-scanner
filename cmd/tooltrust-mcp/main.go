@@ -252,7 +252,6 @@ func scanLiveServer(ctx context.Context, args, extraEnv []string) ([]model.Unifi
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse tools: %w", err)
 	}
-	tools = localmcp.EnrichLiveToolsWithLocalDependencyMetadata(args, tools)
 	return tools, nil
 }
 
@@ -727,12 +726,6 @@ func renderTextReport(result *ScanResult) string {
 		if len(p.Destinations) > 0 {
 			lines = append(lines, fmt.Sprintf("  Destination: %s", strings.Join(p.Destinations, "; ")))
 		}
-		if p.DependencyVisibility != "" {
-			lines = append(lines, fmt.Sprintf("  Dependency visibility: %s", p.DependencyVisibility))
-			if p.DependencyNote != "" {
-				lines = append(lines, "  "+p.DependencyNote)
-			}
-		}
 		for _, issue := range p.Score.Issues {
 			lines = append(lines, fmt.Sprintf("  [%s] %s: %s",
 				issue.RuleID, issue.Severity, humanizeIssue(issue)))
@@ -768,8 +761,6 @@ func joinOrNone(parts []string) string {
 
 func humanizeIssue(issue model.Issue) string {
 	switch {
-	case issue.RuleID == "AS-002" && issue.Code == "CAPABILITY_SURFACE":
-		return issue.Description
 	case issue.RuleID == "AS-002" && strings.Contains(issue.Description, "network permission"):
 		return "Network access declared"
 	case issue.RuleID == "AS-002" && strings.Contains(issue.Description, "fs permission"):
@@ -805,27 +796,9 @@ func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig
 	hasNetwork := false
 	hasFS := false
 	hasDB := false
-	hasExec := false
-	hasHTTP := false
 	hasRateLimitGap := false
 
 	for _, issue := range policy.Score.Issues {
-		if issue.RuleID == "AS-002" && issueHasCapability(issue, "network") {
-			hasNetwork = true
-		}
-		if issue.RuleID == "AS-002" && issueHasCapability(issue, "fs") {
-			hasFS = true
-		}
-		if issue.RuleID == "AS-002" && issueHasCapability(issue, "db") {
-			hasDB = true
-		}
-		if issue.RuleID == "AS-002" && issueHasCapability(issue, "exec") {
-			hasExec = true
-		}
-		if issue.RuleID == "AS-002" && issueHasCapability(issue, "http") {
-			hasHTTP = true
-		}
-
 		switch {
 		case issue.RuleID == "AS-002" && strings.Contains(issue.Description, "network permission"):
 			hasNetwork = true
@@ -859,12 +832,6 @@ func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig
 	if hasDB {
 		safer = append(safer, "limit database access to the intended operations and credentials")
 	}
-	if hasExec {
-		safer = append(safer, "remove code/command execution if it is not required")
-	}
-	if hasHTTP {
-		safer = append(safer, "remove HTTP requests if it is not required")
-	}
 	if hasRateLimitGap {
 		safer = append(safer, "add explicit rate-limit, timeout, or retry settings")
 	}
@@ -873,15 +840,6 @@ func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig
 	}
 
 	return actionNow, saferConfig
-}
-
-func issueHasCapability(issue model.Issue, capability string) bool {
-	for _, evidence := range issue.Evidence {
-		if evidence.Kind == "capability" && evidence.Value == capability {
-			return true
-		}
-	}
-	return false
 }
 
 // processToolsRaw runs the scanner and returns raw results (used by both
@@ -904,7 +862,6 @@ func processToolsRaw(ctx context.Context, tools []model.UnifiedTool) (*ScanResul
 			return nil, fmt.Errorf("policy evaluation failed for tool %q: %v", tools[i].Name, evalErr)
 		}
 		policy.Behavior, policy.Destinations = analyzer.SummarizeToolContext(tools[i])
-		policy.DependencyVisibility, policy.DependencyNote = analyzer.DependencyVisibilityForTool(tools[i])
 		policies = append(policies, policy)
 
 		switch policy.Action {

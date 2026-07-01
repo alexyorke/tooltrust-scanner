@@ -234,7 +234,6 @@ func runScan(ctx context.Context, opts scanOpts) error {
 			return fmt.Errorf("gateway evaluation failed for tool %q: %w", tools[i].Name, evalErr)
 		}
 		policy.Behavior, policy.Destinations = analyzer.SummarizeToolContext(tools[i])
-		policy.DependencyVisibility, policy.DependencyNote = dependencyVisibilityForTool(tools[i])
 		policies = append(policies, policy)
 
 		if opts.verbose {
@@ -362,16 +361,6 @@ func printPtermUITo(w io.Writer, report ScanReport) error {
 		// Children: one per finding, or a green ✅ Pass.
 		var children []pterm.TreeNode
 		if len(policy.Score.Issues) == 0 {
-			if line, note := dependencyVisibilityLines(policy); line != "" {
-				children = append(children, pterm.TreeNode{
-					Text: pterm.FgGray.Sprint(line),
-				})
-				if note != "" {
-					children = append(children, pterm.TreeNode{
-						Text: pterm.FgGray.Sprint(note),
-					})
-				}
-			}
 			children = append(children, pterm.TreeNode{
 				Text: pterm.FgGreen.Sprint("✅ Pass"),
 			})
@@ -385,16 +374,6 @@ func printPtermUITo(w io.Writer, report ScanReport) error {
 				children = append(children, pterm.TreeNode{
 					Text: pterm.FgGray.Sprint(line),
 				})
-			}
-			if line, note := dependencyVisibilityLines(policy); line != "" {
-				children = append(children, pterm.TreeNode{
-					Text: pterm.FgGray.Sprint(line),
-				})
-				if note != "" {
-					children = append(children, pterm.TreeNode{
-						Text: pterm.FgGray.Sprint(note),
-					})
-				}
 			}
 			shownHints := map[string]bool{}
 			for _, issue := range policy.Score.Issues {
@@ -479,16 +458,6 @@ func ptermPrintln(w io.Writer, a ...any) {
 		return
 	}
 	pterm.Fprintln(w, a...)
-}
-
-func dependencyVisibilityLines(policy model.GatewayPolicy) (line, note string) {
-	if policy.DependencyVisibility == "" {
-		return "", ""
-	}
-	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA && policy.DependencyVisibility == "No dependency data" {
-		return "", ""
-	}
-	return "Dependency visibility: " + policy.DependencyVisibility, policy.DependencyNote
 }
 
 func toolContextLines(policy model.GatewayPolicy) []string {
@@ -760,10 +729,6 @@ func summarizeIssueReason(issue model.Issue) string {
 		return ""
 	}
 	return desc
-}
-
-func dependencyVisibilityForTool(tool model.UnifiedTool) (visibility, note string) {
-	return analyzer.DependencyVisibilityForTool(tool)
 }
 
 // formatToolLabel returns a coloured "Tool: <name>  [ACTION]" label.
