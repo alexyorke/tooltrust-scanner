@@ -819,6 +819,24 @@ func TestScanOneServer_RejectsQuotedWhitespaceCommand(t *testing.T) {
 	assert.Contains(t, result.Error, "empty server command")
 }
 
+func TestScanOneServer_RejectsInvalidEnvKey(t *testing.T) {
+	serverDir := createTempEmptyMCPServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result := scanOneServer(ctx, "env-server", mcpServerEntry{
+		Command: "go",
+		Args:    []string{"run", serverDir},
+		Env: map[string]string{
+			"BAD=KEY": "value",
+		},
+	})
+
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "invalid environment variable name")
+}
+
 func TestScanOneServer_TrimmedCommandStillRuns(t *testing.T) {
 	serverDir := createTempEmptyMCPServer(t)
 

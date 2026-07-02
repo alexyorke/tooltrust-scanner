@@ -589,6 +589,13 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 	// Build extra env from config entry.
 	var extraEnv []string
 	for k, v := range entry.Env {
+		if !isValidEnvName(k) {
+			return serverScanResult{
+				Server: name,
+				Status: "error",
+				Error:  fmt.Sprintf("invalid environment variable name %q", k),
+			}
+		}
 		extraEnv = append(extraEnv, k+"="+v)
 	}
 
@@ -639,6 +646,21 @@ func isEmptyCommandToken(command string) bool {
 		return true
 	}
 	return strings.TrimSpace(strings.Trim(trimmed, `"'`)) == ""
+}
+
+func isValidEnvName(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		ch := name[i]
+		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_' || (i > 0 && ch >= '0' && ch <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // isSelfEntry returns true if the config entry refers to tooltrust-mcp itself.
