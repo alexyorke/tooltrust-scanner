@@ -131,7 +131,7 @@ func LoadCustomRules(dir string) ([]checker, error) {
 
 		for _, rule := range rules {
 			if rule.ID == "" || rule.Pattern == "" {
-				continue // skip invalid
+				return fmt.Errorf("missing id or pattern in %s", path)
 			}
 			re, reErr := regexp.Compile(rule.Pattern)
 			if reErr != nil {
