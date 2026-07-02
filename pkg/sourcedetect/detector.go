@@ -15,6 +15,13 @@ func DetectEmbeddedMCP(root string, opts Options) (*DetectionResult, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, fmt.Errorf("repo root is required")
 	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, fmt.Errorf("stat repo root: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("repo root must be a directory")
+	}
 	defaults := defaultOptions()
 	if opts.MaxFiles == 0 {
 		opts.MaxFiles = defaults.MaxFiles

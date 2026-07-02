@@ -59,6 +59,15 @@ func TestDetectEmbeddedMCP_SkipAndIgnoreRules(t *testing.T) {
 	}
 }
 
+func TestDetectEmbeddedMCP_RejectsFilePathAsRepoRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "server.go")
+	require.NoError(t, os.WriteFile(root, []byte("package main\n"), 0o644))
+
+	_, err := DetectEmbeddedMCP(root, Options{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "directory")
+}
+
 func TestDetectEmbeddedMCP_IgnorePatternCoversNestedPaths(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "internal", "pkg"), 0o755))
