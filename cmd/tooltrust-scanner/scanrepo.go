@@ -39,6 +39,7 @@ func runScanRepo(ctx context.Context, opts scanRepoOpts) error {
 	if opts.repoDir == "" {
 		return fmt.Errorf("--repo is required")
 	}
+	opts.output = normalizeOutput(opts.output)
 	if opts.output != "text" && opts.output != "json" {
 		return fmt.Errorf("invalid --output value %q (use: text | json)", opts.output)
 	}

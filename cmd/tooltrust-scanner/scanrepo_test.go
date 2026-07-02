@@ -31,3 +31,19 @@ func TestRunScanRepo_JSONOutput(t *testing.T) {
 	require.NotEmpty(t, got.Findings)
 	assert.Equal(t, "AS-018", got.Findings[0].RuleID)
 }
+
+func TestRunScanRepo_NormalizesOutputFormat(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "embed.json")
+	repo := filepath.Join("..", "..", "pkg", "sourcedetect", "testdata", "fixtures", "go-embedded")
+
+	err := runScanRepo(t.Context(), scanRepoOpts{
+		repoDir:    repo,
+		output:     "  JSON  ",
+		outputFile: tmp,
+	})
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(tmp)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"has_embedded_mcp": true`)
+}

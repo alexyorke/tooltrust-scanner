@@ -155,6 +155,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 	} else {
 		opts.protocol = strings.ToLower(trimmed)
 	}
+	opts.output = normalizeOutput(opts.output)
 	opts.failOn = normalizeFailOn(opts.failOn)
 
 	// Validate --output flag early.
@@ -960,6 +961,10 @@ func checkFailOn(failOn string, summary ScanSummary) error {
 
 func normalizeFailOn(failOn string) string {
 	return strings.ToLower(strings.TrimSpace(failOn))
+}
+
+func normalizeOutput(output string) string {
+	return strings.ToLower(strings.TrimSpace(output))
 }
 
 func validateFailOn(failOn string) error {
