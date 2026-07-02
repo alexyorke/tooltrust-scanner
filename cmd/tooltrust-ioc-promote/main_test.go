@@ -55,6 +55,26 @@ func TestRun_PromotesNPMIOC(t *testing.T) {
 	assert.Contains(t, string(data), "plain-crypto-js")
 }
 
+func TestReadNPMIOCs_RejectsTopLevelNull(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "npm_iocs.json")
+	require.NoError(t, os.WriteFile(path, []byte("null"), 0o644))
+
+	_, err := readNPMIOCs(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse npm_iocs.json: top-level JSON value must be an array")
+}
+
+func TestReadBlacklist_RejectsTopLevelNull(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "blacklist.json")
+	require.NoError(t, os.WriteFile(path, []byte("null"), 0o644))
+
+	_, err := readBlacklist(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse blacklist.json: top-level JSON value must be an array")
+}
+
 func TestRun_PromotesDomainIOC(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pkg", "analyzer", "data"), 0o755))

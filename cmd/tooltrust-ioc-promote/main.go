@@ -267,6 +267,9 @@ func readNPMIOCs(path string) ([]npmIOCEntry, error) {
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("parse npm_iocs.json: %w", err)
 	}
+	if entries == nil {
+		return nil, errors.New("parse npm_iocs.json: top-level JSON value must be an array")
+	}
 	return entries, nil
 }
 
@@ -278,6 +281,9 @@ func readBlacklist(path string) ([]blacklistEntry, error) {
 	var entries []blacklistEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("parse blacklist.json: %w", err)
+	}
+	if entries == nil {
+		return nil, errors.New("parse blacklist.json: top-level JSON value must be an array")
 	}
 	return entries, nil
 }
