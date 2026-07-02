@@ -150,6 +150,8 @@ type scanOpts struct {
 }
 
 func runScan(ctx context.Context, opts scanOpts) error {
+	opts.inputFile = strings.TrimSpace(opts.inputFile)
+	opts.serverCmd = strings.TrimSpace(opts.serverCmd)
 	if trimmed := strings.TrimSpace(opts.protocol); trimmed == "" {
 		opts.protocol = "mcp"
 	} else {

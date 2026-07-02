@@ -99,6 +99,44 @@ func TestRunScan_InvalidFailOnDoesNotWriteReport(t *testing.T) {
 	assert.NoFileExists(t, output)
 }
 
+func TestRunScan_RejectsWhitespaceOnlyServerFlag(t *testing.T) {
+	prev := scanLiveServerFn
+	scanLiveServerFn = func(context.Context, string) ([]model.UnifiedTool, error) {
+		t.Fatal("scanLiveServerFn should not be called when --server is whitespace only")
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		scanLiveServerFn = prev
+	})
+
+	err := runScan(context.Background(), scanOpts{
+		serverCmd: "   ",
+		output:    "json",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exactly one of --input or --server must be provided")
+}
+
+func TestRunScan_RejectsWhitespaceOnlyInputFlag(t *testing.T) {
+	prev := scanLiveServerFn
+	scanLiveServerFn = func(context.Context, string) ([]model.UnifiedTool, error) {
+		t.Fatal("scanLiveServerFn should not be called when --input is whitespace only")
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		scanLiveServerFn = prev
+	})
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile: "   ",
+		output:    "json",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exactly one of --input or --server must be provided")
+}
+
 func TestRunScan_JSONOutputDoesNotSuppressLaterTextOutput(t *testing.T) {
 	tmp := t.TempDir()
 	input := filepath.Join(tmp, "tools.json")
