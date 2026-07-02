@@ -592,13 +592,6 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 	}
 	entry.Command = strings.TrimSpace(entry.Command)
 	for _, arg := range entry.Args {
-		if strings.TrimSpace(arg) != arg {
-			return serverScanResult{
-				Server: name,
-				Status: "error",
-				Error:  fmt.Sprintf("invalid command argument %q", arg),
-			}
-		}
 		if isEmptyCommandToken(arg) {
 			return serverScanResult{
 				Server: name,

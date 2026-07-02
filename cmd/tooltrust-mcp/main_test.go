@@ -880,14 +880,15 @@ func TestScanOneServer_RejectsQuotedBlankArg(t *testing.T) {
 	assert.Contains(t, result.Error, "invalid command argument")
 }
 
-func TestScanOneServer_RejectsWhitespaceWrappedArg(t *testing.T) {
+func TestScanOneServer_AllowsWhitespaceWrappedLiteralArg(t *testing.T) {
 	result := scanOneServer(context.Background(), "arg-server", mcpServerEntry{
-		Command: "go",
+		Command: "/nonexistent/binary",
 		Args:    []string{" run "},
 	})
 
 	assert.Equal(t, "error", result.Status)
-	assert.Contains(t, result.Error, "invalid command argument")
+	assert.NotContains(t, result.Error, "invalid command argument")
+	assert.Contains(t, result.Error, "failed to start transport")
 }
 
 func TestScanOneServer_AllowsDashInEnvKey(t *testing.T) {
