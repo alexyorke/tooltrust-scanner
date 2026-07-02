@@ -41,6 +41,9 @@ func buildNPMIOCIndex(data []byte) (npmIOCIndex, error) {
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return npmIOCIndex{}, fmt.Errorf("npm_ioc: unmarshal: %w", err)
 	}
+	if entries == nil {
+		return npmIOCIndex{}, fmt.Errorf("npm_ioc: top-level JSON value must be an array")
+	}
 	idx := npmIOCIndex{
 		packageNames: make(map[string]npmIOCEntry, len(entries)),
 		indicators:   make([]npmIOCEntry, 0, len(entries)),

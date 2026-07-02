@@ -38,6 +38,9 @@ func buildBlacklistIndex(data []byte) (blacklistIndex, error) {
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("blacklist: unmarshal: %w", err)
 	}
+	if entries == nil {
+		return nil, fmt.Errorf("blacklist: top-level JSON value must be an array")
+	}
 	idx := make(blacklistIndex, len(entries))
 	for i := range entries {
 		e := &entries[i]

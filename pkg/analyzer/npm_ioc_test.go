@@ -276,3 +276,9 @@ func TestBuildNPMIOCIndex_EmbeddedData_LoadsKnownIOC(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "high", entry.Confidence)
 }
+
+func TestBuildNPMIOCIndex_RejectsTopLevelNull(t *testing.T) {
+	_, err := analyzer.BuildNPMIOCIndexForTest([]byte("null"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "npm_ioc: top-level JSON value must be an array")
+}
