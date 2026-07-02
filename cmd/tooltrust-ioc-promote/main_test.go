@@ -316,3 +316,34 @@ func TestRun_RejectsUnknownPromoteTarget(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown promote_to")
 }
+
+func TestRun_RejectsTopLevelNullCandidateFile(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pkg", "analyzer", "data"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "npm_iocs.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "blacklist.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "candidate.json"),
+		[]byte("null"),
+		0o644,
+	))
+
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() {
+		_ = os.Chdir(orig)
+	})
+
+	err = run([]string{"candidate.json"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse candidate file: top-level JSON value must be an array")
+}

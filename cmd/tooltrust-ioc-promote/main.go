@@ -75,6 +75,9 @@ func run(args []string) error {
 	if unmarshalErr := json.Unmarshal(data, &candidates); unmarshalErr != nil {
 		return fmt.Errorf("parse candidate file: %w", unmarshalErr)
 	}
+	if candidates == nil {
+		return errors.New("parse candidate file: top-level JSON value must be an array")
+	}
 	if len(candidates) == 0 {
 		return errors.New("candidate file is empty")
 	}
