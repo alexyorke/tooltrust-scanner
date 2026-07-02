@@ -299,6 +299,24 @@ func TestInstallViaConfig_PreservesUserClaudeConfigFields(t *testing.T) {
 	}
 }
 
+func TestInstallViaConfig_ReadErrorOnExistingProjectConfigSurfaces(t *testing.T) {
+	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	require.NoError(t, os.Mkdir(".mcp.json", 0o755))
+
+	err = installViaConfig("server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read existing config .mcp.json")
+}
+
 func TestInstallViaCLI_PassesProjectScopeExplicitly(t *testing.T) {
 	dir := t.TempDir()
 	fakeClaude := buildFakeClaude(t, dir)

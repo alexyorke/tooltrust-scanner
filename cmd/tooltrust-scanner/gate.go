@@ -352,6 +352,8 @@ func installViaConfig(serverName string, opts gateOpts) error {
 		if cfg.MCPServers == nil {
 			cfg.MCPServers = make(map[string]mcpServerEntry)
 		}
+	} else if !os.IsNotExist(readErr) {
+		return fmt.Errorf("failed to read existing config %s: %w", configPath, readErr)
 	}
 
 	// Build the server entry.
