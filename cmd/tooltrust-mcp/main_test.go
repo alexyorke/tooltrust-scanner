@@ -773,6 +773,22 @@ func TestScanOneServer_MissingCommandReturnsError(t *testing.T) {
 	assert.Contains(t, result.Error, "empty server command")
 }
 
+func TestScanOneServer_TrimmedCommandStillRuns(t *testing.T) {
+	serverDir := createTempEmptyMCPServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result := scanOneServer(ctx, "empty-server", mcpServerEntry{
+		Command: "  go  ",
+		Args:    []string{"run", serverDir},
+	})
+
+	require.Equal(t, "ok", result.Status)
+	require.NotNil(t, result.Result)
+	assert.Equal(t, 0, result.Result.Summary.Total)
+}
+
 func isolateUserHome(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("HOME", dir)

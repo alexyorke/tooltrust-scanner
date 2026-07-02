@@ -573,6 +573,7 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 			Error:  "empty server command",
 		}
 	}
+	entry.Command = strings.TrimSpace(entry.Command)
 
 	args := append([]string{entry.Command}, entry.Args...)
 
