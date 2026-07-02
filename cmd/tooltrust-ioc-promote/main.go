@@ -304,5 +304,10 @@ func validateCandidate(candidate candidateIOC) error {
 	if _, err := time.Parse("2006-01-02", candidate.FirstSeen); err != nil {
 		return fmt.Errorf("invalid first_seen: %w", err)
 	}
+	switch strings.TrimSpace(candidate.PromoteTo) {
+	case "npm_iocs", "blacklist":
+	default:
+		return errors.New("unknown promote_to")
+	}
 	return nil
 }

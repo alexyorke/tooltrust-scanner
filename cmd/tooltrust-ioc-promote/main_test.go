@@ -255,3 +255,44 @@ func TestRun_SkipsExistingBlacklistEntryWithReorderedAffectedVersions(t *testing
 	require.Len(t, entries, 1)
 	assert.Equal(t, "axios", entries[0].Component)
 }
+
+func TestRun_RejectsUnknownPromoteTarget(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pkg", "analyzer", "data"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "npm_iocs.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "blacklist.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "candidate.json"),
+		[]byte(`[{
+  "ecosystem": "npm",
+  "ioc_type": "package_name",
+  "value": "plain-crypto-js",
+  "confidence": "high",
+  "reason": "Known IOC linked to an npm compromise",
+  "source": "https://example.com/post",
+  "first_seen": "2026-03-31",
+  "suggested_action": "flag",
+  "promote_to": "unknown_target"
+}]`),
+		0o644,
+	))
+
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() {
+		_ = os.Chdir(orig)
+	})
+
+	err = run([]string{"candidate.json"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown promote_to")
+}
