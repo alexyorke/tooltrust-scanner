@@ -188,7 +188,7 @@ func TestRenderTextReport_OmitsDependencyVisibilityContext(t *testing.T) {
 	assert.NotContains(t, text, "dependency artifacts scanned")
 }
 
-func TestRenderTextReport_CapabilitySurfaceUsesCurrentAS002Wording(t *testing.T) {
+func TestRenderTextReport_CapabilitySurfaceUsesCurrentAS002WordingAndKeepsNetworkFSGuidance(t *testing.T) {
 	result := &ScanResult{
 		Summary: ScanSummary{
 			Total:           1,
@@ -221,7 +221,9 @@ func TestRenderTextReport_CapabilitySurfaceUsesCurrentAS002Wording(t *testing.T)
 
 	text := renderTextReport(result)
 	assert.Contains(t, text, "declared capabilities: network access, filesystem access")
-	assert.NotContains(t, text, "Safer configuration:")
+	assert.Contains(t, text, "Safer configuration:")
+	assert.Contains(t, text, "confirm the tool truly needs network access")
+	assert.Contains(t, text, "limit filesystem access to the intended directories only")
 }
 
 func TestRenderTextReport_DoesNotAddCapabilitySpecificExecOrHTTPAdvice(t *testing.T) {

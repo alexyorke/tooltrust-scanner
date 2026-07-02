@@ -832,12 +832,10 @@ func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig
 
 	for _, issue := range policy.Score.Issues {
 		switch {
-		case issue.RuleID == "AS-002" && strings.Contains(issue.Description, "network permission"):
-			hasNetwork = true
-		case issue.RuleID == "AS-002" && strings.Contains(issue.Description, "fs permission"):
-			hasFS = true
-		case issue.RuleID == "AS-002" && strings.Contains(issue.Description, "db permission"):
-			hasDB = true
+		case issue.RuleID == "AS-002" && issue.Code == "CAPABILITY_SURFACE":
+			hasNetwork = hasNetwork || issueHasCapability(issue, model.PermissionNetwork) || strings.Contains(issue.Description, "network permission")
+			hasFS = hasFS || issueHasCapability(issue, model.PermissionFS) || strings.Contains(issue.Description, "fs permission")
+			hasDB = hasDB || issueHasCapability(issue, model.PermissionDB) || strings.Contains(issue.Description, "db permission")
 		case issue.RuleID == "AS-011":
 			hasRateLimitGap = true
 		}
@@ -872,6 +870,15 @@ func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig
 	}
 
 	return actionNow, saferConfig
+}
+
+func issueHasCapability(issue model.Issue, capability model.Permission) bool {
+	for _, evidence := range issue.Evidence {
+		if evidence.Kind == "capability" && evidence.Value == string(capability) {
+			return true
+		}
+	}
+	return false
 }
 
 // processToolsRaw runs the scanner and returns raw results (used by both
