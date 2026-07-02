@@ -118,7 +118,11 @@ func loadIgnorePatterns(root string) ([]string, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		patterns = append(patterns, filepath.ToSlash(line))
+		pattern := filepath.ToSlash(line)
+		if _, err := filepath.Match(pattern, ""); err != nil {
+			return nil, fmt.Errorf("invalid pattern %q in %s: %w", line, path, err)
+		}
+		patterns = append(patterns, pattern)
 	}
 	return patterns, nil
 }
