@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -457,6 +460,33 @@ func TestHandleLookup_WhitespaceOnlyName(t *testing.T) {
 	assert.Contains(t, text, "server_name argument is required")
 }
 
+func TestHandleLookup_RejectsNonKebabServerNameBeforeHTTP(t *testing.T) {
+	origTransport := http.DefaultClient.Transport
+	t.Cleanup(func() {
+		http.DefaultClient.Transport = origTransport
+	})
+
+	called := false
+	http.DefaultClient.Transport = roundTripperFunc(func(_ *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
+			Header:     make(http.Header),
+		}, nil
+	})
+
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"server_name": "../README"}
+
+	result, err := handleLookup(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.False(t, called, "invalid server name should be rejected before any HTTP request")
+	text := result.Content[0].(mcplib.TextContent).Text
+	assert.Contains(t, text, "server_name must be a kebab-case identifier")
+}
+
 // ── tooltrust_list_rules tests ──────────────────────────────────────────────
 
 func TestHandleListRules_ReturnsAllRules(t *testing.T) {
@@ -766,4 +796,10 @@ func TestProcessToolsRaw_SingleCleanTool(t *testing.T) {
 	result, err := processToolsRaw(context.Background(), tools)
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Summary.Total)
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }

@@ -310,6 +310,9 @@ func handleLookup(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Call
 	if !ok || serverName == "" {
 		return mcplib.NewToolResultError("server_name argument is required"), nil
 	}
+	if !isKebabCaseServerName(serverName) {
+		return mcplib.NewToolResultError("server_name must be a kebab-case identifier"), nil
+	}
 
 	url := fmt.Sprintf("https://raw.githubusercontent.com/AgentSafe-AI/tooltrust-directory/main/data/reports/%s.json", serverName)
 	reqHTTP, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
@@ -343,6 +346,26 @@ func handleLookup(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Call
 	}
 
 	return mcplib.NewToolResultText(string(bodyBytes)), nil
+}
+
+func isKebabCaseServerName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		ch := name[i]
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			continue
+		case ch >= '0' && ch <= '9':
+			continue
+		case ch == '-' && i > 0 && i < len(name)-1:
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // ── tooltrust_list_rules (Rule Catalog) ──────────────────────────────────────
