@@ -638,7 +638,7 @@ func isEmptyCommandToken(command string) bool {
 	if trimmed == "" {
 		return true
 	}
-	return strings.Trim(trimmed, `"'`) == ""
+	return strings.TrimSpace(strings.Trim(trimmed, `"'`)) == ""
 }
 
 // isSelfEntry returns true if the config entry refers to tooltrust-mcp itself.
