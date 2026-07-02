@@ -561,14 +561,14 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 	trimmedName := strings.TrimSpace(name)
 	if trimmedName == "" {
 		return serverScanResult{
-			Server: trimmedName,
+			Server: name,
 			Status: "error",
 			Error:  "empty server name",
 		}
 	}
 	if trimmedName != name {
 		return serverScanResult{
-			Server: trimmedName,
+			Server: name,
 			Status: "error",
 			Error:  fmt.Sprintf("invalid server name %q", name),
 		}

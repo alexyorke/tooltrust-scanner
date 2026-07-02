@@ -821,6 +821,7 @@ func TestScanOneServer_RejectsWhitespaceWrappedServerName(t *testing.T) {
 	})
 
 	assert.Equal(t, "error", result.Status)
+	assert.Equal(t, " foo ", result.Server)
 	assert.Contains(t, result.Error, "invalid server name")
 }
 
