@@ -599,6 +599,13 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 				Error:  fmt.Sprintf("invalid command argument %q", arg),
 			}
 		}
+		if strings.ContainsRune(arg, '\x00') {
+			return serverScanResult{
+				Server: name,
+				Status: "error",
+				Error:  fmt.Sprintf("invalid command argument %q", arg),
+			}
+		}
 	}
 
 	args := append([]string{entry.Command}, entry.Args...)

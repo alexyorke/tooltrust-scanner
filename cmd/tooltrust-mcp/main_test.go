@@ -927,6 +927,16 @@ func TestScanOneServer_RejectsEnvValueWithNUL(t *testing.T) {
 	assert.Contains(t, result.Error, "invalid environment variable value")
 }
 
+func TestScanOneServer_RejectsArgWithNUL(t *testing.T) {
+	result := scanOneServer(context.Background(), "arg-server", mcpServerEntry{
+		Command: "go",
+		Args:    []string{"bad\x00arg"},
+	})
+
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "invalid command argument")
+}
+
 func TestScanOneServer_TrimmedCommandStillRuns(t *testing.T) {
 	serverDir := createTempEmptyMCPServer(t)
 
