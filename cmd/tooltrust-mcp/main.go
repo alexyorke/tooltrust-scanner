@@ -133,7 +133,7 @@ func handleScanJSON(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Ca
 	protocol := "mcp"
 	if p, ok := req.GetArguments()["protocol"].(string); ok {
 		if trimmed := strings.TrimSpace(p); trimmed != "" {
-			protocol = trimmed
+			protocol = strings.ToLower(trimmed)
 		}
 	}
 
