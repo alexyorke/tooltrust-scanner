@@ -241,7 +241,7 @@ func buildServerCommand(packageName string, extraArgs []string) string {
 
 // parseGrade converts a grade string to a model.Grade.
 func parseGrade(s string) (model.Grade, error) {
-	switch strings.ToUpper(s) {
+	switch strings.ToUpper(strings.TrimSpace(s)) {
 	case "A":
 		return model.GradeA, nil
 	case "B":

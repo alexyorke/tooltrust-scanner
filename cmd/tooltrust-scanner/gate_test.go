@@ -135,6 +135,27 @@ func TestRunGate_DryRunStillValidatesBlockOn(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid --block-on")
 }
 
+func TestRunGate_DryRunNormalizesBlockOn(t *testing.T) {
+	prev := scanLiveServerFn
+	scanLiveServerFn = func(context.Context, string) ([]model.UnifiedTool, error) {
+		return []model.UnifiedTool{{
+			Name:        "read_file",
+			Description: "Reads project files",
+		}}, nil
+	}
+	t.Cleanup(func() {
+		scanLiveServerFn = prev
+	})
+
+	err := runGate(context.Background(), gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		dryRun:      true,
+		blockOn:     "  d  ",
+	})
+
+	require.NoError(t, err)
+}
+
 func TestRunGate_DryRunStillValidatesScope(t *testing.T) {
 	prev := scanLiveServerFn
 	scanLiveServerFn = func(context.Context, string) ([]model.UnifiedTool, error) {

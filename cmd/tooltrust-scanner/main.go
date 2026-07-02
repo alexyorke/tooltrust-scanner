@@ -155,6 +155,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 	} else {
 		opts.protocol = strings.ToLower(trimmed)
 	}
+	opts.failOn = normalizeFailOn(opts.failOn)
 
 	// Validate --output flag early.
 	switch opts.output {
@@ -934,6 +935,7 @@ func printScanPtree(w *os.File, tool model.UnifiedTool, score model.RiskScore, p
 }
 
 func checkFailOn(failOn string, summary ScanSummary) error {
+	failOn = normalizeFailOn(failOn)
 	if err := validateFailOn(failOn); err != nil {
 		return err
 	}
@@ -956,7 +958,12 @@ func checkFailOn(failOn string, summary ScanSummary) error {
 	return nil
 }
 
+func normalizeFailOn(failOn string) string {
+	return strings.ToLower(strings.TrimSpace(failOn))
+}
+
 func validateFailOn(failOn string) error {
+	failOn = normalizeFailOn(failOn)
 	switch failOn {
 	case "", "allow", "approval", "block":
 		return nil
