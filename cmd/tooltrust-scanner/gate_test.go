@@ -135,6 +135,27 @@ func TestRunGate_DryRunStillValidatesBlockOn(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid --block-on")
 }
 
+func TestRunGate_DryRunStillValidatesScope(t *testing.T) {
+	prev := scanLiveServerFn
+	scanLiveServerFn = func(context.Context, string) ([]model.UnifiedTool, error) {
+		t.Fatal("scanLiveServerFn should not be called when --scope is invalid")
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		scanLiveServerFn = prev
+	})
+
+	err := runGate(context.Background(), gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		dryRun:      true,
+		blockOn:     "F",
+		scope:       "bogus",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid --scope")
+}
+
 func TestRunGate_RejectsWhitespaceOnlyExplicitServerName(t *testing.T) {
 	prev := scanLiveServerFn
 	scanLiveServerFn = func(context.Context, string) ([]model.UnifiedTool, error) {

@@ -98,6 +98,17 @@ func runGate(ctx context.Context, opts gateOpts) error {
 	if err != nil {
 		return err
 	}
+	scope := strings.TrimSpace(opts.scope)
+	if opts.scope != "" && scope == "" {
+		return fmt.Errorf("invalid --scope %q (use: project or user)", opts.scope)
+	}
+	if scope == "" {
+		scope = "project"
+	}
+	if scope != "project" && scope != "user" {
+		return fmt.Errorf("invalid --scope %q (use: project or user)", opts.scope)
+	}
+	opts.scope = scope
 	opts.packageName = strings.TrimSpace(opts.packageName)
 	if opts.packageName == "" {
 		return fmt.Errorf("invalid package name: must not be empty or whitespace")
