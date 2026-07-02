@@ -100,6 +100,21 @@ func TestHandleScanJSON_UnsupportedProtocol(t *testing.T) {
 	assert.Contains(t, text, "unsupported protocol")
 }
 
+func TestHandleScanJSON_WhitespaceAroundSupportedProtocol(t *testing.T) {
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"tools_json": `{"tools":[]}`,
+		"protocol":   "  mcp  ",
+	}
+
+	result, err := handleScanJSON(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	text := result.Content[0].(mcplib.TextContent).Text
+	assert.Contains(t, text, "Scan Summary:")
+	assert.Contains(t, text, "0 tools")
+}
+
 func TestHandleScanJSON_EmptyToolsList(t *testing.T) {
 	req := mcplib.CallToolRequest{}
 	req.Params.Arguments = map[string]any{"tools_json": `{"tools":[]}`}
