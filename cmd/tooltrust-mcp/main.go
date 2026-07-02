@@ -224,6 +224,9 @@ func splitServerCommand(serverCmd string) (command string, env, args []string, e
 	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
 		return "", nil, nil, fmt.Errorf("empty server command")
 	}
+	if strings.ContainsRune(parts[0], '\x00') {
+		return "", nil, nil, fmt.Errorf("invalid server command %q", parts[0])
+	}
 	return parts[0], env, parts[1:], nil
 }
 

@@ -482,6 +482,17 @@ func TestHandleScanServer_RejectsQuotedEmptyCommand(t *testing.T) {
 	assert.Contains(t, text, "empty server command")
 }
 
+func TestHandleScanServer_RejectsCommandWithNUL(t *testing.T) {
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"command": "go\x00bad"}
+
+	result, err := handleScanServer(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	text := result.Content[0].(mcplib.TextContent).Text
+	assert.Contains(t, text, "invalid server command")
+}
+
 func TestHandleScanServer_InvalidCommand(t *testing.T) {
 	req := mcplib.CallToolRequest{}
 	req.Params.Arguments = map[string]any{"command": "/nonexistent/command/that/does/not/exist"}
