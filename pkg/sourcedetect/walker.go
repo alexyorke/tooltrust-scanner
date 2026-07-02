@@ -19,10 +19,13 @@ var skipExtensions = map[string]struct{}{
 }
 
 func walkSourceFiles(root string, opts Options, visit func(rel, abs string, d fs.DirEntry) error) (int, error) {
-	ignorePatterns := loadIgnorePatterns(root)
+	ignorePatterns, err := loadIgnorePatterns(root)
+	if err != nil {
+		return 0, fmt.Errorf("load ignore patterns: %w", err)
+	}
 	filesScanned := 0
 
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("walk %s: %w", path, err)
 		}
@@ -99,11 +102,14 @@ func shouldSkipFile(rel string) bool {
 	return false
 }
 
-func loadIgnorePatterns(root string) []string {
+func loadIgnorePatterns(root string) ([]string, error) {
 	path := filepath.Join(root, ".tooltrust-ignore")
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
 	var patterns []string
@@ -114,7 +120,7 @@ func loadIgnorePatterns(root string) []string {
 		}
 		patterns = append(patterns, filepath.ToSlash(line))
 	}
-	return patterns
+	return patterns, nil
 }
 
 func shouldIgnore(rel string, patterns []string) bool {

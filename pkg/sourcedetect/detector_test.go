@@ -86,6 +86,27 @@ func Run() {
 	assert.Empty(t, got.Findings)
 }
 
+func TestDetectEmbeddedMCP_IgnoreFileReadErrorSurfaces(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".tooltrust-ignore"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "server.go"),
+		[]byte(`package main
+
+import "github.com/modelcontextprotocol/go-sdk/mcp"
+
+func main() {
+	_ = mcp.NewServer(nil, nil)
+}
+`),
+		0o644,
+	))
+
+	_, err := DetectEmbeddedMCP(dir, Options{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), ".tooltrust-ignore")
+}
+
 func TestDetectEmbeddedMCP_AS019RouteAuthAsymmetry(t *testing.T) {
 	got, err := DetectEmbeddedMCP(filepath.Join("testdata", "fixtures", "go-gin-auth-asymmetry"), Options{})
 	require.NoError(t, err)
