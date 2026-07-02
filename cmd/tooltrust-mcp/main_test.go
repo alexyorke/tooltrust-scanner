@@ -886,6 +886,24 @@ func TestScanOneServer_RejectsInvalidEnvKey(t *testing.T) {
 	assert.Contains(t, result.Error, "invalid environment variable name")
 }
 
+func TestScanOneServer_RejectsEnvKeyWithNUL(t *testing.T) {
+	serverDir := createTempEmptyMCPServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result := scanOneServer(ctx, "env-server", mcpServerEntry{
+		Command: "go",
+		Args:    []string{"run", serverDir},
+		Env: map[string]string{
+			"BAD\x00KEY": "value",
+		},
+	})
+
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "invalid environment variable name")
+}
+
 func TestScanOneServer_RejectsWhitespaceWrappedEnvKey(t *testing.T) {
 	serverDir := createTempEmptyMCPServer(t)
 
