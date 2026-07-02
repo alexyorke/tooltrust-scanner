@@ -306,6 +306,7 @@ func buildLookupTool() mcplib.Tool {
 
 func handleLookup(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 	serverName, ok := req.GetArguments()["server_name"].(string)
+	serverName = strings.TrimSpace(serverName)
 	if !ok || serverName == "" {
 		return mcplib.NewToolResultError("server_name argument is required"), nil
 	}

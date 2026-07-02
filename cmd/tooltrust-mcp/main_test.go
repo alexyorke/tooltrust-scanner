@@ -446,6 +446,17 @@ func TestHandleLookup_EmptyName(t *testing.T) {
 	assert.True(t, result.IsError)
 }
 
+func TestHandleLookup_WhitespaceOnlyName(t *testing.T) {
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"server_name": "   "}
+
+	result, err := handleLookup(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	text := result.Content[0].(mcplib.TextContent).Text
+	assert.Contains(t, text, "server_name argument is required")
+}
+
 // ── tooltrust_list_rules tests ──────────────────────────────────────────────
 
 func TestHandleListRules_ReturnsAllRules(t *testing.T) {
