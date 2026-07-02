@@ -172,6 +172,7 @@ func buildScanServerTool() mcplib.Tool {
 
 func handleScanServer(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 	command, ok := req.GetArguments()["command"].(string)
+	command = strings.TrimSpace(command)
 	if !ok || command == "" {
 		return mcplib.NewToolResultError("command argument is required and must be a non-empty string"), nil
 	}

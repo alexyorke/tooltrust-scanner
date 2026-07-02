@@ -374,6 +374,17 @@ func TestHandleScanServer_EmptyCommand(t *testing.T) {
 	assert.True(t, result.IsError)
 }
 
+func TestHandleScanServer_WhitespaceOnlyCommand(t *testing.T) {
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"command": "   "}
+
+	result, err := handleScanServer(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	text := result.Content[0].(mcplib.TextContent).Text
+	assert.Contains(t, text, "command argument is required")
+}
+
 func TestHandleScanServer_MissingArgument(t *testing.T) {
 	req := mcplib.CallToolRequest{}
 	req.Params.Arguments = map[string]any{}
