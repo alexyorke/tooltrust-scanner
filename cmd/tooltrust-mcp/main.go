@@ -613,6 +613,13 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 				Error:  fmt.Sprintf("invalid environment variable name %q", k),
 			}
 		}
+		if strings.ContainsRune(v, '\x00') {
+			return serverScanResult{
+				Server: name,
+				Status: "error",
+				Error:  fmt.Sprintf("invalid environment variable value for %q", k),
+			}
+		}
 		extraEnv = append(extraEnv, k+"="+v)
 	}
 

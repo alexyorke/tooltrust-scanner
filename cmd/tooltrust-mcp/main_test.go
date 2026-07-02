@@ -909,6 +909,24 @@ func TestScanOneServer_AllowsDashInEnvKey(t *testing.T) {
 	assert.Equal(t, "ok", result.Status)
 }
 
+func TestScanOneServer_RejectsEnvValueWithNUL(t *testing.T) {
+	serverDir := createTempEmptyMCPServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result := scanOneServer(ctx, "env-server", mcpServerEntry{
+		Command: "go",
+		Args:    []string{"run", serverDir},
+		Env: map[string]string{
+			"FOO": "bad\x00value",
+		},
+	})
+
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "invalid environment variable value")
+}
+
 func TestScanOneServer_TrimmedCommandStillRuns(t *testing.T) {
 	serverDir := createTempEmptyMCPServer(t)
 
