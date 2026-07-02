@@ -130,6 +130,11 @@ func splitServerCommand(serverCmd string) (command string, env, args []string, e
 	if strings.ContainsRune(parts[0], '\x00') {
 		return "", nil, nil, fmt.Errorf("invalid server command %q", parts[0])
 	}
+	for _, arg := range parts[1:] {
+		if strings.ContainsRune(arg, '\x00') {
+			return "", nil, nil, fmt.Errorf("invalid command argument %q", arg)
+		}
+	}
 	return parts[0], env, parts[1:], nil
 }
 

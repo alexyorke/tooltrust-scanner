@@ -104,6 +104,12 @@ func TestSplitServerCommand_RejectsEnvAssignmentWithNUL(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid environment assignment")
 }
 
+func TestSplitServerCommand_RejectsArgumentWithNUL(t *testing.T) {
+	_, _, _, err := splitServerCommand("go bad\x00arg")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid command argument")
+}
+
 func TestMergeDependencies_PrefersStrongerSourceForDuplicateDependency(t *testing.T) {
 	tool := &model.UnifiedTool{
 		Metadata: map[string]any{
