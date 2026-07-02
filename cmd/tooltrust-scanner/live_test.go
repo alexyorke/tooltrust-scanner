@@ -189,3 +189,23 @@ func TestParseNodeLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
 	assert.Equal(t, "npm", deps[0].Ecosystem)
 	assert.Equal(t, "local_lockfile", deps[0].Source)
 }
+
+func TestParseNodeLockfile_RejectsTopLevelNull(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "package-lock.json")
+	require.NoError(t, os.WriteFile(path, []byte("null"), 0o644))
+
+	_, err := parseNodeLockfile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse node lockfile")
+	assert.Contains(t, err.Error(), "top-level JSON value must be an object")
+}
+
+func TestParsePNPMLockfile_RejectsTopLevelNull(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pnpm-lock.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("null"), 0o644))
+
+	_, err := parsePNPMLockfile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse pnpm lockfile")
+	assert.Contains(t, err.Error(), "top-level YAML value must be a mapping")
+}

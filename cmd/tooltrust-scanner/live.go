@@ -354,6 +354,9 @@ func parseNodeLockfile(path string) ([]nodeDependency, error) {
 	if err := json.Unmarshal(data, &lock); err != nil {
 		return nil, fmt.Errorf("parse node lockfile %s: %w", path, err)
 	}
+	if lock.Packages == nil && lock.Dependencies == nil && bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil, fmt.Errorf("parse node lockfile %s: top-level JSON value must be an object", path)
+	}
 
 	seen := map[string]bool{}
 	var deps []nodeDependency
@@ -555,6 +558,9 @@ func parsePNPMLockfile(path string) ([]nodeDependency, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read pnpm lockfile %s: %w", path, err)
+	}
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil, fmt.Errorf("parse pnpm lockfile %s: top-level YAML value must be a mapping", path)
 	}
 	lines := strings.Split(string(data), "\n")
 	seen := map[string]bool{}
