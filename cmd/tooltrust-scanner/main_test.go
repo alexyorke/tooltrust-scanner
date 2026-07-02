@@ -216,6 +216,25 @@ func TestRunScan_RejectsMCPConfigInput(t *testing.T) {
 	assert.NoFileExists(t, output)
 }
 
+func TestRunScan_NormalizesSupportedProtocol(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "tools.json")
+	output := filepath.Join(tmp, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte(`{"tools":[]}`), 0o644))
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "  MCP  ",
+		output:     "json",
+		outputFile: output,
+	})
+
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(output)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"schema_version": "1.0"`)
+}
+
 func TestRunScan_PersistenceErrorSurfaces(t *testing.T) {
 	tmp := t.TempDir()
 	input := filepath.Join(tmp, "tools.json")

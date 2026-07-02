@@ -150,6 +150,12 @@ type scanOpts struct {
 }
 
 func runScan(ctx context.Context, opts scanOpts) error {
+	if trimmed := strings.TrimSpace(opts.protocol); trimmed == "" {
+		opts.protocol = "mcp"
+	} else {
+		opts.protocol = strings.ToLower(trimmed)
+	}
+
 	// Validate --output flag early.
 	switch opts.output {
 	case "text", "json", "sarif":
