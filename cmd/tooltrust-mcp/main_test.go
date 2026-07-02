@@ -505,6 +505,22 @@ func TestLoadMCPConfig_InvalidJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to parse .mcp.json")
 }
 
+func TestLoadMCPConfig_LocalReadErrorDoesNotFallBackToHomeConfig(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".mcp.json"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".claude.json"), []byte(`{"mcpServers":{"home-server":{"command":"node"}}}`), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	isolateUserHome(t, dir)
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read .mcp.json")
+}
+
 func TestLoadMCPConfig_NoConfigFound(t *testing.T) {
 	dir := t.TempDir()
 

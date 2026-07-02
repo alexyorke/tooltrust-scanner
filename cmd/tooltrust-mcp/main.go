@@ -605,10 +605,12 @@ func loadMCPConfig() (string, mcpConfig, error) {
 	// 1. Check .mcp.json in current directory.
 	if data, err := os.ReadFile(".mcp.json"); err == nil {
 		var cfg mcpConfig
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			return ".mcp.json", mcpConfig{}, fmt.Errorf("failed to parse .mcp.json: %w", err)
+		if parseErr := json.Unmarshal(data, &cfg); parseErr != nil {
+			return ".mcp.json", mcpConfig{}, fmt.Errorf("failed to parse .mcp.json: %w", parseErr)
 		}
 		return ".mcp.json", cfg, nil
+	} else if !os.IsNotExist(err) {
+		return ".mcp.json", mcpConfig{}, fmt.Errorf("failed to read .mcp.json: %w", err)
 	}
 
 	// 2. Check ~/.claude.json.
@@ -617,10 +619,12 @@ func loadMCPConfig() (string, mcpConfig, error) {
 		claudePath := filepath.Join(home, ".claude.json")
 		if data, err := os.ReadFile(claudePath); err == nil { // #nosec G304 -- path is ~/.claude.json, not user-controlled
 			var cfg mcpConfig
-			if err := json.Unmarshal(data, &cfg); err != nil {
-				return claudePath, mcpConfig{}, fmt.Errorf("failed to parse %s: %w", claudePath, err)
+			if parseErr := json.Unmarshal(data, &cfg); parseErr != nil {
+				return claudePath, mcpConfig{}, fmt.Errorf("failed to parse %s: %w", claudePath, parseErr)
 			}
 			return claudePath, cfg, nil
+		} else if !os.IsNotExist(err) {
+			return claudePath, mcpConfig{}, fmt.Errorf("failed to read %s: %w", claudePath, err)
 		}
 	}
 
