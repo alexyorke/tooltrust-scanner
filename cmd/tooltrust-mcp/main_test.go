@@ -775,6 +775,20 @@ func TestLoadMCPConfig_RejectsTopLevelNull(t *testing.T) {
 	assert.Contains(t, err.Error(), "config must be a JSON object")
 }
 
+func TestLoadMCPConfig_RejectsNullServerEntry(t *testing.T) {
+	dir := t.TempDir()
+	configData := `{"mcpServers":{"broken":null}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(configData), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `mcpServers["broken"] must be an object`)
+}
+
 func TestHandleScanConfig_EmptyServers(t *testing.T) {
 	dir := t.TempDir()
 	configData := `{"mcpServers":{}}`

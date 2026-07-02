@@ -787,8 +787,20 @@ func parseMCPConfig(data []byte) (mcpConfig, error) {
 	if bytes.Equal(bytes.TrimSpace(rawServers), []byte("null")) {
 		return mcpConfig{}, fmt.Errorf("mcpServers must be an object")
 	}
-	if err := json.Unmarshal(rawServers, &cfg.MCPServers); err != nil {
+	var rawEntries map[string]json.RawMessage
+	if err := json.Unmarshal(rawServers, &rawEntries); err != nil {
 		return mcpConfig{}, fmt.Errorf("mcpServers must be an object: %w", err)
+	}
+	cfg.MCPServers = make(map[string]mcpServerEntry, len(rawEntries))
+	for name, rawEntry := range rawEntries {
+		if bytes.Equal(bytes.TrimSpace(rawEntry), []byte("null")) {
+			return mcpConfig{}, fmt.Errorf("mcpServers[%q] must be an object", name)
+		}
+		var entry mcpServerEntry
+		if err := json.Unmarshal(rawEntry, &entry); err != nil {
+			return mcpConfig{}, fmt.Errorf("mcpServers[%q] must be an object: %w", name, err)
+		}
+		cfg.MCPServers[name] = entry
 	}
 	return cfg, nil
 }
