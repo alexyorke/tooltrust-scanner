@@ -329,6 +329,34 @@ func TestInstallViaCLI_PassesProjectScopeExplicitly(t *testing.T) {
 	}
 }
 
+func TestInstallServer_FallsBackToConfigWhenClaudeCLIExecutionFails(t *testing.T) {
+	dir := t.TempDir()
+	fakeClaude := buildFailingClaude(t, dir)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	err := installServer(context.Background(), gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	}, "server-memory", "npx -y @modelcontextprotocol/server-memory")
+	require.NoError(t, err)
+
+	data, readErr := os.ReadFile(filepath.Join(dir, ".mcp.json"))
+	require.NoError(t, readErr)
+
+	var got mcpConfig
+	require.NoError(t, json.Unmarshal(data, &got))
+	entry, ok := got.MCPServers["server-memory"]
+	require.True(t, ok)
+	assert.Equal(t, "npx", entry.Command)
+	assert.Equal(t, []string{"-y", "@modelcontextprotocol/server-memory"}, entry.Args)
+
+	_ = fakeClaude
+}
+
 func buildFakeClaude(t *testing.T, dir string) string {
 	t.Helper()
 
@@ -365,6 +393,34 @@ func main() {
 	cmd := exec.CommandContext(ctx, "go", "build", "-o", binaryPath, sourcePath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build fake claude: %v\n%s", err, out)
+	}
+	return binaryPath
+}
+
+func buildFailingClaude(t *testing.T, dir string) string {
+	t.Helper()
+
+	sourcePath := filepath.Join(dir, "failing_claude.go")
+	source := `package main
+
+import "os"
+
+func main() {
+	os.Exit(1)
+}
+`
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	binaryPath := filepath.Join(dir, "claude")
+	if strings.EqualFold(filepath.Ext(os.Args[0]), ".exe") {
+		binaryPath += ".exe"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", binaryPath, sourcePath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build failing claude: %v\n%s", err, out)
 	}
 	return binaryPath
 }

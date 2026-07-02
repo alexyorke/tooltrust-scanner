@@ -298,7 +298,9 @@ func installServer(ctx context.Context, opts gateOpts, serverName, serverCmd str
 	// Try claude CLI first.
 	claudePath, err := exec.LookPath("claude")
 	if err == nil {
-		return installViaCLI(ctx, claudePath, serverName, opts)
+		if cliErr := installViaCLI(ctx, claudePath, serverName, opts); cliErr == nil {
+			return nil
+		}
 	}
 
 	// Fallback: write config file directly.
