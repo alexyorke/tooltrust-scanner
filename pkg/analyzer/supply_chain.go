@@ -228,6 +228,9 @@ func parsePackageLockJSON(data []byte) ([]Dependency, error) {
 	if err := json.Unmarshal(data, &lock); err != nil {
 		return nil, fmt.Errorf("parse package-lock.json: %w", err)
 	}
+	if lock.Packages == nil && lock.Dependencies == nil && bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil, fmt.Errorf("parse package-lock.json: top-level JSON value must be an object")
+	}
 	seen := make(map[string]bool)
 	var deps []Dependency
 
@@ -341,6 +344,9 @@ func parsePNPMLockYAML(data []byte) ([]Dependency, error) {
 	var lock pnpmLockfile
 	if err := yaml.Unmarshal(data, &lock); err != nil {
 		return nil, fmt.Errorf("parse pnpm-lock.yaml: %w", err)
+	}
+	if lock.Packages == nil && bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil, fmt.Errorf("parse pnpm-lock.yaml: top-level YAML value must be a mapping")
 	}
 
 	seen := make(map[string]bool)

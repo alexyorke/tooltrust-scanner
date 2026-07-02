@@ -323,6 +323,12 @@ func TestParsePackageLockJSON_V2(t *testing.T) {
 	assert.Equal(t, "6.5.2", names["qs"])
 }
 
+func TestParsePackageLockJSON_RejectsTopLevelNull(t *testing.T) {
+	_, err := analyzer.ParsePackageLockJSONForTest([]byte("null"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse package-lock.json: top-level JSON value must be an object")
+}
+
 func TestParsePackageLockJSON_NPMAliasUsesRealPackageName(t *testing.T) {
 	data := []byte(`{
   "packages": {
@@ -406,6 +412,12 @@ packages:
 	}
 	assert.Equal(t, "1.14.1", names["axios"])
 	assert.Equal(t, "2.3.4", names["@scope/sdk"])
+}
+
+func TestParsePNPMLockYAML_RejectsTopLevelNull(t *testing.T) {
+	_, err := analyzer.ParsePNPMLockYAMLForTest([]byte("null"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse pnpm-lock.yaml: top-level YAML value must be a mapping")
 }
 
 func TestParsePNPMLockYAML_NPMAliasUsesRealPackageName(t *testing.T) {
