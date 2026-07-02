@@ -100,7 +100,10 @@ func runGate(ctx context.Context, opts gateOpts) error {
 	}
 
 	// Derive server name.
-	serverName := opts.name
+	serverName := strings.TrimSpace(opts.name)
+	if opts.name != "" && serverName == "" {
+		return fmt.Errorf("invalid --name: must not be empty or whitespace")
+	}
 	if serverName == "" {
 		serverName = deriveServerName(opts.packageName)
 	}
