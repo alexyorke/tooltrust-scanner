@@ -566,7 +566,7 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 			Skipped: "tooltrust-mcp (self)",
 		}
 	}
-	if strings.TrimSpace(entry.Command) == "" {
+	if isEmptyCommandToken(entry.Command) {
 		return serverScanResult{
 			Server: name,
 			Status: "error",
@@ -622,6 +622,14 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 		Status: "ok",
 		Result: scanResult,
 	}
+}
+
+func isEmptyCommandToken(command string) bool {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return true
+	}
+	return strings.Trim(trimmed, `"'`) == ""
 }
 
 // isSelfEntry returns true if the config entry refers to tooltrust-mcp itself.
