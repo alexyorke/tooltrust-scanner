@@ -77,6 +77,17 @@ func TestHandleScanJSON_MissingArgument(t *testing.T) {
 	assert.True(t, result.IsError)
 }
 
+func TestHandleScanJSON_RejectsNonStringToolsJSON(t *testing.T) {
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"tools_json": 123}
+
+	result, err := handleScanJSON(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	text := result.Content[0].(mcplib.TextContent).Text
+	assert.Contains(t, text, "tools_json argument must be a string")
+}
+
 func TestHandleScanJSON_InvalidJSON(t *testing.T) {
 	req := mcplib.CallToolRequest{}
 	req.Params.Arguments = map[string]any{"tools_json": "not valid json"}
