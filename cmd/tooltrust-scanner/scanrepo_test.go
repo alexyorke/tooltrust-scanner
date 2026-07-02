@@ -32,6 +32,16 @@ func TestRunScanRepo_JSONOutput(t *testing.T) {
 	assert.Equal(t, "AS-018", got.Findings[0].RuleID)
 }
 
+func TestRunScanRepo_RejectsWhitespaceOnlyRepo(t *testing.T) {
+	err := runScanRepo(t.Context(), scanRepoOpts{
+		repoDir: "   ",
+		output:  "json",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--repo is required")
+}
+
 func TestRunScanRepo_NormalizesOutputFormat(t *testing.T) {
 	tmp := filepath.Join(t.TempDir(), "embed.json")
 	repo := filepath.Join("..", "..", "pkg", "sourcedetect", "testdata", "fixtures", "go-embedded")

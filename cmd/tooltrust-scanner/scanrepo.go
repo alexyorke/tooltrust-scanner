@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -36,6 +37,7 @@ func newScanRepoCmd() *cobra.Command {
 }
 
 func runScanRepo(ctx context.Context, opts scanRepoOpts) error {
+	opts.repoDir = strings.TrimSpace(opts.repoDir)
 	if opts.repoDir == "" {
 		return fmt.Errorf("--repo is required")
 	}
