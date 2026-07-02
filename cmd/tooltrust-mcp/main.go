@@ -125,6 +125,7 @@ func buildScanJSONTool() mcplib.Tool {
 
 func handleScanJSON(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 	toolsJSON, ok := req.GetArguments()["tools_json"].(string)
+	toolsJSON = strings.TrimSpace(toolsJSON)
 	if !ok || toolsJSON == "" {
 		return mcplib.NewToolResultError("tools_json argument is required and must be a non-empty string"), nil
 	}

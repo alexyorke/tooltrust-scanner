@@ -57,6 +57,17 @@ func TestHandleScanJSON_EmptyToolsJSON(t *testing.T) {
 	assert.True(t, result.IsError)
 }
 
+func TestHandleScanJSON_WhitespaceOnlyToolsJSON(t *testing.T) {
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"tools_json": "   "}
+
+	result, err := handleScanJSON(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	text := result.Content[0].(mcplib.TextContent).Text
+	assert.Contains(t, text, "tools_json argument is required")
+}
+
 func TestHandleScanJSON_MissingArgument(t *testing.T) {
 	req := mcplib.CallToolRequest{}
 	req.Params.Arguments = map[string]any{}
