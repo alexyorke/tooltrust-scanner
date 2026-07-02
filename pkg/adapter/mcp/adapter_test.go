@@ -286,6 +286,12 @@ func TestAdapter_Parse_InvalidJSON(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestAdapter_Parse_RejectsTopLevelNull(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte("null"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "top-level JSON value must be an object")
+}
+
 func TestAdapter_Parse_PreservesRawSource(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{

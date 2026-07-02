@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -32,9 +33,15 @@ func (a *Adapter) Protocol() model.ProtocolType { return model.ProtocolMCP }
 func (a *Adapter) Parse(_ context.Context, data []byte) ([]model.UnifiedTool, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(data, &envelope); err == nil {
+		if envelope == nil {
+			return nil, fmt.Errorf("mcp adapter: top-level JSON value must be an object")
+		}
 		if _, ok := envelope["mcpServers"]; ok {
 			return nil, fmt.Errorf("mcp adapter: expected MCP tools/list JSON, got MCP server config")
 		}
+	}
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil, fmt.Errorf("mcp adapter: top-level JSON value must be an object")
 	}
 
 	var resp ListToolsResponse
