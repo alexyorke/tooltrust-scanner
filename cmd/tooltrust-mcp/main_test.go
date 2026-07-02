@@ -493,6 +493,17 @@ func TestHandleScanServer_RejectsCommandWithNUL(t *testing.T) {
 	assert.Contains(t, text, "invalid server command")
 }
 
+func TestHandleScanServer_RejectsEnvAssignmentWithNUL(t *testing.T) {
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"command": "FOO=bad\x00value go"}
+
+	result, err := handleScanServer(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	text := result.Content[0].(mcplib.TextContent).Text
+	assert.Contains(t, text, "invalid environment assignment")
+}
+
 func TestHandleScanServer_InvalidCommand(t *testing.T) {
 	req := mcplib.CallToolRequest{}
 	req.Params.Arguments = map[string]any{"command": "/nonexistent/command/that/does/not/exist"}

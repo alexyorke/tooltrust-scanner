@@ -118,6 +118,9 @@ func splitServerCommand(serverCmd string) (command string, env, args []string, e
 		return "", nil, nil, fmt.Errorf("failed to parse server command: %w", err)
 	}
 	for len(parts) > 0 && isEnvAssignment(parts[0]) {
+		if strings.ContainsRune(parts[0], '\x00') {
+			return "", nil, nil, fmt.Errorf("invalid environment assignment %q", parts[0])
+		}
 		env = append(env, parts[0])
 		parts = parts[1:]
 	}
