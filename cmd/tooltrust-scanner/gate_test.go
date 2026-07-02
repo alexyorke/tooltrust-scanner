@@ -33,6 +33,18 @@ func TestDeriveServerName_Unscoped(t *testing.T) {
 	}
 }
 
+func TestDeriveServerName_StripsVersionSuffix(t *testing.T) {
+	cases := map[string]string{
+		"some-package@1.2.3":                        "some-package",
+		"@modelcontextprotocol/server-memory@2.0.0": "server-memory",
+	}
+	for input, want := range cases {
+		if got := deriveServerName(input); got != want {
+			t.Fatalf("deriveServerName(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestBuildServerCommand_NoExtraArgs(t *testing.T) {
 	got := buildServerCommand("@modelcontextprotocol/server-memory", nil)
 	want := "npx -y @modelcontextprotocol/server-memory"

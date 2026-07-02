@@ -201,10 +201,14 @@ func runGate(ctx context.Context, opts gateOpts) error {
 // "@modelcontextprotocol/server-memory" → "server-memory"
 // "some-package" → "some-package".
 func deriveServerName(packageName string) string {
-	if idx := strings.LastIndex(packageName, "/"); idx >= 0 {
-		return packageName[idx+1:]
+	name := packageName
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
 	}
-	return packageName
+	if idx := strings.LastIndex(name, "@"); idx > 0 {
+		name = name[:idx]
+	}
+	return name
 }
 
 // buildServerCommand builds the npx command string for running the server.
