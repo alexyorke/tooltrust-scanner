@@ -120,6 +120,9 @@ func runGate(ctx context.Context, opts gateOpts) error {
 	if err != nil {
 		return fmt.Errorf("live server scan failed: %w", err)
 	}
+	if len(tools) == 0 {
+		return fmt.Errorf("live server exposed no tools")
+	}
 
 	// Initialize scanner.
 	scanner, err := analyzer.NewScanner(opts.deepScan, opts.rulesDir)

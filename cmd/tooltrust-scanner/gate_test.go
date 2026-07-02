@@ -123,6 +123,32 @@ func TestRunGate_DryRunStillValidatesBlockOn(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid --block-on")
 }
 
+func TestRunGate_RejectsInstallWhenServerExposesNoTools(t *testing.T) {
+	prev := scanLiveServerFn
+	scanLiveServerFn = func(context.Context, string) ([]model.UnifiedTool, error) {
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		scanLiveServerFn = prev
+	})
+
+	dir := t.TempDir()
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	err = runGate(context.Background(), gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		blockOn:     "F",
+		scope:       "project",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no tools")
+	assert.NoFileExists(t, filepath.Join(dir, ".mcp.json"))
+}
+
 func TestInstallViaConfig_CreatesNew(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".mcp.json")
