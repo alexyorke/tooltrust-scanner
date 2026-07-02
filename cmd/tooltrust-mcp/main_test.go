@@ -130,6 +130,20 @@ func TestHandleScanJSON_SupportedProtocolIsCaseInsensitive(t *testing.T) {
 	assert.Contains(t, text, "0 tools")
 }
 
+func TestHandleScanJSON_RejectsNonStringProtocol(t *testing.T) {
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"tools_json": `{"tools":[]}`,
+		"protocol":   123,
+	}
+
+	result, err := handleScanJSON(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	text := result.Content[0].(mcplib.TextContent).Text
+	assert.Contains(t, text, "protocol argument must be a string")
+}
+
 func TestHandleScanJSON_EmptyToolsList(t *testing.T) {
 	req := mcplib.CallToolRequest{}
 	req.Params.Arguments = map[string]any{"tools_json": `{"tools":[]}`}
