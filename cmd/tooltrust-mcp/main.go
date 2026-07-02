@@ -775,6 +775,9 @@ func parseMCPConfig(data []byte) (mcpConfig, error) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return mcpConfig{}, fmt.Errorf("parse config json: %w", err)
 	}
+	if doc == nil {
+		return mcpConfig{}, fmt.Errorf("config must be a JSON object")
+	}
 
 	var cfg mcpConfig
 	rawServers, ok := doc["mcpServers"]
