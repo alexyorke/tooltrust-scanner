@@ -662,14 +662,7 @@ func isValidEnvName(name string) bool {
 	if trimmed == "" || trimmed != name {
 		return false
 	}
-	for i := 0; i < len(trimmed); i++ {
-		ch := trimmed[i]
-		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_' || (i > 0 && ch >= '0' && ch <= '9') {
-			continue
-		}
-		return false
-	}
-	return true
+	return !strings.Contains(trimmed, "=")
 }
 
 // isSelfEntry returns true if the config entry refers to tooltrust-mcp itself.

@@ -865,6 +865,23 @@ func TestScanOneServer_RejectsQuotedBlankArg(t *testing.T) {
 	assert.Contains(t, result.Error, "invalid command argument")
 }
 
+func TestScanOneServer_AllowsDashInEnvKey(t *testing.T) {
+	serverDir := createTempEmptyMCPServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result := scanOneServer(ctx, "env-server", mcpServerEntry{
+		Command: "go",
+		Args:    []string{"run", serverDir},
+		Env: map[string]string{
+			"FOO-BAR": "value",
+		},
+	})
+
+	assert.Equal(t, "ok", result.Status)
+}
+
 func TestScanOneServer_TrimmedCommandStillRuns(t *testing.T) {
 	serverDir := createTempEmptyMCPServer(t)
 
