@@ -4,6 +4,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // FlexType is a JSON Schema "type" value that accepts either a plain string
@@ -14,6 +15,7 @@ type FlexType string
 
 // UnmarshalJSON implements json.Unmarshaler for FlexType.
 func (ft *FlexType) UnmarshalJSON(b []byte) error {
+	b = []byte(strings.TrimSpace(string(b)))
 	if len(b) == 0 || string(b) == "null" {
 		return nil
 	}
@@ -39,7 +41,7 @@ func (ft *FlexType) UnmarshalJSON(b []byte) error {
 		*ft = "null"
 		return nil
 	}
-	return nil
+	return fmt.Errorf("FlexType: unsupported JSON token %q", string(b))
 }
 
 // ListToolsResponse is the top-level MCP tools/list wire format.

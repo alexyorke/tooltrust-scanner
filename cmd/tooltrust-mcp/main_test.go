@@ -407,6 +407,23 @@ func TestHandleScanServer_EmptyToolServerReturnsStructuredReport(t *testing.T) {
 	assert.Contains(t, text, "Findings by Severity: None (0 total)")
 }
 
+func TestHandleScanServer_CommandWithLeadingEnvAssignments(t *testing.T) {
+	serverDir := createTempEmptyMCPServer(t)
+
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"command": `TOOLTRUST_TEST_MODE=1 go run "` + serverDir + `"`}
+
+	result, err := handleScanServer(context.Background(), req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	text := result.Content[0].(mcplib.TextContent).Text
+	assert.Contains(t, text, "Scan Summary:")
+	assert.Contains(t, text, "0 tools")
+	assert.Contains(t, text, "Tool Grades: None")
+	assert.Contains(t, text, "Findings by Severity: None (0 total)")
+}
+
 // ── tooltrust_lookup tests ──────────────────────────────────────────────────
 
 func TestHandleLookup_MissingArgument(t *testing.T) {

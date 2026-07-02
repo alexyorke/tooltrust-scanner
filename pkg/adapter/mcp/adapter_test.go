@@ -157,6 +157,25 @@ func TestAdapter_Parse_GenericNameKeywordsDoNotInferPermissions(t *testing.T) {
 	assert.NotContains(t, tools[1].Permissions, model.PermissionNetwork)
 }
 
+func TestAdapter_Parse_InvalidSchemaTypeReturnsError(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "broken_tool",
+			"description": "Tool with malformed schema type.",
+			"inputSchema": {
+				"type": 123,
+				"properties": {
+					"path": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	_, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FlexType")
+}
+
 func TestAdapter_Parse_DescriptionFieldDoesNotInferExec(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{

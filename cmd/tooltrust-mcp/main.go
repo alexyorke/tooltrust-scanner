@@ -176,17 +176,49 @@ func handleScanServer(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 		return mcplib.NewToolResultError("command argument is required and must be a non-empty string"), nil
 	}
 
-	args, err := shellquote.Split(command)
+	binary, env, args, err := splitServerCommand(command)
 	if err != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("failed to parse server command: %v", err)), nil
 	}
 
-	tools, err := scanLiveServer(ctx, args, nil)
+	launchArgs := append([]string{binary}, args...)
+	tools, err := scanLiveServer(ctx, launchArgs, env)
 	if err != nil {
 		return mcplib.NewToolResultText(fmt.Sprintf("Failed to scan live server: %v", err)), nil
 	}
 
 	return processTools(ctx, tools)
+}
+
+func splitServerCommand(serverCmd string) (command string, env, args []string, err error) {
+	parts, err := shellquote.Split(serverCmd)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("failed to parse server command: %w", err)
+	}
+	for len(parts) > 0 && isEnvAssignment(parts[0]) {
+		env = append(env, parts[0])
+		parts = parts[1:]
+	}
+	if len(parts) == 0 {
+		return "", nil, nil, fmt.Errorf("empty server command")
+	}
+	return parts[0], env, parts[1:], nil
+}
+
+func isEnvAssignment(arg string) bool {
+	idx := strings.IndexByte(arg, '=')
+	if idx <= 0 {
+		return false
+	}
+	name := arg[:idx]
+	for i := 0; i < len(name); i++ {
+		ch := name[i]
+		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_' || (i > 0 && ch >= '0' && ch <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // scanLiveServer spawns an MCP server, connects via stdio, lists its tools,
