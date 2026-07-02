@@ -748,6 +748,20 @@ func TestLoadMCPConfig_EmptyServers(t *testing.T) {
 	assert.Empty(t, cfg.MCPServers)
 }
 
+func TestLoadMCPConfig_RejectsNullServers(t *testing.T) {
+	dir := t.TempDir()
+	configData := `{"mcpServers":null}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(configData), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mcpServers must be an object")
+}
+
 func TestHandleScanConfig_EmptyServers(t *testing.T) {
 	dir := t.TempDir()
 	configData := `{"mcpServers":{}}`

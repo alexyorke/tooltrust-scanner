@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -739,8 +740,8 @@ func referencesTooltrustMCP(token string) bool {
 func loadMCPConfig() (string, mcpConfig, error) {
 	// 1. Check .mcp.json in current directory.
 	if data, err := os.ReadFile(".mcp.json"); err == nil {
-		var cfg mcpConfig
-		if parseErr := json.Unmarshal(data, &cfg); parseErr != nil {
+		cfg, parseErr := parseMCPConfig(data)
+		if parseErr != nil {
 			return ".mcp.json", mcpConfig{}, fmt.Errorf("failed to parse .mcp.json: %w", parseErr)
 		}
 		return ".mcp.json", cfg, nil
@@ -753,8 +754,8 @@ func loadMCPConfig() (string, mcpConfig, error) {
 	if err == nil {
 		claudePath := filepath.Join(home, ".claude.json")
 		if data, err := os.ReadFile(claudePath); err == nil { // #nosec G304 -- path is ~/.claude.json, not user-controlled
-			var cfg mcpConfig
-			if parseErr := json.Unmarshal(data, &cfg); parseErr != nil {
+			cfg, parseErr := parseMCPConfig(data)
+			if parseErr != nil {
 				return claudePath, mcpConfig{}, fmt.Errorf("failed to parse %s: %w", claudePath, parseErr)
 			}
 			return claudePath, cfg, nil
@@ -767,6 +768,26 @@ func loadMCPConfig() (string, mcpConfig, error) {
 		"no MCP config found; searched " +
 			".mcp.json (current directory) and ~/.claude.json (global Claude Code config)",
 	)
+}
+
+func parseMCPConfig(data []byte) (mcpConfig, error) {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return mcpConfig{}, fmt.Errorf("parse config json: %w", err)
+	}
+
+	var cfg mcpConfig
+	rawServers, ok := doc["mcpServers"]
+	if !ok {
+		return cfg, nil
+	}
+	if bytes.Equal(bytes.TrimSpace(rawServers), []byte("null")) {
+		return mcpConfig{}, fmt.Errorf("mcpServers must be an object")
+	}
+	if err := json.Unmarshal(rawServers, &cfg.MCPServers); err != nil {
+		return mcpConfig{}, fmt.Errorf("mcpServers must be an object: %w", err)
+	}
+	return cfg, nil
 }
 
 // ── Common Scanner Processing Logic ─────────────────────────────────────────
