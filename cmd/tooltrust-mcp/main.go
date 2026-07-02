@@ -649,12 +649,12 @@ func isEmptyCommandToken(command string) bool {
 }
 
 func isValidEnvName(name string) bool {
-	name = strings.TrimSpace(name)
-	if name == "" {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" || trimmed != name {
 		return false
 	}
-	for i := 0; i < len(name); i++ {
-		ch := name[i]
+	for i := 0; i < len(trimmed); i++ {
+		ch := trimmed[i]
 		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_' || (i > 0 && ch >= '0' && ch <= '9') {
 			continue
 		}
