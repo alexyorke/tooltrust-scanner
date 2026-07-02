@@ -558,14 +558,22 @@ func sortedMCPServerNames(servers map[string]mcpServerEntry) []string {
 
 // scanOneServer scans a single MCP server from config.
 func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serverScanResult {
-	name = strings.TrimSpace(name)
-	if name == "" {
+	trimmedName := strings.TrimSpace(name)
+	if trimmedName == "" {
 		return serverScanResult{
-			Server: name,
+			Server: trimmedName,
 			Status: "error",
 			Error:  "empty server name",
 		}
 	}
+	if trimmedName != name {
+		return serverScanResult{
+			Server: trimmedName,
+			Status: "error",
+			Error:  fmt.Sprintf("invalid server name %q", name),
+		}
+	}
+	name = trimmedName
 
 	// Skip self-scan.
 	if isSelfEntry(name, entry) {

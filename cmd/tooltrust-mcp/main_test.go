@@ -809,6 +809,21 @@ func TestScanOneServer_RejectsWhitespaceOnlyServerName(t *testing.T) {
 	assert.Contains(t, result.Error, "empty server name")
 }
 
+func TestScanOneServer_RejectsWhitespaceWrappedServerName(t *testing.T) {
+	serverDir := createTempEmptyMCPServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result := scanOneServer(ctx, " foo ", mcpServerEntry{
+		Command: "go",
+		Args:    []string{"run", serverDir},
+	})
+
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "invalid server name")
+}
+
 func TestScanOneServer_RejectsQuotedWhitespaceCommand(t *testing.T) {
 	result := scanOneServer(context.Background(), "bad-server", mcpServerEntry{
 		Command: `" "`,
