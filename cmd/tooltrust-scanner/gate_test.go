@@ -437,6 +437,28 @@ func TestInstallViaConfig_PreservesUserClaudeConfigFields(t *testing.T) {
 	}
 }
 
+func TestInstallViaConfig_RejectsNullServerEntry(t *testing.T) {
+	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{
+  "mcpServers": {
+    "broken": null
+  }
+}`), 0o644))
+
+	err = installViaConfig("server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `failed to parse existing mcpServers in .mcp.json: mcpServers["broken"] must be an object`)
+}
+
 func TestInstallViaConfig_ReadErrorOnExistingProjectConfigSurfaces(t *testing.T) {
 	dir := t.TempDir()
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -373,9 +374,11 @@ func installViaConfig(serverName string, opts gateOpts) error {
 			return fmt.Errorf("failed to parse existing config %s: %w", configPath, uErr)
 		}
 		if serversRaw, ok := document["mcpServers"]; ok {
-			if uErr := json.Unmarshal(serversRaw, &cfg.MCPServers); uErr != nil {
+			servers, uErr := parseMCPServers(serversRaw)
+			if uErr != nil {
 				return fmt.Errorf("failed to parse existing mcpServers in %s: %w", configPath, uErr)
 			}
+			cfg.MCPServers = servers
 		}
 		if cfg.MCPServers == nil {
 			cfg.MCPServers = make(map[string]mcpServerEntry)
@@ -417,6 +420,32 @@ func installViaConfig(serverName string, opts gateOpts) error {
 
 	pterm.Info.Printfln("Config written to %s", configPath)
 	return nil
+}
+
+func parseMCPServers(data json.RawMessage) (map[string]mcpServerEntry, error) {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil, fmt.Errorf("mcpServers must be an object")
+	}
+
+	var rawEntries map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawEntries); err != nil {
+		return nil, fmt.Errorf("mcpServers must be an object: %w", err)
+	}
+
+	servers := make(map[string]mcpServerEntry, len(rawEntries))
+	for name, rawEntry := range rawEntries {
+		if bytes.Equal(bytes.TrimSpace(rawEntry), []byte("null")) {
+			return nil, fmt.Errorf("mcpServers[%q] must be an object", name)
+		}
+
+		var entry mcpServerEntry
+		if err := json.Unmarshal(rawEntry, &entry); err != nil {
+			return nil, fmt.Errorf("mcpServers[%q] must be an object: %w", name, err)
+		}
+		servers[name] = entry
+	}
+
+	return servers, nil
 }
 
 // resolveConfigPath returns the path to the appropriate config file.
