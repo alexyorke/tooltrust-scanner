@@ -320,9 +320,16 @@ func buildLookupTool() mcplib.Tool {
 }
 
 func handleLookup(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	serverName, ok := req.GetArguments()["server_name"].(string)
+	raw, exists := req.GetArguments()["server_name"]
+	if !exists {
+		return mcplib.NewToolResultError("server_name argument is required"), nil
+	}
+	serverName, ok := raw.(string)
+	if !ok {
+		return mcplib.NewToolResultError("server_name argument must be a string"), nil
+	}
 	serverName = strings.TrimSpace(serverName)
-	if !ok || serverName == "" {
+	if serverName == "" {
 		return mcplib.NewToolResultError("server_name argument is required"), nil
 	}
 	if !isKebabCaseServerName(serverName) {

@@ -537,6 +537,17 @@ func TestHandleLookup_WhitespaceOnlyName(t *testing.T) {
 	assert.Contains(t, text, "server_name argument is required")
 }
 
+func TestHandleLookup_RejectsNonStringName(t *testing.T) {
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"server_name": 123}
+
+	result, err := handleLookup(context.Background(), req)
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	text := result.Content[0].(mcplib.TextContent).Text
+	assert.Contains(t, text, "server_name argument must be a string")
+}
+
 func TestHandleLookup_RejectsNonKebabServerNameBeforeHTTP(t *testing.T) {
 	origTransport := http.DefaultClient.Transport
 	t.Cleanup(func() {
