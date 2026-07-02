@@ -221,7 +221,7 @@ func splitServerCommand(serverCmd string) (command string, env, args []string, e
 		env = append(env, parts[0])
 		parts = parts[1:]
 	}
-	if len(parts) == 0 {
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
 		return "", nil, nil, fmt.Errorf("empty server command")
 	}
 	return parts[0], env, parts[1:], nil
