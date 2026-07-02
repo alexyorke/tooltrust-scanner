@@ -373,6 +373,9 @@ func installViaConfig(serverName string, opts gateOpts) error {
 		if uErr := json.Unmarshal(data, &document); uErr != nil {
 			return fmt.Errorf("failed to parse existing config %s: %w", configPath, uErr)
 		}
+		if document == nil {
+			return fmt.Errorf("failed to parse existing config %s: config must be a JSON object", configPath)
+		}
 		if serversRaw, ok := document["mcpServers"]; ok {
 			servers, uErr := parseMCPServers(serversRaw)
 			if uErr != nil {
