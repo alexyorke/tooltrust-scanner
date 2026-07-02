@@ -98,6 +98,10 @@ func runGate(ctx context.Context, opts gateOpts) error {
 	if err != nil {
 		return err
 	}
+	opts.packageName = strings.TrimSpace(opts.packageName)
+	if opts.packageName == "" {
+		return fmt.Errorf("invalid package name: must not be empty or whitespace")
+	}
 
 	// Derive server name.
 	serverName := strings.TrimSpace(opts.name)
@@ -106,6 +110,9 @@ func runGate(ctx context.Context, opts gateOpts) error {
 	}
 	if serverName == "" {
 		serverName = deriveServerName(opts.packageName)
+		if serverName == "" {
+			return fmt.Errorf("invalid package name: could not derive server name from %q", opts.packageName)
+		}
 	}
 
 	// Build the npx command string for scanning.
