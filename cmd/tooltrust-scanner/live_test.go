@@ -414,6 +414,18 @@ urllib3[socks]==2.2.1 --hash=sha256:cafebabe ; python_version >= "3.10"
 	assert.Equal(t, nodeDependency{Name: "urllib3", Version: "2.2.1", Ecosystem: "PyPI", Source: "local_lockfile"}, deps[1])
 }
 
+func TestParseRequirementsFile_TripleEqualsUsesExactVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "requirements.txt")
+	require.NoError(t, os.WriteFile(path, []byte(`
+demo-pkg===1.0+local
+`), 0o644))
+
+	deps, err := parseRequirementsFile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, nodeDependency{Name: "demo-pkg", Version: "1.0+local", Ecosystem: "PyPI", Source: "local_lockfile"}, deps[0])
+}
+
 func TestParsePNPMLockfile_RejectsTopLevelSequence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pnpm-lock.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("[]"), 0o644))

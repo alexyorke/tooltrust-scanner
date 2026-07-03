@@ -594,27 +594,43 @@ func parseRequirementsFile(path string) ([]nodeDependency, error) {
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "-") {
 			continue
 		}
-		if i := strings.Index(line, "=="); i > 0 {
-			name := normalizeRequirementName(line[:i])
-			version := strings.TrimSpace(line[i+2:])
-			if marker := strings.IndexByte(version, ';'); marker >= 0 {
-				version = strings.TrimSpace(version[:marker])
-			}
-			if comment := strings.IndexByte(version, '#'); comment >= 0 {
-				version = strings.TrimSpace(version[:comment])
-			}
-			if fields := strings.Fields(version); len(fields) > 0 {
-				version = fields[0]
-			}
-			if name != "" && version != "" {
-				deps = append(deps, nodeDependency{Name: name, Version: version, Ecosystem: "PyPI", Source: "local_lockfile"})
-			}
+		name, version, ok := parsePinnedRequirement(line)
+		if ok {
+			deps = append(deps, nodeDependency{Name: name, Version: version, Ecosystem: "PyPI", Source: "local_lockfile"})
 		}
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("scan requirements.txt %s: %w", path, err)
 	}
 	return deps, nil
+}
+
+func parsePinnedRequirement(line string) (name, version string, ok bool) {
+	separator := "=="
+	idx := strings.Index(line, "===")
+	if idx > 0 {
+		separator = "==="
+	} else {
+		idx = strings.Index(line, "==")
+	}
+	if idx <= 0 {
+		return "", "", false
+	}
+	name = normalizeRequirementName(line[:idx])
+	version = strings.TrimSpace(line[idx+len(separator):])
+	if marker := strings.IndexByte(version, ';'); marker >= 0 {
+		version = strings.TrimSpace(version[:marker])
+	}
+	if comment := strings.IndexByte(version, '#'); comment >= 0 {
+		version = strings.TrimSpace(version[:comment])
+	}
+	if fields := strings.Fields(version); len(fields) > 0 {
+		version = fields[0]
+	}
+	if name == "" || version == "" {
+		return "", "", false
+	}
+	return name, version, true
 }
 
 func normalizeRequirementName(raw string) string {

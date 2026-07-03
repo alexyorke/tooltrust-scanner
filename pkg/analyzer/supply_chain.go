@@ -345,22 +345,37 @@ func parseRequirementsTxt(data []byte) ([]Dependency, error) {
 		if i := strings.IndexByte(line, ';'); i >= 0 {
 			line = strings.TrimSpace(line[:i])
 		}
-		// Only exact pins (==) are meaningful for CVE lookup
-		if idx := strings.Index(line, "=="); idx > 0 {
-			name := normalizeRequirementName(line[:idx])
-			version := strings.TrimSpace(line[idx+2:])
-			if fields := strings.Fields(version); len(fields) > 0 {
-				version = fields[0]
-			}
-			if name != "" && version != "" {
-				deps = append(deps, Dependency{Name: name, Version: version, Ecosystem: "PyPI"})
-			}
+		name, version, ok := parsePinnedRequirement(line)
+		if ok {
+			deps = append(deps, Dependency{Name: name, Version: version, Ecosystem: "PyPI"})
 		}
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("parse requirements.txt: %w", err)
 	}
 	return deps, nil
+}
+
+func parsePinnedRequirement(line string) (name, version string, ok bool) {
+	separator := "=="
+	idx := strings.Index(line, "===")
+	if idx > 0 {
+		separator = "==="
+	} else {
+		idx = strings.Index(line, "==")
+	}
+	if idx <= 0 {
+		return "", "", false
+	}
+	name = normalizeRequirementName(line[:idx])
+	version = strings.TrimSpace(line[idx+len(separator):])
+	if fields := strings.Fields(version); len(fields) > 0 {
+		version = fields[0]
+	}
+	if name == "" || version == "" {
+		return "", "", false
+	}
+	return name, version, true
 }
 
 func normalizeRequirementName(raw string) string {

@@ -438,6 +438,16 @@ urllib3[socks]==2.2.1 --hash=sha256:cafebabe ; python_version >= "3.10"
 	assert.Equal(t, analyzer.Dependency{Name: "urllib3", Version: "2.2.1", Ecosystem: "PyPI"}, deps[1])
 }
 
+func TestParseRequirementsTxt_TripleEqualsUsesExactVersion(t *testing.T) {
+	data := []byte(`
+demo-pkg===1.0+local
+`)
+	deps, err := analyzer.ParseRequirementsTxtForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, analyzer.Dependency{Name: "demo-pkg", Version: "1.0+local", Ecosystem: "PyPI"}, deps[0])
+}
+
 func TestParsePNPMLockYAML(t *testing.T) {
 	data := []byte(`
 lockfileVersion: '9.0'
