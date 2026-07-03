@@ -20,3 +20,19 @@ func TestDependencyVisibilityForTool_RejectsTopLevelNullDependenciesMetadata(t *
 	assert.Equal(t, "No dependency data", visibility)
 	assert.Contains(t, note, "could not be parsed")
 }
+
+func TestDependencyVisibilityForTool_SkipsNullDependencyEntries(t *testing.T) {
+	visibility, note := analyzer.DependencyVisibilityForTool(model.UnifiedTool{
+		Name: "partially-broken-metadata-tool",
+		Metadata: map[string]any{
+			"dependencies": []any{
+				nil,
+				map[string]any{"source": "lockfile"},
+			},
+		},
+	})
+
+	assert.Equal(t, "Verified from remote lockfile", visibility)
+	assert.NotContains(t, visibility, "Declared by MCP metadata")
+	assert.Equal(t, "", note)
+}

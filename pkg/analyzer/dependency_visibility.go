@@ -46,6 +46,14 @@ func dependencySourcesFromMetadata(meta map[string]any) ([]string, bool) {
 					depsParseFailed = true
 				}
 				for _, dep := range deps {
+					if strings.TrimSpace(dep.Source) == "" {
+						var zero struct {
+							Source string `json:"source"`
+						}
+						if dep == zero {
+							continue
+						}
+					}
 					source := dep.Source
 					if source == "" {
 						source = "metadata"
