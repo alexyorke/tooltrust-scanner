@@ -3,11 +3,13 @@ package storage_test
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/storage"
@@ -167,4 +169,35 @@ func TestStore_Save_DefaultsZeroScannedAt(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, got.ScannedAt.IsZero())
 	assert.True(t, got.ScannedAt.After(before) || got.ScannedAt.Equal(before))
+}
+
+func TestStore_Get_RejectsNullFindingsPayload(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"bad-findings",
+		"run_shell",
+		string(model.ProtocolMCP),
+		55,
+		string(model.GradeD),
+		"null",
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "bad-findings")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: findings must be a JSON array")
 }

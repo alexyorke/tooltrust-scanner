@@ -171,6 +171,17 @@ func scanRow(s scanner) (ScanRecord, error) {
 	r.Grade = model.Grade(grade)
 	r.ScannedAt = scannedAt
 
+	var topLevel any
+	if err := json.Unmarshal([]byte(findingsJSON), &topLevel); err != nil {
+		return ScanRecord{}, fmt.Errorf("storage: unmarshal findings: %w", err)
+	}
+	if topLevel == nil {
+		return ScanRecord{}, fmt.Errorf("storage: findings must be a JSON array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return ScanRecord{}, fmt.Errorf("storage: findings must be a JSON array")
+	}
+
 	if err := json.Unmarshal([]byte(findingsJSON), &r.Findings); err != nil {
 		return ScanRecord{}, fmt.Errorf("storage: unmarshal findings: %w", err)
 	}
