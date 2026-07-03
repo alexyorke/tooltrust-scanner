@@ -459,6 +459,20 @@ packages:
 	assert.Equal(t, "npm", deps[0].Ecosystem)
 }
 
+func TestParsePNPMLockYAML_PatchProtocolUsesRealPackageName(t *testing.T) {
+	data := []byte(`
+packages:
+  /left-pad@patch:left-pad@1.3.0#builtin<compat/left-pad>:
+    resolution: {}
+`)
+	deps, err := analyzer.ParsePNPMLockYAMLForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "left-pad", deps[0].Name)
+	assert.Equal(t, "1.3.0", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+}
+
 func TestParseYarnLock(t *testing.T) {
 	data := []byte(`
 "axios@^1.14.1":

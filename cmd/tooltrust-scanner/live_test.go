@@ -335,6 +335,23 @@ func TestParsePNPMLockfile_RejectsTopLevelNull(t *testing.T) {
 	assert.Contains(t, err.Error(), "top-level YAML value must be a mapping")
 }
 
+func TestParsePNPMLockfile_PatchProtocolUsesRealPackageName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pnpm-lock.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+packages:
+  /left-pad@patch:left-pad@1.3.0#builtin<compat/left-pad>:
+    resolution: {}
+`), 0o644))
+
+	deps, err := parsePNPMLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "left-pad", deps[0].Name)
+	assert.Equal(t, "1.3.0", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+	assert.Equal(t, "local_lockfile", deps[0].Source)
+}
+
 func TestParseRequirementsFile_StripsHashPinsFromVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "requirements.txt")
 	require.NoError(t, os.WriteFile(path, []byte(`
