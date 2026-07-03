@@ -47,6 +47,16 @@ func (a *Adapter) Parse(_ context.Context, data []byte) ([]model.UnifiedTool, er
 	if _, hasServers := envelope["mcpServers"]; hasServers {
 		return nil, fmt.Errorf("mcp adapter: expected MCP tools/list JSON, got MCP server config")
 	}
+	rawTools, hasTools := envelope["tools"]
+	if !hasTools {
+		return nil, fmt.Errorf("mcp adapter: tools field is required and must be an array")
+	}
+	if rawTools == nil {
+		return nil, fmt.Errorf("mcp adapter: tools field must be an array")
+	}
+	if _, ok := rawTools.([]any); !ok {
+		return nil, fmt.Errorf("mcp adapter: tools field must be an array")
+	}
 
 	var resp ListToolsResponse
 	if err := json.Unmarshal(data, &resp); err != nil {

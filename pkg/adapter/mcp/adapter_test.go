@@ -317,6 +317,24 @@ func TestAdapter_Parse_RejectsTopLevelArray(t *testing.T) {
 	assert.Contains(t, err.Error(), "top-level JSON value must be an object")
 }
 
+func TestAdapter_Parse_RejectsMissingToolsField(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tools field is required and must be an array")
+}
+
+func TestAdapter_Parse_RejectsNullToolsField(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":null}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tools field must be an array")
+}
+
+func TestAdapter_Parse_RejectsNonArrayToolsField(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":{}}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tools field must be an array")
+}
+
 func TestAdapter_Parse_PreservesRawSource(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{
