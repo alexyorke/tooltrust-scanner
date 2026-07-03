@@ -82,6 +82,12 @@ func (s *Store) Save(ctx context.Context, r ScanRecord) error {
 	if strings.TrimSpace(r.ID) == "" {
 		return fmt.Errorf("storage: missing id")
 	}
+	if !isValidProtocol(r.Protocol) {
+		return fmt.Errorf("storage: invalid protocol %q", r.Protocol)
+	}
+	if !isValidGrade(r.Grade) {
+		return fmt.Errorf("storage: invalid grade %q", r.Grade)
+	}
 	findings, err := json.Marshal(r.Findings)
 	if err != nil {
 		return fmt.Errorf("storage: marshal findings: %w", err)
