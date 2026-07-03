@@ -1,4 +1,4 @@
-// Package main provides the ToolTrust Scanner MCP Server — the meta-scanner.
+// Package main provides the ToolTrust Scanner MCP Server - the meta-scanner.
 // It exposes the scanning capability as an MCP tool so that any AI agent can
 // call it to self-inspect other tool definitions.
 package main
@@ -101,7 +101,7 @@ func printRulesCatalog() {
 	}
 }
 
-// ── tooltrust_scanner_scan (Legacy / JSON input) ─────────────────────────────
+// tooltrust_scanner_scan (Legacy / JSON input)
 
 func buildScanJSONTool() mcplib.Tool {
 	return mcplib.NewTool(
@@ -156,7 +156,7 @@ func handleScanJSON(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Ca
 		a := localmcp.NewAdapter()
 		tools, parseErr = a.Parse(ctx, []byte(toolsJSON))
 	default:
-		return mcplib.NewToolResultError(fmt.Sprintf("unsupported protocol %q — supported: mcp", protocol)), nil
+		return mcplib.NewToolResultError(fmt.Sprintf("unsupported protocol %q - supported: mcp", protocol)), nil
 	}
 
 	if parseErr != nil {
@@ -166,7 +166,7 @@ func handleScanJSON(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Ca
 	return processTools(ctx, tools)
 }
 
-// ── tooltrust_scan_server (Live Server Scan) ─────────────────────────────────
+// tooltrust_scan_server (Live Server Scan)
 
 func buildScanServerTool() mcplib.Tool {
 	return mcplib.NewTool(
@@ -320,7 +320,7 @@ func scanLiveServer(ctx context.Context, args, extraEnv []string) ([]model.Unifi
 	return tools, nil
 }
 
-// ── tooltrust_lookup (Directory API Lookup) ─────────────────────────────────
+// tooltrust_lookup (Directory API Lookup)
 
 func buildLookupTool() mcplib.Tool {
 	return mcplib.NewTool(
@@ -408,7 +408,7 @@ func isKebabCaseServerName(name string) bool {
 	return true
 }
 
-// ── tooltrust_list_rules (Rule Catalog) ──────────────────────────────────────
+// tooltrust_list_rules (Rule Catalog)
 
 func buildListRulesTool() mcplib.Tool {
 	return mcplib.NewTool(
@@ -433,7 +433,7 @@ func handleListRules(_ context.Context, _ mcplib.CallToolRequest) (*mcplib.CallT
 	return mcplib.NewToolResultText(string(encoded)), nil
 }
 
-// ── tooltrust_scan_config (Scan All Configured Servers) ─────────────────────
+// tooltrust_scan_config (Scan All Configured Servers)
 
 // mcpConfig represents the structure of .mcp.json or ~/.claude.json.
 type mcpConfig struct {
@@ -896,7 +896,7 @@ func validateMCPServerEntryShape(name string, entry map[string]any) error {
 	return nil
 }
 
-// ── Common Scanner Processing Logic ─────────────────────────────────────────
+// Common Scanner Processing Logic
 
 // ScanResult is the JSON shape returned by the scan tools.
 type ScanResult struct {
@@ -938,17 +938,17 @@ func processTools(ctx context.Context, tools []model.UnifiedTool) (*mcplib.CallT
 func gradeEmoji(g model.Grade) string {
 	switch g {
 	case model.GradeA:
-		return "✅"
+		return "[OK]"
 	case model.GradeB:
-		return "🟢"
+		return "[LOW]"
 	case model.GradeC:
-		return "🟡"
+		return "[MED]"
 	case model.GradeD:
-		return "🟠"
+		return "[HIGH]"
 	case model.GradeF:
-		return "🔴"
+		return "[CRIT]"
 	default:
-		return "•"
+		return "*"
 	}
 }
 
@@ -968,7 +968,7 @@ func renderTextReport(result *ScanResult) string {
 	var sevParts []string
 	for _, s := range sevOrder {
 		if n := severityCounts[s]; n > 0 {
-			sevParts = append(sevParts, fmt.Sprintf("%s×%d", s, n))
+			sevParts = append(sevParts, fmt.Sprintf("%s x %d", s, n))
 		}
 	}
 	counts := map[model.Grade]int{}
@@ -980,7 +980,7 @@ func renderTextReport(result *ScanResult) string {
 	var gradeParts []string
 	for _, g := range grades {
 		if n := counts[g]; n > 0 {
-			gradeParts = append(gradeParts, fmt.Sprintf("%s×%d", g, n))
+			gradeParts = append(gradeParts, fmt.Sprintf("%s x %d", g, n))
 		}
 	}
 
@@ -1016,7 +1016,7 @@ func renderTextReport(result *ScanResult) string {
 		case model.ActionBlock:
 			actionLabel = "blocked"
 		}
-		lines = append(lines, fmt.Sprintf("• %s  %s GRADE %s  %s",
+		lines = append(lines, fmt.Sprintf("* %s  %s GRADE %s  %s",
 			p.ToolName, gradeEmoji(p.Score.Grade), p.Score.Grade, actionLabel))
 		if len(p.Behavior) > 0 {
 			lines = append(lines, fmt.Sprintf("  Behavior: %s", strings.Join(p.Behavior, ", ")))
@@ -1042,7 +1042,7 @@ func renderTextReport(result *ScanResult) string {
 	}
 
 	if flaggedCount == 0 {
-		lines = append(lines, "", "All tools are ✅ GRADE A and allowed.")
+		lines = append(lines, "", "All tools are [OK] GRADE A and allowed.")
 	} else if result.Summary.Allowed > 0 {
 		lines = append(lines, "", fmt.Sprintf("%d allowed tools are omitted for brevity.", result.Summary.Allowed))
 	}
@@ -1082,7 +1082,7 @@ func renderIssueEvidence(issue model.Issue) []string {
 	for i, evidence := range issue.Evidence {
 		if i >= maxEvidence {
 			remaining := len(issue.Evidence) - maxEvidence
-			details = append(details, fmt.Sprintf("Evidence: … %d more item(s)", remaining))
+			details = append(details, fmt.Sprintf("Evidence: ... %d more item(s)", remaining))
 			break
 		}
 		details = append(details, fmt.Sprintf("Evidence: %s=%s", evidence.Kind, evidence.Value))

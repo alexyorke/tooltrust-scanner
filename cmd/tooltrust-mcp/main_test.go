@@ -19,7 +19,7 @@ import (
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
-// ── tooltrust_scanner_scan tests ────────────────────────────────────────────
+// tooltrust_scanner_scan tests
 
 func TestHandleScanJSON_ValidInput(t *testing.T) {
 	toolsJSON := `{"tools":[{"name":"read_file","description":"Reads a file from disk","inputSchema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`
@@ -38,13 +38,13 @@ func TestHandleScanJSON_ValidInput(t *testing.T) {
 	assert.Contains(t, text, "Tool Grades:")
 	assert.Contains(t, text, "Findings by Severity:")
 	// AS-002 now emits a single Info CAPABILITY_SURFACE summary (weight 0).
-	// read_file with a "path" property infers FS permission → one AS-002 Info.
+	// read_file with a "path" property infers FS permission -> one AS-002 Info.
 	// AS-014 also emits one Info (no dependency metadata on this JSON-only tool).
-	// Both are Info (weight 0) → score 0 → Grade A.
-	assert.Contains(t, text, "INFO×2")
+	// Both are Info (weight 0) -> score 0 -> Grade A.
+	assert.Contains(t, text, "INFO x 2")
 	assert.Contains(t, text, "2 total")
 	assert.NotContains(t, text, "Flagged Tools:")
-	assert.Contains(t, text, "All tools are ✅ GRADE A and allowed.")
+	assert.Contains(t, text, "All tools are [OK] GRADE A and allowed.")
 	assert.Contains(t, text, "1 tools")
 }
 
@@ -169,7 +169,7 @@ func TestHandleScanJSON_EmptyToolsList(t *testing.T) {
 	assert.Contains(t, text, "0 tools")
 	assert.Contains(t, text, "Tool Grades: None")
 	assert.Contains(t, text, "Findings by Severity: None (0 total)")
-	assert.Contains(t, text, "All tools are ✅ GRADE A")
+	assert.Contains(t, text, "All tools are [OK] GRADE A")
 }
 
 func TestRenderTextReport_IncludesEvidenceForFlaggedTools(t *testing.T) {
@@ -205,8 +205,48 @@ func TestRenderTextReport_IncludesEvidenceForFlaggedTools(t *testing.T) {
 	text := renderTextReport(result)
 	assert.Contains(t, text, "Flagged Tools:")
 	assert.Contains(t, text, "Evidence: permission=network")
-	assert.Contains(t, text, "Evidence: … 1 more item(s)")
+	assert.Contains(t, text, "Evidence: ... 1 more item(s)")
 	assert.NotContains(t, text, "schema_property_count=12")
+}
+
+func TestRenderTextReport_UsesReadableASCIIMarkers(t *testing.T) {
+	result := &ScanResult{
+		Summary: ScanSummary{
+			Total:           2,
+			Allowed:         1,
+			RequireApproval: 1,
+			Blocked:         0,
+		},
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName: "read_file",
+				Action:   model.ActionAllow,
+				Score: model.RiskScore{
+					Grade: model.GradeA,
+					Issues: []model.Issue{
+						{RuleID: "AS-002", Severity: model.SeverityInfo, Description: "tool declares fs permission"},
+					},
+				},
+			},
+			{
+				ToolName: "send_env",
+				Action:   model.ActionRequireApproval,
+				Score: model.RiskScore{
+					Grade: model.GradeC,
+					Issues: []model.Issue{
+						{RuleID: "AS-002", Severity: model.SeverityHigh, Description: "tool declares network permission"},
+					},
+				},
+			},
+		},
+	}
+
+	text := renderTextReport(result)
+	assert.Contains(t, text, "Tool Grades: A x 1  C x 1")
+	assert.Contains(t, text, "Findings by Severity: HIGH x 1  INFO x 1 (2 total)")
+	assert.Contains(t, text, "* send_env  [MED] GRADE C  needs approval")
+	assert.NotContains(t, text, "Ãƒ")
+	assert.NotContains(t, text, "Ã¢")
 }
 
 func TestRenderTextReport_IncludesBehaviorAndDestinationContext(t *testing.T) {
@@ -429,7 +469,7 @@ func TestScanOneServer_EmptyToolServerUsesScannerSummaryContract(t *testing.T) {
 	assert.NotEqual(t, "0001-01-01T00:00:00Z", summary["scanned_at"])
 }
 
-// ── tooltrust_scan_server tests ─────────────────────────────────────────────
+// tooltrust_scan_server tests
 
 func TestHandleScanServer_EmptyCommand(t *testing.T) {
 	req := mcplib.CallToolRequest{}
@@ -561,7 +601,7 @@ func TestHandleScanServer_CommandWithLeadingEnvAssignments(t *testing.T) {
 	assert.Contains(t, text, "Findings by Severity: None (0 total)")
 }
 
-// ── tooltrust_lookup tests ──────────────────────────────────────────────────
+// tooltrust_lookup tests
 
 func TestHandleLookup_MissingArgument(t *testing.T) {
 	req := mcplib.CallToolRequest{}
@@ -630,7 +670,7 @@ func TestHandleLookup_RejectsNonKebabServerNameBeforeHTTP(t *testing.T) {
 	assert.Contains(t, text, "server_name must be a kebab-case identifier")
 }
 
-// ── tooltrust_list_rules tests ──────────────────────────────────────────────
+// tooltrust_list_rules tests
 
 func TestHandleListRules_ReturnsAllRules(t *testing.T) {
 	req := mcplib.CallToolRequest{}
@@ -658,7 +698,7 @@ func TestHandleListRules_ReturnsAllRules(t *testing.T) {
 	}
 }
 
-// ── tooltrust_scan_config tests ─────────────────────────────────────────────
+// tooltrust_scan_config tests
 
 func TestLoadMCPConfig_DotMCPJSON(t *testing.T) {
 	dir := t.TempDir()
@@ -1283,7 +1323,7 @@ func main() {
 	return absDir
 }
 
-// ── Self-scan skip tests ────────────────────────────────────────────────────
+// Self-scan skip tests
 
 func TestIsSelfEntry_ByName(t *testing.T) {
 	assert.True(t, isSelfEntry("tooltrust", mcpServerEntry{Command: "node", Args: []string{"server.js"}}))
@@ -1305,7 +1345,7 @@ func TestIsSelfEntry_DoesNotSkipUnrelatedTooltrustName(t *testing.T) {
 	assert.False(t, isSelfEntry("scanner", mcpServerEntry{Command: "go", Args: []string{"run", "/tmp/tooltrust-mcp-helper"}}))
 }
 
-// ── scanLiveServer tests ────────────────────────────────────────────────────
+// scanLiveServer tests
 
 func TestScanLiveServer_EmptyArgs(t *testing.T) {
 	_, err := scanLiveServer(context.Background(), []string{}, nil)
@@ -1335,7 +1375,7 @@ func TestScanLiveServer_WithExtraEnv(t *testing.T) {
 	require.Error(t, err)
 }
 
-// ── processToolsRaw tests ───────────────────────────────────────────────────
+// processToolsRaw tests
 
 func TestProcessToolsRaw_EmptySlice(t *testing.T) {
 	result, err := processToolsRaw(context.Background(), nil)
