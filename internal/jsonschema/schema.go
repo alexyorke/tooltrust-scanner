@@ -1,5 +1,7 @@
 package jsonschema
 
+import "sort"
+
 // Property represents a single JSON Schema property definition.
 type Property struct {
 	Type        string              `json:"type,omitempty"`
@@ -27,6 +29,7 @@ func (s Schema) PropertyNames() []string {
 	for k := range s.Properties {
 		names = append(names, k)
 	}
+	sort.Strings(names)
 	return names
 }
 

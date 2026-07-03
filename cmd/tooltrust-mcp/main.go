@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -123,14 +124,28 @@ func buildScanJSONTool() mcplib.Tool {
 }
 
 func handleScanJSON(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	toolsJSON, ok := req.GetArguments()["tools_json"].(string)
-	if !ok || toolsJSON == "" {
+	raw, exists := req.GetArguments()["tools_json"]
+	if !exists {
+		return mcplib.NewToolResultError("tools_json argument is required and must be a non-empty string"), nil
+	}
+	toolsJSON, ok := raw.(string)
+	if !ok {
+		return mcplib.NewToolResultError("tools_json argument must be a string"), nil
+	}
+	toolsJSON = strings.TrimSpace(toolsJSON)
+	if toolsJSON == "" {
 		return mcplib.NewToolResultError("tools_json argument is required and must be a non-empty string"), nil
 	}
 
 	protocol := "mcp"
-	if p, ok := req.GetArguments()["protocol"].(string); ok && p != "" {
-		protocol = p
+	if raw, exists := req.GetArguments()["protocol"]; exists {
+		p, ok := raw.(string)
+		if !ok {
+			return mcplib.NewToolResultError("protocol argument must be a string"), nil
+		}
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			protocol = strings.ToLower(trimmed)
+		}
 	}
 
 	var tools []model.UnifiedTool
@@ -170,26 +185,73 @@ func buildScanServerTool() mcplib.Tool {
 }
 
 func handleScanServer(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	command, ok := req.GetArguments()["command"].(string)
-	if !ok || command == "" {
+	raw, exists := req.GetArguments()["command"]
+	if !exists {
+		return mcplib.NewToolResultError("command argument is required and must be a non-empty string"), nil
+	}
+	command, ok := raw.(string)
+	if !ok {
+		return mcplib.NewToolResultError("command argument must be a string"), nil
+	}
+	command = strings.TrimSpace(command)
+	if command == "" {
 		return mcplib.NewToolResultError("command argument is required and must be a non-empty string"), nil
 	}
 
-	args, err := shellquote.Split(command)
+	binary, env, args, err := splitServerCommand(command)
 	if err != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("failed to parse server command: %v", err)), nil
 	}
 
-	tools, err := scanLiveServer(ctx, args, nil)
+	launchArgs := append([]string{binary}, args...)
+	tools, err := scanLiveServer(ctx, launchArgs, env)
 	if err != nil {
 		return mcplib.NewToolResultText(fmt.Sprintf("Failed to scan live server: %v", err)), nil
 	}
 
-	if len(tools) == 0 {
-		return mcplib.NewToolResultText("Server connected successfully, but no tools were exported by this server."), nil
-	}
-
 	return processTools(ctx, tools)
+}
+
+func splitServerCommand(serverCmd string) (command string, env, args []string, err error) {
+	parts, err := shellquote.Split(serverCmd)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("failed to parse server command: %w", err)
+	}
+	for len(parts) > 0 && isEnvAssignment(parts[0]) {
+		if strings.ContainsRune(parts[0], '\x00') {
+			return "", nil, nil, fmt.Errorf("invalid environment assignment %q", parts[0])
+		}
+		env = append(env, parts[0])
+		parts = parts[1:]
+	}
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+		return "", nil, nil, fmt.Errorf("empty server command")
+	}
+	if strings.ContainsRune(parts[0], '\x00') {
+		return "", nil, nil, fmt.Errorf("invalid server command %q", parts[0])
+	}
+	for _, arg := range parts[1:] {
+		if strings.ContainsRune(arg, '\x00') {
+			return "", nil, nil, fmt.Errorf("invalid command argument %q", arg)
+		}
+	}
+	return parts[0], env, parts[1:], nil
+}
+
+func isEnvAssignment(arg string) bool {
+	idx := strings.IndexByte(arg, '=')
+	if idx <= 0 {
+		return false
+	}
+	name := arg[:idx]
+	for i := 0; i < len(name); i++ {
+		ch := name[i]
+		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_' || (i > 0 && ch >= '0' && ch <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // scanLiveServer spawns an MCP server, connects via stdio, lists its tools,
@@ -235,6 +297,9 @@ func scanLiveServer(ctx context.Context, args, extraEnv []string) ([]model.Unifi
 	if err != nil {
 		return nil, fmt.Errorf("tools/list map failed: %w", err)
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("tools/list map failed: empty response")
+	}
 
 	// We serialize the response back to JSON so we can use our existing adapter,
 	// which also runs the inference rules for permissions.
@@ -273,9 +338,20 @@ func buildLookupTool() mcplib.Tool {
 }
 
 func handleLookup(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	serverName, ok := req.GetArguments()["server_name"].(string)
-	if !ok || serverName == "" {
+	raw, exists := req.GetArguments()["server_name"]
+	if !exists {
 		return mcplib.NewToolResultError("server_name argument is required"), nil
+	}
+	serverName, ok := raw.(string)
+	if !ok {
+		return mcplib.NewToolResultError("server_name argument must be a string"), nil
+	}
+	serverName = strings.TrimSpace(serverName)
+	if serverName == "" {
+		return mcplib.NewToolResultError("server_name argument is required"), nil
+	}
+	if !isKebabCaseServerName(serverName) {
+		return mcplib.NewToolResultError("server_name must be a kebab-case identifier"), nil
 	}
 
 	url := fmt.Sprintf("https://raw.githubusercontent.com/AgentSafe-AI/tooltrust-directory/main/data/reports/%s.json", serverName)
@@ -287,6 +363,12 @@ func handleLookup(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Call
 	resp, err := http.DefaultClient.Do(reqHTTP)
 	if err != nil {
 		return mcplib.NewToolResultText(fmt.Sprintf("Failed to query ToolTrust Directory: %v", err)), nil
+	}
+	if resp == nil {
+		return mcplib.NewToolResultText("Failed to query ToolTrust Directory: empty response"), nil
+	}
+	if resp.Body == nil {
+		return mcplib.NewToolResultText("Failed to query ToolTrust Directory: empty response body"), nil
 	}
 	defer resp.Body.Close() //nolint:errcheck // defer close on read-only request
 
@@ -304,6 +386,26 @@ func handleLookup(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Call
 	}
 
 	return mcplib.NewToolResultText(string(bodyBytes)), nil
+}
+
+func isKebabCaseServerName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		ch := name[i]
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			continue
+		case ch >= '0' && ch <= '9':
+			continue
+		case ch == '-' && i > 0 && i < len(name)-1:
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // ── tooltrust_list_rules (Rule Catalog) ──────────────────────────────────────
@@ -386,7 +488,16 @@ func handleScanConfig(ctx context.Context, _ mcplib.CallToolRequest) (*mcplib.Ca
 	}
 
 	if len(cfg.MCPServers) == 0 {
-		return mcplib.NewToolResultText(fmt.Sprintf("No MCP servers configured in %s.", configPath)), nil
+		out := configScanResult{
+			ConfigFile: configPath,
+			Servers:    []serverScanResult{},
+			Summary:    configScanSummary{},
+		}
+		encoded, marshalErr := json.MarshalIndent(out, "", "  ")
+		if marshalErr != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("failed to serialize result: %v", marshalErr)), nil
+		}
+		return mcplib.NewToolResultText(string(encoded)), nil
 	}
 
 	// Scan all servers in parallel.
@@ -395,10 +506,7 @@ func handleScanConfig(ctx context.Context, _ mcplib.CallToolRequest) (*mcplib.Ca
 		result serverScanResult
 	}
 
-	serverNames := make([]string, 0, len(cfg.MCPServers))
-	for name := range cfg.MCPServers {
-		serverNames = append(serverNames, name)
-	}
+	serverNames := sortedMCPServerNames(cfg.MCPServers)
 
 	results := make([]serverScanResult, len(serverNames))
 	var wg sync.WaitGroup
@@ -450,8 +558,34 @@ func handleScanConfig(ctx context.Context, _ mcplib.CallToolRequest) (*mcplib.Ca
 	return mcplib.NewToolResultText(string(encoded)), nil
 }
 
+func sortedMCPServerNames(servers map[string]mcpServerEntry) []string {
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // scanOneServer scans a single MCP server from config.
 func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serverScanResult {
+	trimmedName := strings.TrimSpace(name)
+	if trimmedName == "" {
+		return serverScanResult{
+			Server: name,
+			Status: "error",
+			Error:  "empty server name",
+		}
+	}
+	if trimmedName != name {
+		return serverScanResult{
+			Server: name,
+			Status: "error",
+			Error:  fmt.Sprintf("invalid server name %q", name),
+		}
+	}
+	name = trimmedName
+
 	// Skip self-scan.
 	if isSelfEntry(name, entry) {
 		return serverScanResult{
@@ -460,12 +594,57 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 			Skipped: "tooltrust-mcp (self)",
 		}
 	}
+	if isEmptyCommandToken(entry.Command) {
+		return serverScanResult{
+			Server: name,
+			Status: "error",
+			Error:  "empty server command",
+		}
+	}
+	if strings.ContainsRune(entry.Command, '\x00') {
+		return serverScanResult{
+			Server: name,
+			Status: "error",
+			Error:  fmt.Sprintf("invalid server command %q", entry.Command),
+		}
+	}
+	entry.Command = strings.TrimSpace(entry.Command)
+	for _, arg := range entry.Args {
+		if isEmptyCommandToken(arg) {
+			return serverScanResult{
+				Server: name,
+				Status: "error",
+				Error:  fmt.Sprintf("invalid command argument %q", arg),
+			}
+		}
+		if strings.ContainsRune(arg, '\x00') {
+			return serverScanResult{
+				Server: name,
+				Status: "error",
+				Error:  fmt.Sprintf("invalid command argument %q", arg),
+			}
+		}
+	}
 
 	args := append([]string{entry.Command}, entry.Args...)
 
 	// Build extra env from config entry.
 	var extraEnv []string
 	for k, v := range entry.Env {
+		if !isValidEnvName(k) {
+			return serverScanResult{
+				Server: name,
+				Status: "error",
+				Error:  fmt.Sprintf("invalid environment variable name %q", k),
+			}
+		}
+		if strings.ContainsRune(v, '\x00') {
+			return serverScanResult{
+				Server: name,
+				Status: "error",
+				Error:  fmt.Sprintf("invalid environment variable value for %q", k),
+			}
+		}
 		extraEnv = append(extraEnv, k+"="+v)
 	}
 
@@ -479,10 +658,18 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 	}
 
 	if len(tools) == 0 {
+		emptyResult, processErr := processToolsRaw(ctx, nil)
+		if processErr != nil {
+			return serverScanResult{
+				Server: name,
+				Status: "error",
+				Error:  processErr.Error(),
+			}
+		}
 		return serverScanResult{
 			Server: name,
 			Status: "ok",
-			Result: &ScanResult{Summary: ScanSummary{Total: 0}},
+			Result: emptyResult,
 		}
 	}
 
@@ -502,24 +689,63 @@ func scanOneServer(ctx context.Context, name string, entry mcpServerEntry) serve
 	}
 }
 
-// isSelfEntry returns true if the config entry refers to tooltrust-mcp itself.
-func isSelfEntry(name string, entry mcpServerEntry) bool {
-	if strings.Contains(strings.ToLower(name), "tooltrust") {
+func isEmptyCommandToken(command string) bool {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
 		return true
 	}
-	cmdStr := entry.Command + " " + strings.Join(entry.Args, " ")
-	return strings.Contains(cmdStr, "tooltrust-mcp")
+	return strings.TrimSpace(strings.Trim(trimmed, `"'`)) == ""
+}
+
+func isValidEnvName(name string) bool {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" || trimmed != name {
+		return false
+	}
+	return !strings.Contains(trimmed, "=") && !strings.ContainsRune(trimmed, '\x00')
+}
+
+// isSelfEntry returns true if the config entry refers to tooltrust-mcp itself.
+func isSelfEntry(name string, entry mcpServerEntry) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "tooltrust", "tooltrust-scanner", "tooltrust-mcp":
+		return true
+	}
+	if referencesTooltrustMCP(entry.Command) {
+		return true
+	}
+	for _, arg := range entry.Args {
+		if referencesTooltrustMCP(arg) {
+			return true
+		}
+	}
+	return false
+}
+
+func referencesTooltrustMCP(token string) bool {
+	token = strings.ToLower(strings.Trim(strings.TrimSpace(token), `"'`))
+	if token == "" {
+		return false
+	}
+	switch token {
+	case "tooltrust-mcp", "@agentsafe-ai/tooltrust-mcp":
+		return true
+	}
+	base := strings.ToLower(filepath.Base(filepath.Clean(token)))
+	return strings.TrimSuffix(base, filepath.Ext(base)) == "tooltrust-mcp"
 }
 
 // loadMCPConfig searches for the MCP config file and parses it.
 func loadMCPConfig() (string, mcpConfig, error) {
 	// 1. Check .mcp.json in current directory.
 	if data, err := os.ReadFile(".mcp.json"); err == nil {
-		var cfg mcpConfig
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			return ".mcp.json", mcpConfig{}, fmt.Errorf("failed to parse .mcp.json: %w", err)
+		cfg, parseErr := parseMCPConfig(data)
+		if parseErr != nil {
+			return ".mcp.json", mcpConfig{}, fmt.Errorf("failed to parse .mcp.json: %w", parseErr)
 		}
 		return ".mcp.json", cfg, nil
+	} else if !os.IsNotExist(err) {
+		return ".mcp.json", mcpConfig{}, fmt.Errorf("failed to read .mcp.json: %w", err)
 	}
 
 	// 2. Check ~/.claude.json.
@@ -527,11 +753,13 @@ func loadMCPConfig() (string, mcpConfig, error) {
 	if err == nil {
 		claudePath := filepath.Join(home, ".claude.json")
 		if data, err := os.ReadFile(claudePath); err == nil { // #nosec G304 -- path is ~/.claude.json, not user-controlled
-			var cfg mcpConfig
-			if err := json.Unmarshal(data, &cfg); err != nil {
-				return claudePath, mcpConfig{}, fmt.Errorf("failed to parse %s: %w", claudePath, err)
+			cfg, parseErr := parseMCPConfig(data)
+			if parseErr != nil {
+				return claudePath, mcpConfig{}, fmt.Errorf("failed to parse %s: %w", claudePath, parseErr)
 			}
 			return claudePath, cfg, nil
+		} else if !os.IsNotExist(err) {
+			return claudePath, mcpConfig{}, fmt.Errorf("failed to read %s: %w", claudePath, err)
 		}
 	}
 
@@ -541,20 +769,81 @@ func loadMCPConfig() (string, mcpConfig, error) {
 	)
 }
 
+func parseMCPConfig(data []byte) (mcpConfig, error) {
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return mcpConfig{}, fmt.Errorf("parse config json: %w", err)
+	}
+	if topLevel == nil {
+		return mcpConfig{}, fmt.Errorf("config must be a JSON object")
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
+		return mcpConfig{}, fmt.Errorf("config must be a JSON object")
+	}
+
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return mcpConfig{}, fmt.Errorf("parse config json: %w", err)
+	}
+
+	var cfg mcpConfig
+	rawServers, ok := doc["mcpServers"]
+	if !ok {
+		return cfg, nil
+	}
+	var serversTopLevel any
+	if err := json.Unmarshal(rawServers, &serversTopLevel); err != nil {
+		return mcpConfig{}, fmt.Errorf("mcpServers must be an object: %w", err)
+	}
+	if serversTopLevel == nil {
+		return mcpConfig{}, fmt.Errorf("mcpServers must be an object")
+	}
+	if _, ok := serversTopLevel.(map[string]any); !ok {
+		return mcpConfig{}, fmt.Errorf("mcpServers must be an object")
+	}
+	var rawEntries map[string]json.RawMessage
+	if err := json.Unmarshal(rawServers, &rawEntries); err != nil {
+		return mcpConfig{}, fmt.Errorf("mcpServers must be an object: %w", err)
+	}
+	cfg.MCPServers = make(map[string]mcpServerEntry, len(rawEntries))
+	for name, rawEntry := range rawEntries {
+		var entryTopLevel any
+		if err := json.Unmarshal(rawEntry, &entryTopLevel); err != nil {
+			return mcpConfig{}, fmt.Errorf("mcpServers[%q] must be an object: %w", name, err)
+		}
+		if entryTopLevel == nil {
+			return mcpConfig{}, fmt.Errorf("mcpServers[%q] must be an object", name)
+		}
+		if _, ok := entryTopLevel.(map[string]any); !ok {
+			return mcpConfig{}, fmt.Errorf("mcpServers[%q] must be an object", name)
+		}
+		var entry mcpServerEntry
+		if err := json.Unmarshal(rawEntry, &entry); err != nil {
+			return mcpConfig{}, fmt.Errorf("mcpServers[%q] must be an object: %w", name, err)
+		}
+		cfg.MCPServers[name] = entry
+	}
+	return cfg, nil
+}
+
 // ── Common Scanner Processing Logic ─────────────────────────────────────────
 
 // ScanResult is the JSON shape returned by the scan tools.
 type ScanResult struct {
-	Policies []model.GatewayPolicy `json:"policies"`
-	Summary  ScanSummary           `json:"summary"`
+	SchemaVersion string                `json:"schema_version"`
+	Policies      []model.GatewayPolicy `json:"policies"`
+	Summary       ScanSummary           `json:"summary"`
 }
 
 // ScanSummary gives a high-level count of the enforcement decisions.
 type ScanSummary struct {
-	Total    int `json:"total"`
-	Allowed  int `json:"allowed"`
-	Approval int `json:"requireApproval"`
-	Blocked  int `json:"blocked"`
+	Total           int       `json:"total"`
+	Allowed         int       `json:"allowed"`
+	RequireApproval int       `json:"require_approval"`
+	Blocked         int       `json:"blocked"`
+	AvgScore        int       `json:"avg_score"`
+	AvgGrade        string    `json:"avg_grade"`
+	ScannedAt       time.Time `json:"scanned_at"`
 }
 
 func processTools(ctx context.Context, tools []model.UnifiedTool) (*mcplib.CallToolResult, error) {
@@ -573,15 +862,6 @@ func processTools(ctx context.Context, tools []model.UnifiedTool) (*mcplib.CallT
 			},
 		},
 	}, nil
-}
-
-// severityWeight mirrors the CLI scanner weights for display.
-var severityWeight = map[model.Severity]int{
-	model.SeverityCritical: 25,
-	model.SeverityHigh:     15,
-	model.SeverityMedium:   8,
-	model.SeverityLow:      2,
-	model.SeverityInfo:     0,
 }
 
 // gradeEmoji returns the emoji prefix for a tool's final grade.
@@ -641,7 +921,7 @@ func renderTextReport(result *ScanResult) string {
 
 	lines = append(lines,
 		fmt.Sprintf("Scan Summary: %d tools scanned | %d allowed | %d need approval | %d blocked",
-			result.Summary.Total, result.Summary.Allowed, result.Summary.Approval, result.Summary.Blocked),
+			result.Summary.Total, result.Summary.Allowed, result.Summary.RequireApproval, result.Summary.Blocked),
 		fmt.Sprintf("Tool Grades: %s", joinOrNone(gradeParts)),
 		fmt.Sprintf("Findings by Severity: %s (%d total)", joinOrNone(sevParts), totalFindings),
 	)
@@ -748,12 +1028,10 @@ func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig
 
 	for _, issue := range policy.Score.Issues {
 		switch {
-		case issue.RuleID == "AS-002" && strings.Contains(issue.Description, "network permission"):
-			hasNetwork = true
-		case issue.RuleID == "AS-002" && strings.Contains(issue.Description, "fs permission"):
-			hasFS = true
-		case issue.RuleID == "AS-002" && strings.Contains(issue.Description, "db permission"):
-			hasDB = true
+		case issue.RuleID == "AS-002" && issue.Code == "CAPABILITY_SURFACE":
+			hasNetwork = hasNetwork || issueHasCapability(issue, model.PermissionNetwork) || strings.Contains(issue.Description, "network permission")
+			hasFS = hasFS || issueHasCapability(issue, model.PermissionFS) || strings.Contains(issue.Description, "fs permission")
+			hasDB = hasDB || issueHasCapability(issue, model.PermissionDB) || strings.Contains(issue.Description, "db permission")
 		case issue.RuleID == "AS-011":
 			hasRateLimitGap = true
 		}
@@ -790,6 +1068,15 @@ func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig
 	return actionNow, saferConfig
 }
 
+func issueHasCapability(issue model.Issue, capability model.Permission) bool {
+	for _, evidence := range issue.Evidence {
+		if evidence.Kind == "capability" && evidence.Value == string(capability) {
+			return true
+		}
+	}
+	return false
+}
+
 // processToolsRaw runs the scanner and returns raw results (used by both
 // processTools and scanOneServer to avoid double-serialization).
 func processToolsRaw(ctx context.Context, tools []model.UnifiedTool) (*ScanResult, error) {
@@ -797,8 +1084,8 @@ func processToolsRaw(ctx context.Context, tools []model.UnifiedTool) (*ScanResul
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize scanner: %v", err)
 	}
-	var policies []model.GatewayPolicy
-	summary := ScanSummary{Total: len(tools)}
+	policies := make([]model.GatewayPolicy, 0, len(tools))
+	summary := ScanSummary{Total: len(tools), ScannedAt: time.Now().UTC()}
 
 	for i := range tools {
 		score, scanErr := scanner.Scan(ctx, tools[i])
@@ -816,11 +1103,31 @@ func processToolsRaw(ctx context.Context, tools []model.UnifiedTool) (*ScanResul
 		case model.ActionAllow:
 			summary.Allowed++
 		case model.ActionRequireApproval:
-			summary.Approval++
+			summary.RequireApproval++
 		case model.ActionBlock:
 			summary.Blocked++
 		}
 	}
 
-	return &ScanResult{Policies: policies, Summary: summary}, nil
+	summary.AvgScore, summary.AvgGrade = avgRiskScore(policies)
+
+	return &ScanResult{
+		SchemaVersion: "1.0",
+		Policies:      policies,
+		Summary:       summary,
+	}, nil
+}
+
+func avgRiskScore(policies []model.GatewayPolicy) (score int, grade string) {
+	if len(policies) == 0 {
+		return 0, string(model.GradeA)
+	}
+
+	total := 0
+	for i := range policies {
+		total += policies[i].Score.Score
+	}
+
+	avg := total / len(policies)
+	return avg, string(model.GradeFromScore(avg))
 }

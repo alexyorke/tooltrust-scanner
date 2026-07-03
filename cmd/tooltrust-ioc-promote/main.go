@@ -66,14 +66,27 @@ func run(args []string) error {
 	}
 
 	candidatePath := args[0]
-	data, err := os.ReadFile(candidatePath)
+	data, err := os.ReadFile(candidatePath) // #nosec G304,G703 -- candidate path is the explicit CLI input.
 	if err != nil {
 		return fmt.Errorf("read candidate file: %w", err)
 	}
 
 	var candidates []candidateIOC
+	var topLevel any
+	if unmarshalErr := json.Unmarshal(data, &topLevel); unmarshalErr != nil {
+		return fmt.Errorf("parse candidate file: %w", unmarshalErr)
+	}
+	if topLevel == nil {
+		return errors.New("parse candidate file: top-level JSON value must be an array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return errors.New("parse candidate file: top-level JSON value must be an array")
+	}
 	if unmarshalErr := json.Unmarshal(data, &candidates); unmarshalErr != nil {
 		return fmt.Errorf("parse candidate file: %w", unmarshalErr)
+	}
+	if candidates == nil {
+		return errors.New("parse candidate file: top-level JSON value must be an array")
 	}
 	if len(candidates) == 0 {
 		return errors.New("candidate file is empty")
@@ -98,12 +111,12 @@ func run(args []string) error {
 	seen := make(map[string]bool, len(current))
 	for i := range current {
 		entry := current[i]
-		seen[npmIOCSeenKey(entry.IOCType, firstNonEmpty(entry.Value, entry.Name), entry.Match)] = true
+		seen[npmIOCSeenKey(entry.IOCType, firstNonEmpty(entry.Value, entry.Name), normalizeNPMIOCMatch(entry.IOCType, entry.Match))] = true
 	}
 	seenBlacklist := make(map[string]bool, len(blacklist))
 	for i := range blacklist {
 		entry := blacklist[i]
-		seenBlacklist[strings.ToLower(entry.Ecosystem)+":"+strings.ToLower(entry.Component)+":"+strings.Join(entry.AffectedVersions, ",")] = true
+		seenBlacklist[blacklistSeenKey(entry.Ecosystem, entry.Component, entry.AffectedVersions)] = true
 	}
 
 	var addedNPMIOCs int
@@ -125,14 +138,7 @@ func run(args []string) error {
 			}
 
 			value := strings.TrimSpace(candidate.Value)
-			match := strings.TrimSpace(candidate.Match)
-			if match == "" {
-				if candidate.IOCType == "package_name" || candidate.IOCType == "dependency_name" {
-					match = "exact"
-				} else {
-					match = "contains"
-				}
-			}
+			match := normalizeNPMIOCMatch(candidate.IOCType, candidate.Match)
 			key := npmIOCSeenKey(candidate.IOCType, value, match)
 			if seen[key] {
 				continue
@@ -173,7 +179,7 @@ func run(args []string) error {
 				return fmt.Errorf("invalid candidate %q: blacklist severity must be CRITICAL/HIGH/MEDIUM/LOW", candidate.Value)
 			}
 
-			key := strings.ToLower(candidate.Ecosystem) + ":" + strings.ToLower(candidate.Value) + ":" + strings.Join(candidate.AffectedVers, ",")
+			key := blacklistSeenKey(candidate.Ecosystem, candidate.Value, candidate.AffectedVers)
 			if seenBlacklist[key] {
 				continue
 			}
@@ -205,7 +211,7 @@ func run(args []string) error {
 		return fmt.Errorf("marshal npm_iocs.json: %w", err)
 	}
 	out = append(out, '\n')
-	if writeErr := os.WriteFile(npmIOCPath, out, 0o644); writeErr != nil {
+	if writeErr := os.WriteFile(npmIOCPath, out, 0o600); writeErr != nil {
 		return fmt.Errorf("write npm_iocs.json: %w", writeErr)
 	}
 	sort.Slice(blacklist, func(i, j int) bool {
@@ -219,7 +225,7 @@ func run(args []string) error {
 		return fmt.Errorf("marshal blacklist.json: %w", err)
 	}
 	blacklistOut = append(blacklistOut, '\n')
-	if err := os.WriteFile(blacklistPath, blacklistOut, 0o644); err != nil {
+	if err := os.WriteFile(blacklistPath, blacklistOut, 0o600); err != nil {
 		return fmt.Errorf("write blacklist.json: %w", err)
 	}
 
@@ -232,6 +238,30 @@ func npmIOCSeenKey(iocType, value, match string) string {
 	return strings.ToLower(strings.TrimSpace(iocType)) + ":" + strings.ToLower(strings.TrimSpace(value)) + ":" + strings.ToLower(strings.TrimSpace(match))
 }
 
+func normalizeNPMIOCMatch(iocType, match string) string {
+	normalized := strings.TrimSpace(match)
+	if normalized != "" {
+		return normalized
+	}
+	switch strings.TrimSpace(iocType) {
+	case "package_name", "dependency_name":
+		return "exact"
+	default:
+		return "contains"
+	}
+}
+
+func blacklistSeenKey(ecosystem, component string, affectedVersions []string) string {
+	versions := append([]string(nil), affectedVersions...)
+	sort.Slice(versions, func(i, j int) bool {
+		return strings.ToLower(strings.TrimSpace(versions[i])) < strings.ToLower(strings.TrimSpace(versions[j]))
+	})
+	for i := range versions {
+		versions[i] = strings.ToLower(strings.TrimSpace(versions[i]))
+	}
+	return strings.ToLower(strings.TrimSpace(ecosystem)) + ":" + strings.ToLower(strings.TrimSpace(component)) + ":" + strings.Join(versions, ",")
+}
+
 func firstNonEmpty(values ...string) string {
 	for i := range values {
 		if strings.TrimSpace(values[i]) != "" {
@@ -242,25 +272,51 @@ func firstNonEmpty(values ...string) string {
 }
 
 func readNPMIOCs(path string) ([]npmIOCEntry, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is derived from the repository data directory.
 	if err != nil {
 		return nil, fmt.Errorf("read npm_iocs.json: %w", err)
+	}
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse npm_iocs.json: %w", err)
+	}
+	if topLevel == nil {
+		return nil, errors.New("parse npm_iocs.json: top-level JSON value must be an array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return nil, errors.New("parse npm_iocs.json: top-level JSON value must be an array")
 	}
 	var entries []npmIOCEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("parse npm_iocs.json: %w", err)
 	}
+	if entries == nil {
+		return nil, errors.New("parse npm_iocs.json: top-level JSON value must be an array")
+	}
 	return entries, nil
 }
 
 func readBlacklist(path string) ([]blacklistEntry, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is derived from the repository data directory.
 	if err != nil {
 		return nil, fmt.Errorf("read blacklist.json: %w", err)
+	}
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse blacklist.json: %w", err)
+	}
+	if topLevel == nil {
+		return nil, errors.New("parse blacklist.json: top-level JSON value must be an array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return nil, errors.New("parse blacklist.json: top-level JSON value must be an array")
 	}
 	var entries []blacklistEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("parse blacklist.json: %w", err)
+	}
+	if entries == nil {
+		return nil, errors.New("parse blacklist.json: top-level JSON value must be an array")
 	}
 	return entries, nil
 }
@@ -286,6 +342,11 @@ func validateCandidate(candidate candidateIOC) error {
 	}
 	if _, err := time.Parse("2006-01-02", candidate.FirstSeen); err != nil {
 		return fmt.Errorf("invalid first_seen: %w", err)
+	}
+	switch strings.TrimSpace(candidate.PromoteTo) {
+	case "npm_iocs", "blacklist":
+	default:
+		return errors.New("unknown promote_to")
 	}
 	return nil
 }

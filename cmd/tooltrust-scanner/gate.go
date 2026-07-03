@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kballard/go-shellquote"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 
@@ -93,10 +94,36 @@ the grade threshold.
 }
 
 func runGate(ctx context.Context, opts gateOpts) error {
+	blockOnGrade, err := parseGrade(opts.blockOn)
+	if err != nil {
+		return err
+	}
+	scope := strings.TrimSpace(opts.scope)
+	if opts.scope != "" && scope == "" {
+		return fmt.Errorf("invalid --scope %q (use: project or user)", opts.scope)
+	}
+	if scope == "" {
+		scope = "project"
+	}
+	if scope != "project" && scope != "user" {
+		return fmt.Errorf("invalid --scope %q (use: project or user)", opts.scope)
+	}
+	opts.scope = scope
+	opts.packageName = strings.TrimSpace(opts.packageName)
+	if opts.packageName == "" {
+		return fmt.Errorf("invalid package name: must not be empty or whitespace")
+	}
+
 	// Derive server name.
-	serverName := opts.name
+	serverName := strings.TrimSpace(opts.name)
+	if opts.name != "" && serverName == "" {
+		return fmt.Errorf("invalid --name: must not be empty or whitespace")
+	}
 	if serverName == "" {
 		serverName = deriveServerName(opts.packageName)
+		if serverName == "" {
+			return fmt.Errorf("invalid package name: could not derive server name from %q", opts.packageName)
+		}
 	}
 
 	// Build the npx command string for scanning.
@@ -110,9 +137,12 @@ func runGate(ctx context.Context, opts gateOpts) error {
 	liveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	tools, err := scanLiveServer(liveCtx, serverCmd)
+	tools, err := scanLiveServerFn(liveCtx, serverCmd)
 	if err != nil {
 		return fmt.Errorf("live server scan failed: %w", err)
+	}
+	if len(tools) == 0 {
+		return fmt.Errorf("live server exposed no tools")
 	}
 
 	// Initialize scanner.
@@ -133,7 +163,6 @@ func runGate(ctx context.Context, opts gateOpts) error {
 			return fmt.Errorf("gateway evaluation failed for tool %q: %w", tools[i].Name, evalErr)
 		}
 		policy.Behavior, policy.Destinations = analyzer.SummarizeToolContext(tools[i])
-		policy.DependencyVisibility, policy.DependencyNote = dependencyVisibilityForTool(tools[i])
 		policies = append(policies, policy)
 	}
 
@@ -172,11 +201,6 @@ func runGate(ctx context.Context, opts gateOpts) error {
 
 	// Gate decision.
 	worst := worstGrade(policies)
-	blockOnGrade, err := parseGrade(opts.blockOn)
-	if err != nil {
-		return err
-	}
-
 	proceed := gateDecision(worst, blockOnGrade, opts.force)
 	if !proceed {
 		return &blockedError{grade: worst}
@@ -198,22 +222,26 @@ func runGate(ctx context.Context, opts gateOpts) error {
 // "@modelcontextprotocol/server-memory" → "server-memory"
 // "some-package" → "some-package".
 func deriveServerName(packageName string) string {
-	if idx := strings.LastIndex(packageName, "/"); idx >= 0 {
-		return packageName[idx+1:]
+	name := packageName
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
 	}
-	return packageName
+	if idx := strings.LastIndex(name, "@"); idx > 0 {
+		name = name[:idx]
+	}
+	return name
 }
 
 // buildServerCommand builds the npx command string for running the server.
 func buildServerCommand(packageName string, extraArgs []string) string {
 	parts := []string{"npx", "-y", packageName}
 	parts = append(parts, extraArgs...)
-	return strings.Join(parts, " ")
+	return shellquote.Join(parts...)
 }
 
 // parseGrade converts a grade string to a model.Grade.
 func parseGrade(s string) (model.Grade, error) {
-	switch strings.ToUpper(s) {
+	switch strings.ToUpper(strings.TrimSpace(s)) {
 	case "A":
 		return model.GradeA, nil
 	case "B":
@@ -298,7 +326,9 @@ func installServer(ctx context.Context, opts gateOpts, serverName, serverCmd str
 	// Try claude CLI first.
 	claudePath, err := exec.LookPath("claude")
 	if err == nil {
-		return installViaCLI(ctx, claudePath, serverName, opts)
+		if cliErr := installViaCLI(ctx, claudePath, serverName, opts); cliErr == nil {
+			return nil
+		}
 	}
 
 	// Fallback: write config file directly.
@@ -308,13 +338,16 @@ func installServer(ctx context.Context, opts gateOpts, serverName, serverCmd str
 // installViaCLI uses the claude CLI to add the server.
 func installViaCLI(ctx context.Context, claudePath, serverName string, opts gateOpts) error {
 	args := []string{"mcp", "add", serverName}
-	if opts.scope == "user" {
-		args = append(args, "-s", "user")
+	switch opts.scope {
+	case "project", "user":
+		args = append(args, "-s", opts.scope)
+	default:
+		return fmt.Errorf("invalid --scope %q (use: project or user)", opts.scope)
 	}
 	args = append(args, "--", "npx", "-y", opts.packageName)
 	args = append(args, opts.extraArgs...)
 
-	cmd := exec.CommandContext(ctx, claudePath, args...)
+	cmd := exec.CommandContext(ctx, claudePath, args...) // #nosec G204 -- claudePath is resolved with LookPath and args are intentionally user/package supplied.
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if cmdErr := cmd.Run(); cmdErr != nil {
@@ -331,16 +364,37 @@ func installViaConfig(serverName string, opts gateOpts) error {
 	}
 
 	cfg := mcpConfig{MCPServers: make(map[string]mcpServerEntry)}
+	document := map[string]json.RawMessage{}
 
 	// Read existing config if present.
-	data, readErr := os.ReadFile(configPath)
+	data, readErr := os.ReadFile(configPath) // #nosec G304 -- configPath is resolved to the project/user MCP config.
 	if readErr == nil {
-		if uErr := json.Unmarshal(data, &cfg); uErr != nil {
+		var topLevel any
+		if uErr := json.Unmarshal(data, &topLevel); uErr != nil {
 			return fmt.Errorf("failed to parse existing config %s: %w", configPath, uErr)
+		}
+		if topLevel == nil {
+			return fmt.Errorf("failed to parse existing config %s: config must be a JSON object", configPath)
+		}
+		if _, ok := topLevel.(map[string]any); !ok {
+			return fmt.Errorf("failed to parse existing config %s: config must be a JSON object", configPath)
+		}
+
+		if uErr := json.Unmarshal(data, &document); uErr != nil {
+			return fmt.Errorf("failed to parse existing config %s: %w", configPath, uErr)
+		}
+		if serversRaw, ok := document["mcpServers"]; ok {
+			servers, uErr := parseMCPServers(serversRaw)
+			if uErr != nil {
+				return fmt.Errorf("failed to parse existing mcpServers in %s: %w", configPath, uErr)
+			}
+			cfg.MCPServers = servers
 		}
 		if cfg.MCPServers == nil {
 			cfg.MCPServers = make(map[string]mcpServerEntry)
 		}
+	} else if !os.IsNotExist(readErr) {
+		return fmt.Errorf("failed to read existing config %s: %w", configPath, readErr)
 	}
 
 	// Build the server entry.
@@ -353,24 +407,69 @@ func installViaConfig(serverName string, opts gateOpts) error {
 	}
 
 	// Write config.
-	encoded, err := json.MarshalIndent(cfg, "", "  ")
+	servers, err := json.Marshal(cfg.MCPServers)
+	if err != nil {
+		return fmt.Errorf("failed to encode mcpServers: %w", err)
+	}
+	document["mcpServers"] = servers
+	encoded, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to encode config: %w", err)
 	}
 
 	// Ensure parent directory exists.
 	if dir := filepath.Dir(configPath); dir != "." {
-		if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
+		if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
 			return fmt.Errorf("failed to create config directory: %w", mkErr)
 		}
 	}
 
-	if err := os.WriteFile(configPath, encoded, 0o644); err != nil {
+	if err := os.WriteFile(configPath, encoded, 0o600); err != nil {
 		return fmt.Errorf("failed to write config %s: %w", configPath, err)
 	}
 
 	pterm.Info.Printfln("Config written to %s", configPath)
 	return nil
+}
+
+func parseMCPServers(data json.RawMessage) (map[string]mcpServerEntry, error) {
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("mcpServers must be an object: %w", err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("mcpServers must be an object")
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
+		return nil, fmt.Errorf("mcpServers must be an object")
+	}
+
+	var rawEntries map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawEntries); err != nil {
+		return nil, fmt.Errorf("mcpServers must be an object: %w", err)
+	}
+
+	servers := make(map[string]mcpServerEntry, len(rawEntries))
+	for name, rawEntry := range rawEntries {
+		var entryTopLevel any
+		if err := json.Unmarshal(rawEntry, &entryTopLevel); err != nil {
+			return nil, fmt.Errorf("mcpServers[%q] must be an object: %w", name, err)
+		}
+		if entryTopLevel == nil {
+			return nil, fmt.Errorf("mcpServers[%q] must be an object", name)
+		}
+		if _, ok := entryTopLevel.(map[string]any); !ok {
+			return nil, fmt.Errorf("mcpServers[%q] must be an object", name)
+		}
+
+		var entry mcpServerEntry
+		if err := json.Unmarshal(rawEntry, &entry); err != nil {
+			return nil, fmt.Errorf("mcpServers[%q] must be an object: %w", name, err)
+		}
+		servers[name] = entry
+	}
+
+	return servers, nil
 }
 
 // resolveConfigPath returns the path to the appropriate config file.

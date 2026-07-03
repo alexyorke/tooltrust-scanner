@@ -35,7 +35,8 @@ jobs:
           tooltrust-scanner scan \
             --protocol mcp \
             --input tools.json \
-            --output scan-report.json \
+            --output json \
+            --file scan-report.json \
             --fail-on block
         # If tools.json path differs, e.g. --input path/to/your-tools.json
 

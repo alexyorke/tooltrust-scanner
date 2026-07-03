@@ -24,29 +24,52 @@ var secretParamPatterns = []string{
 // secretParamAllowlist contains parameter names that match secretParamPatterns
 // but are actually pagination cursors, not credentials.
 var secretParamAllowlist = map[string]bool{
-	"pagetoken":          true,
-	"page_token":         true,
-	"next_token":         true,
-	"nexttoken":          true,
-	"cursor":             true,
-	"next_cursor":        true,
-	"nextcursor":         true,
-	"continuation_token": true,
-	"sync_token":         true,
-	"resume_token":       true,
+	"pagetoken":           true,
+	"page_token":          true,
+	"next_page_token":     true,
+	"nextpagetoken":       true,
+	"next_token":          true,
+	"nexttoken":           true,
+	"cursor":              true,
+	"next_cursor":         true,
+	"nextcursor":          true,
+	"continuation_token":  true,
+	"continuationtoken":   true,
+	"sync_token":          true,
+	"synctoken":           true,
+	"resume_token":        true,
+	"resumetoken":         true,
+	"maxtokens":           true,
+	"inputtokens":         true,
+	"outputtokens":        true,
+	"prompttokens":        true,
+	"completiontokens":    true,
+	"totaltokens":         true,
+	"tokencount":          true,
+	"tokencounts":         true,
+	"tokenlimit":          true,
+	"tokenizer":           true,
+	"tokenizetext":        true,
+	"tokenizerconfig":     true,
+	"tokenizationoption":  true,
+	"tokenizationoptions": true,
 }
 
 // secretDescriptionPatterns detect when a tool description signals that
 // credentials are logged or stored in an insecure manner.
 var secretDescriptionPatterns = []string{
 	"log the api key",
+	"logs the api key",
 	"store password",
+	"stores the password",
 	"print token",
 	"output credential",
 	"write secret",
 	"save password",
 	"expose key",
 }
+
+var secretParamNormalizer = strings.NewReplacer("_", "", "-", "")
 
 // SecretHandlingChecker flags tools that accept credentials as input
 // parameters (high leakage risk in agent traces) and descriptions that suggest
@@ -72,10 +95,10 @@ func (c *SecretHandlingChecker) Check(tool model.UnifiedTool) ([]model.Issue, er
 	var issues []model.Issue
 
 	// 1. Input schema: look for parameter names that indicate secrets
-	for propName := range tool.InputSchema.Properties {
-		nameLower := strings.ToLower(propName)
-		if secretParamAllowlist[nameLower] {
-			continue
+	walkSchemaLeafPropertyPaths(tool.InputSchema, func(propName string) bool {
+		nameLower := strings.ToLower(schemaPathBase(propName))
+		if secretParamAllowlist[nameLower] || secretParamAllowlist[normalizeSecretParamName(nameLower)] {
+			return true
 		}
 		for _, pattern := range secretParamPatterns {
 			if nameLower == pattern || strings.Contains(nameLower, pattern) {
@@ -90,7 +113,8 @@ func (c *SecretHandlingChecker) Check(tool model.UnifiedTool) ([]model.Issue, er
 				break
 			}
 		}
-	}
+		return true
+	})
 
 	// 2. Description: look for insecure secret handling language
 	descLower := strings.ToLower(tool.Description)
@@ -109,4 +133,16 @@ func (c *SecretHandlingChecker) Check(tool model.UnifiedTool) ([]model.Issue, er
 	}
 
 	return issues, nil
+}
+
+func schemaPathBase(path string) string {
+	trimmed := strings.TrimSuffix(path, "[]")
+	if idx := strings.LastIndex(trimmed, "."); idx >= 0 {
+		return trimmed[idx+1:]
+	}
+	return trimmed
+}
+
+func normalizeSecretParamName(name string) string {
+	return secretParamNormalizer.Replace(name)
 }

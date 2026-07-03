@@ -42,12 +42,13 @@ var signatures = []SDKSignature{
 	},
 	{
 		Language:       "typescript",
-		FileExtensions: []string{".ts", ".tsx", ".js", ".mjs"},
+		FileExtensions: []string{".ts", ".tsx", ".js", ".mjs", ".cjs"},
 		ImportPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`["']@modelcontextprotocol/sdk`),
 		},
 		InitPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`\bnew\s+McpServer\s*\(`),
+			regexp.MustCompile(`\bnew\s+Server\s*\(`),
 		},
 		ToolDefPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`\.registerTool\s*\(`),

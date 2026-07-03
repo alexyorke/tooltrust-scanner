@@ -1,6 +1,7 @@
 package sourcedetect
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -18,6 +19,7 @@ func TestDetectEmbeddedMCP_PositiveFixtures(t *testing.T) {
 		{"go-mark3labs", "go-mark3labs", "go"},
 		{"python", "python-fastmcp", "python"},
 		{"ts", "ts-mcp-server", "typescript"},
+		{"ts-sdk-server", "ts-sdk-server", "typescript"},
 	}
 
 	for _, tc := range cases {
@@ -57,6 +59,89 @@ func TestDetectEmbeddedMCP_SkipAndIgnoreRules(t *testing.T) {
 	}
 }
 
+func TestDetectEmbeddedMCP_RejectsFilePathAsRepoRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "server.go")
+	require.NoError(t, os.WriteFile(root, []byte("package main\n"), 0o644))
+
+	_, err := DetectEmbeddedMCP(root, Options{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "directory")
+}
+
+func TestDetectEmbeddedMCP_IgnorePatternCoversNestedPaths(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "internal", "pkg"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, ".tooltrust-ignore"),
+		[]byte("internal/*\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "internal", "pkg", "server.go"),
+		[]byte(`package server
+
+import "github.com/modelcontextprotocol/go-sdk/mcp"
+
+func Run() {
+	_ = mcp.NewServer(nil, nil)
+}
+`),
+		0o644,
+	))
+
+	got, err := DetectEmbeddedMCP(dir, Options{})
+	require.NoError(t, err)
+	assert.False(t, got.HasEmbeddedMCP)
+	assert.Empty(t, got.Findings)
+}
+
+func TestDetectEmbeddedMCP_IgnoreFileReadErrorSurfaces(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".tooltrust-ignore"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "server.go"),
+		[]byte(`package main
+
+import "github.com/modelcontextprotocol/go-sdk/mcp"
+
+func main() {
+	_ = mcp.NewServer(nil, nil)
+}
+`),
+		0o644,
+	))
+
+	_, err := DetectEmbeddedMCP(dir, Options{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), ".tooltrust-ignore")
+}
+
+func TestDetectEmbeddedMCP_InvalidIgnorePatternSurfaces(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, ".tooltrust-ignore"),
+		[]byte("[\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "server.go"),
+		[]byte(`package main
+
+import "github.com/modelcontextprotocol/go-sdk/mcp"
+
+func main() {
+	_ = mcp.NewServer(nil, nil)
+}
+`),
+		0o644,
+	))
+
+	_, err := DetectEmbeddedMCP(dir, Options{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), ".tooltrust-ignore")
+	assert.Contains(t, err.Error(), "pattern")
+}
+
 func TestDetectEmbeddedMCP_AS019RouteAuthAsymmetry(t *testing.T) {
 	got, err := DetectEmbeddedMCP(filepath.Join("testdata", "fixtures", "go-gin-auth-asymmetry"), Options{})
 	require.NoError(t, err)
@@ -85,4 +170,49 @@ func TestDetectEmbeddedMCP_AS019NoFalsePositiveWhenAuthConsistent(t *testing.T) 
 	for _, issue := range got.Findings {
 		assert.NotEqual(t, "AS-019", issue.RuleID)
 	}
+}
+
+func TestDetectEmbeddedMCP_AS019RouteAuthAsymmetryAcrossFiles(t *testing.T) {
+	got, err := DetectEmbeddedMCP(filepath.Join("testdata", "fixtures", "go-gin-auth-asymmetry-crossfile"), Options{})
+	require.NoError(t, err)
+	require.True(t, got.HasEmbeddedMCP)
+	require.Len(t, got.Detection.RouteFindings, 1)
+	assert.Equal(t, "/mcp", got.Detection.RouteFindings[0].Authenticated.Path)
+	assert.Equal(t, "/mcp_message", got.Detection.RouteFindings[0].Unauthenticated.Path)
+	var found bool
+	for _, issue := range got.Findings {
+		if issue.RuleID == "AS-019" {
+			found = true
+			assert.Equal(t, "CRITICAL", string(issue.Severity))
+			assert.Contains(t, issue.Description, "/mcp_message")
+		}
+	}
+	assert.True(t, found, "expected AS-019 finding across files")
+}
+
+func TestDetectEmbeddedMCP_MaxMatchesPerLanguageDoesNotStopOtherLanguages(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo\n\ngo 1.21\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "server.go"), []byte(`package main
+
+import "github.com/modelcontextprotocol/go-sdk/mcp"
+
+func main() {
+	_ = mcp.NewServer(nil, nil)
+}
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("demo")
+`), 0o644))
+
+	got, err := DetectEmbeddedMCP(dir, Options{MaxMatchesPerLanguage: 1})
+	require.NoError(t, err)
+	assert.True(t, got.HasEmbeddedMCP)
+	languages := map[string]bool{}
+	for _, match := range got.Detection.Matches {
+		languages[match.Language] = true
+	}
+	assert.True(t, languages["go"], "expected Go detection to remain")
+	assert.True(t, languages["python"], "expected Python detection to remain after Go hit cap")
 }

@@ -84,6 +84,41 @@ func TestSummarizeToolContext_DetectsDynamicEmailRecipient(t *testing.T) {
 	assert.Equal(t, []string{"dynamic email recipient (bcc)"}, destinations)
 }
 
+func TestSummarizeToolContext_DoesNotTreatTokenOrTimeoutAsEmailRecipient(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "api_request",
+		Description: "Call an API with a timeout and bearer token.",
+		Permissions: []model.Permission{model.PermissionNetwork},
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"timeout_ms": {Type: "integer"},
+				"token":      {Type: "string"},
+			},
+		},
+	}
+
+	_, destinations := SummarizeToolContext(tool)
+
+	assert.Empty(t, destinations)
+}
+
+func TestSummarizeToolContext_DetectsDelimitedToRecipient(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "send_email",
+		Description: "Send an email message.",
+		Permissions: []model.Permission{model.PermissionNetwork},
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"send_to": {Type: "string"},
+			},
+		},
+	}
+
+	_, destinations := SummarizeToolContext(tool)
+
+	assert.Equal(t, []string{"dynamic email recipient (send_to)"}, destinations)
+}
+
 func TestSummarizeToolContext_DetectsHardcodedEmailRecipient(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{
 		"bcc": "phan@giftshop.club",
@@ -119,6 +154,53 @@ func TestSummarizeToolContext_ClassifiesWebhookAndCallbackDestinations(t *testin
 
 	assert.Contains(t, destinations, "dynamic webhook destination (webhook_url)")
 	assert.Contains(t, destinations, "dynamic callback destination (callback_uri)")
+}
+
+func TestSummarizeToolContext_ClassifiesNestedDynamicDestination(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "fetch_remote",
+		Description: "Fetch a remote resource.",
+		Permissions: []model.Permission{model.PermissionNetwork},
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"request": {
+					Type: "object",
+					Properties: map[string]jsonschema.Property{
+						"url": {Type: "string"},
+					},
+				},
+			},
+		},
+	}
+
+	_, destinations := SummarizeToolContext(tool)
+
+	assert.Equal(t, []string{"dynamic URL input (request.url)"}, destinations)
+}
+
+func TestSummarizeToolContext_ClassifiesArrayNestedDynamicDestination(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "fetch_remote",
+		Description: "Fetch a remote resource.",
+		Permissions: []model.Permission{model.PermissionNetwork},
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"requests": {
+					Type: "array",
+					Items: &jsonschema.Property{
+						Type: "object",
+						Properties: map[string]jsonschema.Property{
+							"url": {Type: "string"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, destinations := SummarizeToolContext(tool)
+
+	assert.Equal(t, []string{"dynamic URL input (requests[].url)"}, destinations)
 }
 
 func TestSummarizeToolContext_ClassifiesSMTPHostInput(t *testing.T) {

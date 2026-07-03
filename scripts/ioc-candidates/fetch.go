@@ -13,9 +13,12 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
+
+	"golang.org/x/mod/semver"
 )
 
 const (
@@ -108,7 +111,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("marshal candidates: %w", err)
 	}
 	out = append(out, '\n')
-	if err := os.WriteFile(cfg.OutPath, out, 0o644); err != nil {
+	if err := os.WriteFile(cfg.OutPath, out, 0o600); err != nil {
 		return fmt.Errorf("write candidates file: %w", err)
 	}
 	if _, writeErr := fmt.Fprintf(stdout, "Wrote %d IOC blacklist candidate(s) to %s\n", len(entries), cfg.OutPath); writeErr != nil {
@@ -166,7 +169,7 @@ type httpDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-func fetchCandidatesWithClient(ctx context.Context, cfg config, client httpDoer, existing map[string]struct{}) ([]blacklistEntry, []string, error) {
+func fetchCandidatesWithClient(ctx context.Context, cfg config, client httpDoer, existing []blacklistEntry) ([]blacklistEntry, []string, error) {
 	var (
 		allCandidates  []blacklistEntry
 		warnings       []string
@@ -214,9 +217,14 @@ func fetchEcosystemFeed(ctx context.Context, client httpDoer, baseURL, ecosystem
 			return nil, "", fmt.Errorf("build request for %s: %w", ecosystem, err)
 		}
 		resp, err := client.Do(req)
-		if err != nil {
+		switch {
+		case err != nil:
 			lastErr = err
-		} else {
+		case resp == nil:
+			lastErr = fmt.Errorf("empty response from %s", feedURL)
+		case resp.Body == nil:
+			lastErr = fmt.Errorf("empty response body from %s", feedURL)
+		default:
 			body, readErr := io.ReadAll(resp.Body)
 			closeErr := resp.Body.Close()
 			switch {
@@ -270,6 +278,16 @@ func parseFeedZip(data []byte) ([]osvVulnerability, error) {
 		if closeErr != nil {
 			return nil, fmt.Errorf("close %s: %w", file.Name, closeErr)
 		}
+		var topLevel any
+		if err := json.Unmarshal(payload, &topLevel); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", file.Name, err)
+		}
+		if topLevel == nil {
+			return nil, fmt.Errorf("parse %s: top-level JSON value must be an object", file.Name)
+		}
+		if _, ok := topLevel.(map[string]any); !ok {
+			return nil, fmt.Errorf("parse %s: top-level JSON value must be an object", file.Name)
+		}
 		var vuln osvVulnerability
 		if err := json.Unmarshal(payload, &vuln); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", file.Name, err)
@@ -288,7 +306,7 @@ type candidateStats struct {
 	MCPRelevant   int
 }
 
-func buildCandidates(vulns []osvVulnerability, ecosystem string, existing map[string]struct{}, now time.Time, since time.Duration) ([]blacklistEntry, candidateStats) {
+func buildCandidates(vulns []osvVulnerability, ecosystem string, existing []blacklistEntry, now time.Time, since time.Duration) ([]blacklistEntry, candidateStats) {
 	var out []blacklistEntry
 	var stats candidateStats
 	seen := map[string]struct{}{}
@@ -324,8 +342,7 @@ func buildCandidates(vulns []osvVulnerability, ecosystem string, existing map[st
 
 			var filtered []string
 			for _, version := range versions {
-				key := strings.ToLower(ecosystem) + ":" + strings.ToLower(component) + "@" + version
-				if _, exists := existing[key]; exists {
+				if existingBlacklistContains(existing, ecosystem, component, version) {
 					continue
 				}
 				filtered = append(filtered, version)
@@ -521,24 +538,182 @@ func maliciousOriginSources(vuln osvVulnerability) []string {
 	return out
 }
 
-func readExistingBlacklist(path string) (map[string]struct{}, error) {
-	data, err := os.ReadFile(path)
+func readExistingBlacklist(path string) ([]blacklistEntry, error) {
+	data, err := os.ReadFile(path) // #nosec G304 -- path is an explicit caller-provided blacklist file.
 	if err != nil {
 		return nil, fmt.Errorf("read existing blacklist: %w", err)
+	}
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse existing blacklist: %w", err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("parse existing blacklist: top-level JSON value must be an array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return nil, fmt.Errorf("parse existing blacklist: top-level JSON value must be an array")
 	}
 	var entries []blacklistEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("parse existing blacklist: %w", err)
 	}
-	seen := make(map[string]struct{}, len(entries))
+	return entries, nil
+}
+
+func existingBlacklistContains(entries []blacklistEntry, ecosystem, component, version string) bool {
 	for i := range entries {
 		entry := entries[i]
-		for _, version := range entry.AffectedVersions {
-			key := strings.ToLower(entry.Ecosystem) + ":" + strings.ToLower(firstNonEmpty(entry.Value, entry.Component)) + "@" + version
-			seen[key] = struct{}{}
+		if !strings.EqualFold(entry.Ecosystem, ecosystem) {
+			continue
+		}
+		if !strings.EqualFold(firstNonEmpty(entry.Value, entry.Component), component) {
+			continue
+		}
+		for _, expr := range entry.AffectedVersions {
+			if versionMatchesConstraint(version, expr) {
+				return true
+			}
 		}
 	}
-	return seen, nil
+	return false
+}
+
+func versionMatchesConstraint(version, expr string) bool {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return false
+	}
+	if expr == "*" {
+		return true
+	}
+	if strings.HasPrefix(expr, "<=") {
+		return semverCompare(version, strings.TrimSpace(expr[2:])) <= 0
+	}
+	if strings.HasPrefix(expr, "<") {
+		return semverCompare(version, strings.TrimSpace(expr[1:])) < 0
+	}
+	return strings.EqualFold(normalizeVersion(version), normalizeVersion(expr))
+}
+
+func semverCompare(version, bound string) int {
+	a, b := ensureSemverPrefix(version), ensureSemverPrefix(bound)
+	if semver.IsValid(a) && semver.IsValid(b) {
+		return semver.Compare(a, b)
+	}
+	return compareLooseVersion(normalizeVersion(version), normalizeVersion(bound))
+}
+
+func ensureSemverPrefix(v string) string {
+	if !strings.HasPrefix(v, "v") {
+		return "v" + v
+	}
+	return v
+}
+
+func normalizeVersion(v string) string {
+	return strings.TrimPrefix(strings.TrimSpace(v), "v")
+}
+
+func compareLooseVersion(a, b string) int {
+	if a == b {
+		return 0
+	}
+	at := splitVersionTokens(a)
+	bt := splitVersionTokens(b)
+	for i := 0; i < len(at) && i < len(bt); i++ {
+		ai, aNum := atoiToken(at[i])
+		bi, bNum := atoiToken(bt[i])
+		switch {
+		case aNum && bNum:
+			if ai < bi {
+				return -1
+			}
+			if ai > bi {
+				return 1
+			}
+		case aNum != bNum:
+			if aNum {
+				return -1
+			}
+			return 1
+		default:
+			al := strings.ToLower(at[i])
+			bl := strings.ToLower(bt[i])
+			if al < bl {
+				return -1
+			}
+			if al > bl {
+				return 1
+			}
+		}
+	}
+	switch {
+	case len(at) > len(bt):
+		if hasPreReleaseToken(at[len(bt):]) {
+			return -1
+		}
+		return 1
+	case len(at) < len(bt):
+		if hasPreReleaseToken(bt[len(at):]) {
+			return 1
+		}
+		return -1
+	default:
+		return 0
+	}
+}
+
+func splitVersionTokens(v string) []string {
+	var tokens []string
+	var current strings.Builder
+	var currentKind rune
+	flush := func() {
+		if current.Len() > 0 {
+			tokens = append(tokens, current.String())
+			current.Reset()
+		}
+		currentKind = 0
+	}
+	for _, r := range v {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			flush()
+			continue
+		}
+		kind := rune('l')
+		if unicode.IsDigit(r) {
+			kind = 'd'
+		}
+		if currentKind != 0 && currentKind != kind {
+			flush()
+		}
+		current.WriteRune(r)
+		currentKind = kind
+	}
+	flush()
+	return tokens
+}
+
+func atoiToken(token string) (int, bool) {
+	for _, r := range token {
+		if !unicode.IsDigit(r) {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(token)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+func hasPreReleaseToken(tokens []string) bool {
+	for _, token := range tokens {
+		switch strings.ToLower(token) {
+		case "a", "alpha", "b", "beta", "rc", "dev", "pre", "preview":
+			return true
+		}
+	}
+	return false
 }
 
 func parseTime(value string) (time.Time, bool) {
@@ -547,7 +722,10 @@ func parseTime(value string) (time.Time, bool) {
 	}
 	t, err := time.Parse(time.RFC3339, value)
 	if err != nil {
-		return time.Time{}, false
+		t, err = time.Parse(time.RFC3339Nano, value)
+		if err != nil {
+			return time.Time{}, false
+		}
 	}
 	return t.UTC(), true
 }

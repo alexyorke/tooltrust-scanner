@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
 // TestDetectLocalProjectRoot_PublishedPackage verifies that a bare published-package
@@ -43,4 +45,286 @@ func TestDetectLocalProjectRoot_LocalScript(t *testing.T) {
 	got := detectLocalProjectRoot([]string{"node", "./server.js"})
 	assert.Equal(t, tmp, got,
 		"local-script launch must return the project root via arg-based detection")
+}
+
+func TestDetectLocalProjectRoot_LocalPythonScriptBareFilename(t *testing.T) {
+	tmp := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "requirements.txt"), []byte("requests==2.31.0\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "server.py"), []byte("# stub\n"), 0o644))
+
+	t.Chdir(tmp)
+
+	got := detectLocalProjectRoot([]string{"python", "server.py"})
+	assert.Equal(t, tmp, got,
+		"bare local Python script launches must return the project root")
+}
+
+func TestDetectLocalProjectRoot_LocalGoFileBareFilename(t *testing.T) {
+	tmp := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/demo\n\ngo 1.21\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644))
+
+	t.Chdir(tmp)
+
+	got := detectLocalProjectRoot([]string{"go", "run", "main.go"})
+	assert.Equal(t, tmp, got,
+		"bare local Go file launches must return the project root")
+}
+
+func TestSplitServerCommand_PreservesLeadingEnvAssignments(t *testing.T) {
+	command, env, args, err := splitServerCommand(`API_KEY=secret OTHER=value node ./server.js --flag`)
+	require.NoError(t, err)
+
+	assert.Equal(t, "node", command)
+	assert.Equal(t, []string{"API_KEY=secret", "OTHER=value"}, env)
+	assert.Equal(t, []string{"./server.js", "--flag"}, args)
+}
+
+func TestSplitServerCommand_RejectsOnlyEnvAssignments(t *testing.T) {
+	_, _, _, err := splitServerCommand(`API_KEY=secret`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty server command")
+}
+
+func TestSplitServerCommand_RejectsQuotedEmptyCommand(t *testing.T) {
+	_, _, _, err := splitServerCommand(`""`)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty server command")
+}
+
+func TestSplitServerCommand_RejectsCommandWithNUL(t *testing.T) {
+	_, _, _, err := splitServerCommand("go\x00bad")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid server command")
+}
+
+func TestSplitServerCommand_RejectsEnvAssignmentWithNUL(t *testing.T) {
+	_, _, _, err := splitServerCommand("FOO=bad\x00value go")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid environment assignment")
+}
+
+func TestSplitServerCommand_RejectsArgumentWithNUL(t *testing.T) {
+	_, _, _, err := splitServerCommand("go bad\x00arg")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid command argument")
+}
+
+func TestMergeDependencies_PrefersStrongerSourceForDuplicateDependency(t *testing.T) {
+	tool := &model.UnifiedTool{
+		Metadata: map[string]any{
+			"dependencies": []map[string]any{
+				{"name": "axios", "version": "1.14.1", "ecosystem": "npm", "source": "metadata"},
+			},
+		},
+	}
+
+	mergeDependencies(tool, []nodeDependency{
+		{Name: "axios", Version: "1.14.1", Ecosystem: "npm", Source: "local_lockfile"},
+	})
+
+	rawDeps, ok := tool.Metadata["dependencies"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, rawDeps, 1)
+	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
+}
+
+func TestMergeDependencies_NormalizesCaseAndVersionBeforeDeduping(t *testing.T) {
+	tool := &model.UnifiedTool{
+		Metadata: map[string]any{
+			"dependencies": []map[string]any{
+				{"name": "litellm", "version": "v1.82.8", "ecosystem": "pypi", "source": "metadata"},
+			},
+		},
+	}
+
+	mergeDependencies(tool, []nodeDependency{
+		{Name: "litellm", Version: "1.82.8", Ecosystem: "PyPI", Source: "local_lockfile"},
+	})
+
+	rawDeps, ok := tool.Metadata["dependencies"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, rawDeps, 1)
+	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
+}
+
+func TestMergeDependencies_SkipsNullExistingEntries(t *testing.T) {
+	tool := &model.UnifiedTool{
+		Metadata: map[string]any{
+			"dependencies": []any{nil},
+		},
+	}
+
+	require.NotPanics(t, func() {
+		mergeDependencies(tool, []nodeDependency{
+			{Name: "axios", Version: "1.14.1", Ecosystem: "npm", Source: "local_lockfile"},
+		})
+	})
+
+	rawDeps, ok := tool.Metadata["dependencies"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, rawDeps, 1)
+	assert.Equal(t, "axios", rawDeps[0]["name"])
+	assert.Equal(t, "1.14.1", rawDeps[0]["version"])
+	assert.Equal(t, "npm", rawDeps[0]["ecosystem"])
+	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
+}
+
+func TestMergeDependencies_WhitespaceSourceFallsBackToCanonicalLabels(t *testing.T) {
+	tool := &model.UnifiedTool{
+		Metadata: map[string]any{
+			"dependencies": []map[string]any{
+				{"name": "axios", "version": "1.14.1", "ecosystem": "npm", "source": "   "},
+			},
+		},
+	}
+
+	mergeDependencies(tool, []nodeDependency{
+		{Name: "axios", Version: "1.14.1", Ecosystem: "npm", Source: "   "},
+	})
+
+	rawDeps, ok := tool.Metadata["dependencies"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, rawDeps, 1)
+	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
+}
+
+func TestMergeDependencies_SkipsExistingEntriesMissingRequiredFields(t *testing.T) {
+	tool := &model.UnifiedTool{
+		Metadata: map[string]any{
+			"dependencies": []any{
+				map[string]any{"name": "", "version": "1.14.1", "ecosystem": "npm"},
+				map[string]any{"name": "axios", "version": "", "ecosystem": "npm"},
+				map[string]any{"name": "axios", "version": "1.14.1", "ecosystem": ""},
+			},
+		},
+	}
+
+	mergeDependencies(tool, []nodeDependency{
+		{Name: "axios", Version: "1.14.1", Ecosystem: "npm", Source: "local_lockfile"},
+	})
+
+	rawDeps, ok := tool.Metadata["dependencies"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, rawDeps, 1)
+	assert.Equal(t, "axios", rawDeps[0]["name"])
+	assert.Equal(t, "1.14.1", rawDeps[0]["version"])
+	assert.Equal(t, "npm", rawDeps[0]["ecosystem"])
+	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
+}
+
+func TestEnrichLiveToolsWithLocalNodeDependencies_ReportsMalformedDependencyMetadata(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	tools := enrichLiveToolsWithLocalNodeDependencies([]string{"npx", "-y", "published-package"}, []model.UnifiedTool{
+		{
+			Name: "broken-tool",
+			Metadata: map[string]any{
+				"dependencies": nil,
+			},
+		},
+	})
+
+	require.Len(t, tools, 1)
+	note, ok := tools[0].Metadata["dependency_visibility_note"].(string)
+	require.True(t, ok)
+	assert.Contains(t, note, "could not be parsed")
+}
+
+func TestEnrichLiveToolsWithLocalNodeDependencies_ReportsNullDependencyEntryMetadata(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	tools := enrichLiveToolsWithLocalNodeDependencies([]string{"npx", "-y", "published-package"}, []model.UnifiedTool{
+		{
+			Name: "broken-tool",
+			Metadata: map[string]any{
+				"dependencies": []any{nil},
+			},
+		},
+	})
+
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Metadata["dependency_visibility_note"], "could not be parsed")
+}
+
+func TestParseYarnLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yarn.lock")
+	require.NoError(t, os.WriteFile(path, []byte(`
+"string-width-cjs@npm:string-width@^4.2.0":
+  version "4.2.3"
+`), 0o644))
+
+	deps, err := parseYarnLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "string-width", deps[0].Name)
+	assert.Equal(t, "4.2.3", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+	assert.Equal(t, "local_lockfile", deps[0].Source)
+}
+
+func TestParseNodeLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "package-lock.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+  "packages": {
+    "": {
+      "version": "1.0.0",
+      "dependencies": {
+        "string-width-cjs": "npm:string-width@^4.2.3"
+      }
+    },
+    "node_modules/string-width-cjs": {
+      "name": "string-width",
+      "version": "4.2.3"
+    }
+  }
+}`), 0o644))
+
+	deps, err := parseNodeLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "string-width", deps[0].Name)
+	assert.Equal(t, "4.2.3", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+	assert.Equal(t, "local_lockfile", deps[0].Source)
+}
+
+func TestParseNodeLockfile_RejectsTopLevelNull(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "package-lock.json")
+	require.NoError(t, os.WriteFile(path, []byte("null"), 0o644))
+
+	_, err := parseNodeLockfile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse node lockfile")
+	assert.Contains(t, err.Error(), "top-level JSON value must be an object")
+}
+
+func TestParseNodeLockfile_RejectsTopLevelArray(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "package-lock.json")
+	require.NoError(t, os.WriteFile(path, []byte("[]"), 0o644))
+
+	_, err := parseNodeLockfile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse node lockfile")
+	assert.Contains(t, err.Error(), "top-level JSON value must be an object")
+}
+
+func TestParsePNPMLockfile_RejectsTopLevelNull(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pnpm-lock.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("null"), 0o644))
+
+	_, err := parsePNPMLockfile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse pnpm lockfile")
+	assert.Contains(t, err.Error(), "top-level YAML value must be a mapping")
+}
+
+func TestParsePNPMLockfile_RejectsTopLevelSequence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pnpm-lock.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("[]"), 0o644))
+
+	_, err := parsePNPMLockfile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse pnpm lockfile")
+	assert.Contains(t, err.Error(), "top-level YAML value must be a mapping")
 }

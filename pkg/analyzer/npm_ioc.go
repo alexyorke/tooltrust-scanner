@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
@@ -15,7 +16,7 @@ import (
 //go:embed data/npm_iocs.json
 var npmIOCsJSON []byte
 
-var urlPattern = regexp.MustCompile(`https?://[^\s"'()<>]+`)
+var urlPattern = regexp.MustCompile(`(?:https?:)?//[^\s"'()<>]+`)
 
 type npmIOCEntry struct {
 	Ecosystem       string `json:"ecosystem"`
@@ -36,6 +37,17 @@ type npmIOCIndex struct {
 }
 
 func buildNPMIOCIndex(data []byte) (npmIOCIndex, error) {
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return npmIOCIndex{}, fmt.Errorf("npm_ioc: unmarshal: %w", err)
+	}
+	if topLevel == nil {
+		return npmIOCIndex{}, fmt.Errorf("npm_ioc: top-level JSON value must be an array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return npmIOCIndex{}, fmt.Errorf("npm_ioc: top-level JSON value must be an array")
+	}
+
 	var entries []npmIOCEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return npmIOCIndex{}, fmt.Errorf("npm_ioc: unmarshal: %w", err)
@@ -90,22 +102,31 @@ type NPMIOCChecker struct {
 	index  npmIOCIndex
 }
 
+var (
+	embeddedNPMIOCIndexOnce sync.Once
+	embeddedNPMIOCIndex     npmIOCIndex
+)
+
+func loadEmbeddedNPMIOCIndex() npmIOCIndex {
+	embeddedNPMIOCIndexOnce.Do(func() {
+		idx, err := buildNPMIOCIndex(npmIOCsJSON)
+		if err != nil {
+			embeddedNPMIOCIndex = npmIOCIndex{packageNames: map[string]npmIOCEntry{}}
+			return
+		}
+		embeddedNPMIOCIndex = idx
+	})
+	return embeddedNPMIOCIndex
+}
+
 func NewNPMIOCChecker() *NPMIOCChecker {
-	idx, err := buildNPMIOCIndex(npmIOCsJSON)
-	if err != nil {
-		idx = npmIOCIndex{packageNames: map[string]npmIOCEntry{}}
-	}
-	return &NPMIOCChecker{client: newHTTPNPMRegistryClient(), index: idx}
+	return &NPMIOCChecker{client: newHTTPNPMRegistryClient(), index: loadEmbeddedNPMIOCIndex()}
 }
 
 func NewNPMIOCCheckerWithMock(packages map[string]npmVersionResponse, queryErr error) *NPMIOCChecker {
-	idx, err := buildNPMIOCIndex(npmIOCsJSON)
-	if err != nil {
-		idx = npmIOCIndex{packageNames: map[string]npmIOCEntry{}}
-	}
 	return &NPMIOCChecker{
 		client: &mockNPMRegistryClient{packages: packages, err: queryErr},
-		index:  idx,
+		index:  loadEmbeddedNPMIOCIndex(),
 	}
 }
 
@@ -123,15 +144,14 @@ func (c *NPMIOCChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), npmQueryTimeout)
-	defer cancel()
-
 	var issues []model.Issue
 	for _, dep := range deps {
 		if !strings.EqualFold(dep.Ecosystem, "npm") {
 			continue
 		}
+		ctx, cancel := context.WithTimeout(context.Background(), npmQueryTimeout)
 		meta, err := c.client.FetchVersion(ctx, dep.Name, dep.Version)
+		cancel()
 		if err != nil {
 			continue
 		}
@@ -291,7 +311,7 @@ func matchesDomainIOC(value, match string, domains []string) bool {
 				return true
 			}
 		default:
-			if domains[i] == value || strings.HasSuffix(domains[i], "."+value) || strings.Contains(domains[i], value) {
+			if domains[i] == value || strings.HasSuffix(domains[i], "."+value) {
 				return true
 			}
 		}
@@ -305,6 +325,9 @@ func extractURLs(script string) []string {
 	seen := map[string]bool{}
 	for i := range matches {
 		token := strings.Trim(matches[i], `"'()[]{}<>.,;`)
+		if strings.HasPrefix(token, "//") {
+			token = "https:" + token
+		}
 		parsed, err := url.Parse(token)
 		if err != nil || parsed.Host == "" {
 			continue

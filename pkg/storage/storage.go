@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
@@ -78,9 +79,30 @@ func (s *Store) Close() error {
 // Save persists a ScanRecord.  If a record with the same ID already exists it
 // is replaced.
 func (s *Store) Save(ctx context.Context, r ScanRecord) error {
+	if strings.TrimSpace(r.ID) == "" {
+		return fmt.Errorf("storage: missing id")
+	}
+	if !isValidProtocol(r.Protocol) {
+		return fmt.Errorf("storage: invalid protocol %q", r.Protocol)
+	}
+	if !isValidRiskScore(r.RiskScore) {
+		return fmt.Errorf("storage: invalid risk score %d", r.RiskScore)
+	}
+	if !isValidGrade(r.Grade) {
+		return fmt.Errorf("storage: invalid grade %q", r.Grade)
+	}
+	if !gradeMatchesRiskScore(r.RiskScore, r.Grade) {
+		return fmt.Errorf("storage: grade %q does not match risk score %d", r.Grade, r.RiskScore)
+	}
 	findings, err := json.Marshal(r.Findings)
 	if err != nil {
 		return fmt.Errorf("storage: marshal findings: %w", err)
+	}
+	if validateErr := validateFindings(r.Findings); validateErr != nil {
+		return validateErr
+	}
+	if r.ScannedAt.IsZero() {
+		r.ScannedAt = time.Now().UTC()
 	}
 
 	_, err = s.db.ExecContext(ctx, `
@@ -163,9 +185,85 @@ func scanRow(s scanner) (ScanRecord, error) {
 	r.Protocol = model.ProtocolType(protocol)
 	r.Grade = model.Grade(grade)
 	r.ScannedAt = scannedAt
+	if !isValidProtocol(r.Protocol) {
+		return ScanRecord{}, fmt.Errorf("storage: invalid protocol %q", protocol)
+	}
+	if !isValidRiskScore(r.RiskScore) {
+		return ScanRecord{}, fmt.Errorf("storage: invalid risk score %d", r.RiskScore)
+	}
+	if !isValidGrade(r.Grade) {
+		return ScanRecord{}, fmt.Errorf("storage: invalid grade %q", grade)
+	}
+	if !gradeMatchesRiskScore(r.RiskScore, r.Grade) {
+		return ScanRecord{}, fmt.Errorf("storage: grade %q does not match risk score %d", r.Grade, r.RiskScore)
+	}
+
+	var topLevel any
+	if err := json.Unmarshal([]byte(findingsJSON), &topLevel); err != nil {
+		return ScanRecord{}, fmt.Errorf("storage: unmarshal findings: %w", err)
+	}
+	if topLevel == nil {
+		return ScanRecord{}, fmt.Errorf("storage: findings must be a JSON array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return ScanRecord{}, fmt.Errorf("storage: findings must be a JSON array")
+	}
 
 	if err := json.Unmarshal([]byte(findingsJSON), &r.Findings); err != nil {
 		return ScanRecord{}, fmt.Errorf("storage: unmarshal findings: %w", err)
 	}
+	if err := validateFindings(r.Findings); err != nil {
+		return ScanRecord{}, err
+	}
 	return r, nil
+}
+
+func isValidProtocol(protocol model.ProtocolType) bool {
+	switch protocol {
+	case model.ProtocolMCP, model.ProtocolOpenAI, model.ProtocolSkills, model.ProtocolA2A:
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidGrade(grade model.Grade) bool {
+	switch grade {
+	case model.GradeA, model.GradeB, model.GradeC, model.GradeD, model.GradeF:
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidRiskScore(score int) bool {
+	return score >= 0
+}
+
+func gradeMatchesRiskScore(score int, grade model.Grade) bool {
+	return model.GradeFromScore(score) == grade
+}
+
+func validateFindings(findings []model.Issue) error {
+	for i := range findings {
+		if strings.TrimSpace(findings[i].RuleID) == "" {
+			return fmt.Errorf("storage: missing finding rule_id at index %d", i)
+		}
+		if !isValidSeverity(findings[i].Severity) {
+			return fmt.Errorf("storage: invalid finding severity %q at index %d", findings[i].Severity, i)
+		}
+		if strings.TrimSpace(findings[i].Code) == "" {
+			return fmt.Errorf("storage: missing finding code at index %d", i)
+		}
+	}
+	return nil
+}
+
+func isValidSeverity(severity model.Severity) bool {
+	switch severity {
+	case model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityInfo:
+		return true
+	default:
+		return false
+	}
 }

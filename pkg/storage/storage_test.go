@@ -3,11 +3,13 @@ package storage_test
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/storage"
@@ -84,6 +86,101 @@ func TestStore_Save_Replace(t *testing.T) {
 	assert.Equal(t, model.GradeF, got.Grade)
 }
 
+func TestStore_Save_RejectsEmptyID(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("")
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing id")
+}
+
+func TestStore_Save_RejectsInvalidProtocol(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("bad-protocol")
+	rec.Protocol = model.ProtocolType("bogus")
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: invalid protocol")
+}
+
+func TestStore_Save_RejectsInvalidGrade(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("bad-grade-save")
+	rec.Grade = model.Grade("Z")
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: invalid grade")
+}
+
+func TestStore_Save_RejectsNegativeRiskScore(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("bad-risk-score")
+	rec.RiskScore = -1
+	rec.Grade = model.GradeA
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: invalid risk score")
+}
+
+func TestStore_Save_RejectsGradeRiskScoreMismatch(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("bad-grade-mismatch")
+	rec.RiskScore = 80
+	rec.Grade = model.GradeA
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match risk score")
+}
+
+func TestStore_Save_RejectsInvalidFindingSeverity(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("bad-finding-severity")
+	rec.Findings = []model.Issue{
+		{RuleID: "AS-001", Severity: model.Severity("URGENT"), Code: "TOOL_POISONING"},
+	}
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: invalid finding severity")
+}
+
+func TestStore_Save_RejectsMissingFindingRuleID(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("missing-finding-rule-id")
+	rec.Findings = []model.Issue{
+		{Severity: model.SeverityCritical, Code: "TOOL_POISONING"},
+	}
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: missing finding rule_id")
+}
+
+func TestStore_Save_RejectsMissingFindingCode(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("missing-finding-code")
+	rec.Findings = []model.Issue{
+		{RuleID: "AS-001", Severity: model.SeverityCritical},
+	}
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: missing finding code")
+}
+
 func TestStore_Count(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -141,4 +238,275 @@ func TestStore_Findings_RoundTrip(t *testing.T) {
 	require.Len(t, got.Findings, 1)
 	assert.Equal(t, "AS-004", got.Findings[0].RuleID)
 	assert.Equal(t, "CVE-2024-1234 in lodash", got.Findings[0].Description)
+}
+
+func TestStore_Save_DefaultsZeroScannedAt(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	rec := sampleRecord("default-time")
+	rec.ScannedAt = time.Time{}
+	before := time.Now().UTC().Add(-1 * time.Second)
+
+	require.NoError(t, s.Save(ctx, rec))
+
+	got, err := s.Get(ctx, "default-time")
+	require.NoError(t, err)
+	assert.False(t, got.ScannedAt.IsZero())
+	assert.True(t, got.ScannedAt.After(before) || got.ScannedAt.Equal(before))
+}
+
+func TestStore_Get_RejectsNullFindingsPayload(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"bad-findings",
+		"run_shell",
+		string(model.ProtocolMCP),
+		55,
+		string(model.GradeD),
+		"null",
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "bad-findings")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: findings must be a JSON array")
+}
+
+func TestStore_Get_RejectsInvalidGrade(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	findings := `[{"rule_id":"AS-001","severity":"CRITICAL","code":"TOOL_POISONING"}]`
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"bad-grade",
+		"run_shell",
+		string(model.ProtocolMCP),
+		55,
+		"Z",
+		findings,
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "bad-grade")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: invalid grade")
+}
+
+func TestStore_Get_RejectsInvalidProtocol(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	findings := `[{"rule_id":"AS-001","severity":"CRITICAL","code":"TOOL_POISONING"}]`
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"bad-protocol",
+		"run_shell",
+		"bogus",
+		55,
+		string(model.GradeD),
+		findings,
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "bad-protocol")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: invalid protocol")
+}
+
+func TestStore_Get_RejectsNegativeRiskScore(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	findings := `[{"rule_id":"AS-001","severity":"CRITICAL","code":"TOOL_POISONING"}]`
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"bad-risk-score",
+		"run_shell",
+		string(model.ProtocolMCP),
+		-1,
+		string(model.GradeA),
+		findings,
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "bad-risk-score")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: invalid risk score")
+}
+
+func TestStore_Get_RejectsGradeRiskScoreMismatch(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	findings := `[{"rule_id":"AS-001","severity":"CRITICAL","code":"TOOL_POISONING"}]`
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"bad-grade-mismatch",
+		"run_shell",
+		string(model.ProtocolMCP),
+		80,
+		string(model.GradeA),
+		findings,
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "bad-grade-mismatch")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match risk score")
+}
+
+func TestStore_Get_RejectsInvalidFindingSeverity(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	findings := `[{"rule_id":"AS-001","severity":"URGENT","code":"TOOL_POISONING"}]`
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"bad-finding-severity",
+		"run_shell",
+		string(model.ProtocolMCP),
+		55,
+		string(model.GradeD),
+		findings,
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "bad-finding-severity")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: invalid finding severity")
+}
+
+func TestStore_Get_RejectsMissingFindingRuleID(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	findings := `[{"severity":"CRITICAL","code":"TOOL_POISONING"}]`
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"missing-finding-rule-id",
+		"run_shell",
+		string(model.ProtocolMCP),
+		55,
+		string(model.GradeD),
+		findings,
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "missing-finding-rule-id")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: missing finding rule_id")
+}
+
+func TestStore_Get_RejectsMissingFindingCode(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	findings := `[{"rule_id":"AS-001","severity":"CRITICAL"}]`
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"missing-finding-code",
+		"run_shell",
+		string(model.ProtocolMCP),
+		55,
+		string(model.GradeD),
+		findings,
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "missing-finding-code")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: missing finding code")
 }

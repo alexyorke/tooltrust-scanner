@@ -28,6 +28,18 @@ func newBlacklistFromJSON(t *testing.T, data []byte) *analyzer.BlacklistChecker 
 	return bc
 }
 
+func TestBlacklist_CustomJSON_RejectsTopLevelNull(t *testing.T) {
+	_, err := analyzer.NewBlacklistCheckerWithDataForTest([]byte("null"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blacklist: top-level JSON value must be an array")
+}
+
+func TestBlacklist_CustomJSON_RejectsTopLevelObject(t *testing.T) {
+	_, err := analyzer.NewBlacklistCheckerWithDataForTest([]byte(`{}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blacklist: top-level JSON value must be an array")
+}
+
 func toolWithDep(name, version, ecosystem string) model.UnifiedTool {
 	return model.UnifiedTool{
 		Name: "test-tool",
@@ -170,6 +182,52 @@ func TestBlacklist_RepoURLLockfileDependency_Hit(t *testing.T) {
 	assert.Contains(t, issues[0].Description, "axios@1.14.1")
 }
 
+func TestBlacklist_MetadataAndLockfileMixedCaseEcosystem_DedupesSingleIssue(t *testing.T) {
+	withLockfileDepsForTest(t, []analyzer.Dependency{
+		{Name: "litellm", Version: "1.82.8", Ecosystem: "PyPI"},
+	})
+
+	bc := analyzer.NewBlacklistChecker()
+	tool := model.UnifiedTool{
+		Name: "mixed-case-tool",
+		Metadata: map[string]any{
+			"repo_url": "https://github.com/example/repo",
+			"dependencies": []any{
+				map[string]any{"name": "litellm", "version": "1.82.8", "ecosystem": "pypi"},
+			},
+		},
+	}
+
+	issues, err := bc.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "metadata", issues[0].Evidence[3].Value)
+	assert.Equal(t, "SUPPLY_CHAIN_BLOCK", issues[0].Code)
+}
+
+func TestBlacklist_MetadataAndLockfileEquivalentVersionForms_DedupesSingleIssue(t *testing.T) {
+	withLockfileDepsForTest(t, []analyzer.Dependency{
+		{Name: "litellm", Version: "1.82.8", Ecosystem: "PyPI"},
+	})
+
+	bc := analyzer.NewBlacklistChecker()
+	tool := model.UnifiedTool{
+		Name: "version-form-tool",
+		Metadata: map[string]any{
+			"repo_url": "https://github.com/example/repo",
+			"dependencies": []any{
+				map[string]any{"name": "litellm", "version": "v1.82.8", "ecosystem": "PyPI"},
+			},
+		},
+	}
+
+	issues, err := bc.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "metadata", issues[0].Evidence[3].Value)
+	assert.Equal(t, "SUPPLY_CHAIN_BLOCK", issues[0].Code)
+}
+
 // ---------------------------------------------------------------------------
 // Range version tests (langflow < 1.9.0)
 // ---------------------------------------------------------------------------
@@ -295,6 +353,36 @@ func TestBlacklist_CustomJSON_LessEqualRange(t *testing.T) {
 
 	miss, _ := bc.Check(toolWithDep("oldpkg", "2.0.1", "PyPI"))
 	assert.Empty(t, miss, "2.0.1 > 2.0.0 should not match")
+}
+
+func TestBlacklist_CustomJSON_PyPIPostReleaseRange(t *testing.T) {
+	data := []byte(`[
+	  {"id":"TEST-003","component":"oldpkg","ecosystem":"PyPI",
+	   "affected_versions":["<= 1.2.post10"],"severity":"HIGH",
+	   "reason":"Test","link":"https://example.com"}
+	]`)
+	bc := newBlacklistFromJSON(t, data)
+
+	hit, _ := bc.Check(toolWithDep("oldpkg", "1.2.post2", "PyPI"))
+	assert.Len(t, hit, 1, "1.2.post2 should be treated as older than 1.2.post10")
+
+	miss, _ := bc.Check(toolWithDep("oldpkg", "1.2.post11", "PyPI"))
+	assert.Empty(t, miss, "1.2.post11 should be newer than 1.2.post10")
+}
+
+func TestBlacklist_CustomJSON_PyPIPreReleaseRange(t *testing.T) {
+	data := []byte(`[
+	  {"id":"TEST-004","component":"oldpkg","ecosystem":"PyPI",
+	   "affected_versions":["<= 1.2"],"severity":"HIGH",
+	   "reason":"Test","link":"https://example.com"}
+	]`)
+	bc := newBlacklistFromJSON(t, data)
+
+	hit, _ := bc.Check(toolWithDep("oldpkg", "1.2rc1", "PyPI"))
+	assert.Len(t, hit, 1, "1.2rc1 should be treated as older than 1.2")
+
+	miss, _ := bc.Check(toolWithDep("oldpkg", "1.2.1", "PyPI"))
+	assert.Empty(t, miss, "1.2.1 should be newer than 1.2")
 }
 
 func TestBlacklist_Meta(t *testing.T) {

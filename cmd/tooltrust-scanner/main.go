@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -122,8 +123,8 @@ func newScanCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&inputFile, "input", "i", "", "path to tool definition file")
 	cmd.Flags().StringVarP(&serverCmd, "server", "s", "", "live MCP server to scan (e.g. 'npx @modelcontextprotocol/server-filesystem /tmp')")
-	cmd.Flags().StringVarP(&protocol, "protocol", "p", "mcp", "protocol format: mcp | openai | skills")
-	cmd.Flags().StringVarP(&output, "output", "o", "text", "output format: text (default) | json")
+	cmd.Flags().StringVarP(&protocol, "protocol", "p", "mcp", "protocol format: mcp")
+	cmd.Flags().StringVarP(&output, "output", "o", "text", "output format: text (default) | json | sarif")
 	cmd.Flags().StringVar(&outputFile, "file", "", "write output to file instead of stdout")
 	cmd.Flags().StringVar(&failOn, "fail-on", "", "exit non-zero if any tool reaches this action: allow | approval | block")
 	cmd.Flags().StringVar(&dbPath, "db", "", "persist scan results to SQLite database at this path")
@@ -149,15 +150,36 @@ type scanOpts struct {
 }
 
 func runScan(ctx context.Context, opts scanOpts) error {
+	opts.inputFile = strings.TrimSpace(opts.inputFile)
+	opts.serverCmd = strings.TrimSpace(opts.serverCmd)
+	if trimmed := strings.TrimSpace(opts.protocol); trimmed == "" {
+		opts.protocol = "mcp"
+	} else {
+		opts.protocol = strings.ToLower(trimmed)
+	}
+	opts.output = normalizeOutput(opts.output)
+	opts.failOn = normalizeFailOn(opts.failOn)
+
 	// Validate --output flag early.
 	switch opts.output {
 	case "text", "json", "sarif":
 	default:
 		return fmt.Errorf("invalid --output value %q (use: text | json | sarif)", opts.output)
 	}
+	if err := validateFailOn(opts.failOn); err != nil {
+		return err
+	}
 
 	if opts.output == "json" || opts.output == "sarif" {
+		prevPtermOutput := pterm.Output
 		pterm.DisableOutput()
+		defer func() {
+			if prevPtermOutput {
+				pterm.EnableOutput()
+				return
+			}
+			pterm.DisableOutput()
+		}()
 	}
 
 	if (opts.inputFile == "") == (opts.serverCmd == "") {
@@ -183,7 +205,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 		liveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
-		tools, err = scanLiveServer(liveCtx, opts.serverCmd)
+		tools, err = scanLiveServerFn(liveCtx, opts.serverCmd)
 		if err != nil {
 			return fmt.Errorf("live server scan failed (or timed out): %w", err)
 		}
@@ -209,7 +231,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize scanner: %w", err)
 	}
-	var policies []model.GatewayPolicy
+	policies := make([]model.GatewayPolicy, 0, len(tools))
 	summary := ScanSummary{Total: len(tools), ScannedAt: time.Now().UTC()}
 
 	for i := range tools {
@@ -222,7 +244,6 @@ func runScan(ctx context.Context, opts scanOpts) error {
 			return fmt.Errorf("gateway evaluation failed for tool %q: %w", tools[i].Name, evalErr)
 		}
 		policy.Behavior, policy.Destinations = analyzer.SummarizeToolContext(tools[i])
-		policy.DependencyVisibility, policy.DependencyNote = dependencyVisibilityForTool(tools[i])
 		policies = append(policies, policy)
 
 		if opts.verbose {
@@ -251,7 +272,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 
 	if opts.dbPath != "" {
 		if persistErr := persistResults(ctx, opts.dbPath, tools, policies); persistErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to persist results: %v\n", persistErr)
+			return persistErr
 		}
 	}
 
@@ -270,10 +291,12 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 			return fmt.Errorf("failed to encode report: %w", err)
 		}
 		if opts.outputFile != "" {
-			if writeErr := os.WriteFile(opts.outputFile, encoded, 0o644); writeErr != nil {
+			if writeErr := os.WriteFile(opts.outputFile, encoded, 0o600); writeErr != nil {
 				return fmt.Errorf("failed to write output file: %w", writeErr)
 			}
-			fmt.Fprintf(os.Stderr, "report written to %s\n", opts.outputFile)
+			if shouldPrintWriteNotice(os.Stderr) {
+				fmt.Fprintf(os.Stderr, "report written to %s\n", opts.outputFile)
+			}
 		} else {
 			fmt.Println(string(encoded))
 		}
@@ -284,6 +307,10 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 		return writeSarifOutput(opts, report)
 	}
 
+	if opts.outputFile != "" {
+		return writeTextOutputFile(opts.outputFile, report)
+	}
+
 	// Default: text mode — render with pterm.
 	if err := printPtermUI(report); err != nil {
 		return err
@@ -292,10 +319,46 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 	return nil
 }
 
+func writeTextOutputFile(path string, report ScanReport) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- path is the explicit --file output destination.
+	if err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	if err := printPtermUITo(f, report); err != nil {
+		if closeErr := f.Close(); closeErr != nil {
+			return fmt.Errorf("render report: %w; close output file: %v", err, closeErr)
+		}
+		return err
+	}
+	printStarPromptTo(f)
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("failed to close output file: %w", err)
+	}
+	return nil
+}
+
+func shouldPrintWriteNotice(f *os.File) bool {
+	if f == nil {
+		return false
+	}
+
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+
+	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
 // printPtermUI renders the scan report as a pterm tree + summary box.
 func printPtermUI(report ScanReport) error {
+	return printPtermUITo(nil, report)
+}
+
+func printPtermUITo(w io.Writer, report ScanReport) error {
 	// ── Emergency alert for AS-008 BLOCK findings ─────────────────────────────
-	printSupplyChainAlert(report.Policies)
+	printSupplyChainAlertTo(w, report.Policies)
 
 	// ── Build the tree ────────────────────────────────────────────────────────
 	var rootChildren []pterm.TreeNode
@@ -308,16 +371,6 @@ func printPtermUI(report ScanReport) error {
 		// Children: one per finding, or a green ✅ Pass.
 		var children []pterm.TreeNode
 		if len(policy.Score.Issues) == 0 {
-			if line, note := dependencyVisibilityLines(policy); line != "" {
-				children = append(children, pterm.TreeNode{
-					Text: pterm.FgGray.Sprint(line),
-				})
-				if note != "" {
-					children = append(children, pterm.TreeNode{
-						Text: pterm.FgGray.Sprint(note),
-					})
-				}
-			}
 			children = append(children, pterm.TreeNode{
 				Text: pterm.FgGreen.Sprint("✅ Pass"),
 			})
@@ -331,16 +384,6 @@ func printPtermUI(report ScanReport) error {
 				children = append(children, pterm.TreeNode{
 					Text: pterm.FgGray.Sprint(line),
 				})
-			}
-			if line, note := dependencyVisibilityLines(policy); line != "" {
-				children = append(children, pterm.TreeNode{
-					Text: pterm.FgGray.Sprint(line),
-				})
-				if note != "" {
-					children = append(children, pterm.TreeNode{
-						Text: pterm.FgGray.Sprint(note),
-					})
-				}
 			}
 			shownHints := map[string]bool{}
 			for _, issue := range policy.Score.Issues {
@@ -361,18 +404,21 @@ func printPtermUI(report ScanReport) error {
 		})
 	}
 
-	pterm.Println() // blank line before tree
-	if err := pterm.DefaultTree.WithRoot(pterm.TreeNode{
+	ptermPrintln(w) // blank line before tree
+	tree := pterm.DefaultTree.WithRoot(pterm.TreeNode{
 		Text:     pterm.Bold.Sprint("Scan Results"),
 		Children: rootChildren,
-	}).Render(); err != nil {
+	})
+	if w != nil {
+		tree = tree.WithWriter(w)
+	}
+	if err := tree.Render(); err != nil {
 		return fmt.Errorf("render tree: %w", err)
 	}
 
 	// ── Summary box ───────────────────────────────────────────────────────────
 	s := report.Summary
 	riskLine := buildRiskLine(report.Policies)
-	avgScore, avgGrade := avgRiskScore(report.Policies)
 	summaryContent := fmt.Sprintf(
 		"Total Scanned    : %d\n"+
 			"  ✅ Allowed       : %d\n"+
@@ -385,34 +431,43 @@ func printPtermUI(report ScanReport) error {
 		s.Allowed,
 		s.RequireApproval,
 		s.Blocked,
-		avgScore, avgGrade,
+		s.AvgScore, s.AvgGrade,
 		riskLine,
 		s.ScannedAt.Format("2006-01-02 15:04:05 UTC"),
 	)
-	pterm.DefaultBox.
+	box := pterm.DefaultBox.
 		WithTitle(pterm.Bold.Sprint("Scan Summary")).
-		WithTitleTopCenter().
-		Println(summaryContent)
+		WithTitleTopCenter()
+	if w != nil {
+		box = box.WithWriter(w)
+	}
+	box.Println(summaryContent)
 
 	// ── Per-grade action guide ─────────────────────────────────────────────
-	printGradeGuide(worstGrade(report.Policies))
+	printGradeGuideTo(w, worstGrade(report.Policies))
 
 	return nil
 }
 
 func printStarPrompt() {
-	pterm.Println()
-	pterm.Info.Println("If ToolTrust helped, star us: github.com/AgentSafe-AI/tooltrust-scanner")
+	printStarPromptTo(nil)
 }
 
-func dependencyVisibilityLines(policy model.GatewayPolicy) (line, note string) {
-	if policy.DependencyVisibility == "" {
-		return "", ""
+func printStarPromptTo(w io.Writer) {
+	ptermPrintln(w)
+	if w == nil {
+		pterm.Info.Println("If ToolTrust helped, star us: github.com/AgentSafe-AI/tooltrust-scanner")
+		return
 	}
-	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA && policy.DependencyVisibility == "No dependency data" {
-		return "", ""
+	pterm.Info.WithWriter(w).Println("If ToolTrust helped, star us: github.com/AgentSafe-AI/tooltrust-scanner")
+}
+
+func ptermPrintln(w io.Writer, a ...any) {
+	if w == nil {
+		pterm.Println(a...)
+		return
 	}
-	return "Dependency visibility: " + policy.DependencyVisibility, policy.DependencyNote
+	pterm.Fprintln(w, a...)
 }
 
 func toolContextLines(policy model.GatewayPolicy) []string {
@@ -473,6 +528,23 @@ func printSupplyChainAlert(policies []model.GatewayPolicy) {
 	red.Println("  3. Check for persistence: ~/.config/sysmon/ and systemd user services.")
 	red.Println("  4. Audit recent agent actions — your environment may be compromised.")
 	pterm.Println()
+}
+
+func printSupplyChainAlertTo(w io.Writer, policies []model.GatewayPolicy) {
+	if w == nil {
+		printSupplyChainAlert(policies)
+		return
+	}
+	for i := range policies {
+		policy := policies[i]
+		for _, issue := range policy.Score.Issues {
+			if issue.RuleID == "AS-008" && issue.Code == "SUPPLY_CHAIN_BLOCK" {
+				ptermPrintln(w)
+				ptermPrintln(w, pterm.FgRed.Sprintf("SUPPLY CHAIN ATTACK DETECTED: %s", issue.Location))
+				ptermPrintln(w, pterm.FgRed.Sprint(issue.Description))
+			}
+		}
+	}
 }
 
 // worstGrade returns the highest-risk grade across all policies.
@@ -586,6 +658,21 @@ func printGradeGuide(grade model.Grade) {
 		Println(pterm.NewStyle(g.color).Sprint(content))
 }
 
+func printGradeGuideTo(w io.Writer, grade model.Grade) {
+	if w == nil {
+		printGradeGuide(grade)
+		return
+	}
+	switch grade {
+	case model.GradeA:
+		ptermPrintln(w)
+		ptermPrintln(w, pterm.FgGreen.Sprint("No action required - all tools are within safe thresholds."))
+	case model.GradeB, model.GradeC, model.GradeD, model.GradeF:
+		ptermPrintln(w)
+		ptermPrintln(w, pterm.NewStyle(pterm.FgYellow, pterm.Bold).Sprintf("Review guidance for grade %s in the findings above.", grade))
+	}
+}
+
 func summarizeToolReason(policy model.GatewayPolicy) string {
 	if policy.Action == model.ActionAllow {
 		return ""
@@ -652,85 +739,6 @@ func summarizeIssueReason(issue model.Issue) string {
 		return ""
 	}
 	return desc
-}
-
-func dependencyVisibilityForTool(tool model.UnifiedTool) (visibility, note string) {
-	if tool.Metadata == nil {
-		return "No dependency data", "No metadata.dependencies or repo_url were exposed by this MCP server."
-	}
-
-	sources := dependencySourcesFromMetadata(tool.Metadata)
-	if len(sources) == 0 {
-		note = metadataString(tool.Metadata, "dependency_visibility_note")
-		if note == "" {
-			note = "No metadata.dependencies or repo_url were exposed by this MCP server."
-		}
-		return "No dependency data", note
-	}
-	return formatDependencyVisibility(sources), visibilityNote(tool.Metadata, sources)
-}
-
-func dependencySourcesFromMetadata(meta map[string]any) []string {
-	seen := map[string]bool{}
-	var sources []string
-
-	if raw, ok := meta["dependencies"]; ok {
-		b, err := json.Marshal(raw)
-		if err == nil {
-			var deps []struct {
-				Source string `json:"source"`
-			}
-			if err := json.Unmarshal(b, &deps); err == nil {
-				for _, dep := range deps {
-					source := dep.Source
-					if source == "" {
-						source = "metadata"
-					}
-					if !seen[source] {
-						seen[source] = true
-						sources = append(sources, source)
-					}
-				}
-			}
-		}
-	}
-
-	if repoURL, ok := meta["repo_url"].(string); ok && strings.TrimSpace(repoURL) != "" {
-		if !seen["repo_url"] {
-			sources = append(sources, "repo_url")
-		}
-	}
-
-	return sources
-}
-
-func visibilityNote(meta map[string]any, sources []string) string {
-	if note := metadataString(meta, "dependency_visibility_note"); note != "" {
-		return note
-	}
-	if len(sources) == 1 && sources[0] == "repo_url" {
-		return "repo_url is available, so ToolTrust can try to inspect remote lockfiles for dependency evidence."
-	}
-	return ""
-}
-
-func formatDependencyVisibility(sources []string) string {
-	labels := make([]string, 0, len(sources))
-	for _, source := range sources {
-		switch source {
-		case "metadata":
-			labels = append(labels, "Declared by MCP metadata")
-		case "local_lockfile":
-			labels = append(labels, "Verified from local lockfile")
-		case "lockfile":
-			labels = append(labels, "Verified from remote lockfile")
-		case "repo_url":
-			labels = append(labels, "Repo URL available")
-		default:
-			labels = append(labels, source)
-		}
-	}
-	return strings.Join(labels, " + ")
 }
 
 // formatToolLabel returns a coloured "Tool: <name>  [ACTION]" label.
@@ -903,13 +911,6 @@ func avgRiskScore(policies []model.GatewayPolicy) (int, model.Grade) {
 	return avg, model.GradeFromScore(avg)
 }
 
-func metadataString(meta map[string]any, key string) string {
-	if value, ok := meta[key].(string); ok {
-		return value
-	}
-	return ""
-}
-
 // printScanPtree writes a tree view of the scan process to w (stderr) during verbose scan.
 func printScanPtree(w *os.File, tool model.UnifiedTool, score model.RiskScore, policy model.GatewayPolicy) {
 	const tree, branch, last = "│  ", "├─ ", "└─ "
@@ -937,10 +938,13 @@ func printScanPtree(w *os.File, tool model.UnifiedTool, score model.RiskScore, p
 }
 
 func checkFailOn(failOn string, summary ScanSummary) error {
-	if failOn == "" {
-		return nil
+	failOn = normalizeFailOn(failOn)
+	if err := validateFailOn(failOn); err != nil {
+		return err
 	}
 	switch failOn {
+	case "":
+		return nil
 	case "block":
 		if summary.Blocked > 0 {
 			return fmt.Errorf("scan failed: %d tool(s) BLOCKED", summary.Blocked)
@@ -953,10 +957,26 @@ func checkFailOn(failOn string, summary ScanSummary) error {
 		if summary.RequireApproval > 0 || summary.Blocked > 0 {
 			return fmt.Errorf("scan failed: only %d of %d tool(s) are fully allowed", summary.Allowed, summary.Total)
 		}
+	}
+	return nil
+}
+
+func normalizeFailOn(failOn string) string {
+	return strings.ToLower(strings.TrimSpace(failOn))
+}
+
+func normalizeOutput(output string) string {
+	return strings.ToLower(strings.TrimSpace(output))
+}
+
+func validateFailOn(failOn string) error {
+	failOn = normalizeFailOn(failOn)
+	switch failOn {
+	case "", "allow", "approval", "block":
+		return nil
 	default:
 		return fmt.Errorf("invalid --fail-on value %q (use: allow | approval | block)", failOn)
 	}
-	return nil
 }
 
 func persistResults(ctx context.Context, dbPath string, tools []model.UnifiedTool, policies []model.GatewayPolicy) error {

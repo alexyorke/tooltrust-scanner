@@ -11,6 +11,14 @@ import (
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
+var filesystemNameContextTerms = []string{
+	"file", "files", "folder", "folders", "dir", "dirs", "directory", "directories", "path", "filesystem",
+}
+
+var networkNameContextTerms = []string{
+	"url", "uri", "host", "endpoint", "remote", "network", "http", "https", "api", "web", "webhook",
+}
+
 // Adapter converts MCP tools/list payloads into []model.UnifiedTool.
 type Adapter struct{}
 
@@ -22,6 +30,53 @@ func (a *Adapter) Protocol() model.ProtocolType { return model.ProtocolMCP }
 
 // Parse implements adapter.Adapter for the MCP tools/list response format.
 func (a *Adapter) Parse(_ context.Context, data []byte) ([]model.UnifiedTool, error) {
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		var resp ListToolsResponse
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return nil, fmt.Errorf("mcp adapter: failed to parse tools/list response: %w", err)
+		}
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("mcp adapter: top-level JSON value must be an object")
+	}
+	envelope, ok := topLevel.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("mcp adapter: top-level JSON value must be an object")
+	}
+	if _, hasServers := envelope["mcpServers"]; hasServers {
+		return nil, fmt.Errorf("mcp adapter: expected MCP tools/list JSON, got MCP server config")
+	}
+	rawTools, hasTools := envelope["tools"]
+	if !hasTools {
+		return nil, fmt.Errorf("mcp adapter: tools field is required and must be an array")
+	}
+	if rawTools == nil {
+		return nil, fmt.Errorf("mcp adapter: tools field must be an array")
+	}
+	toolEntries, ok := rawTools.([]any)
+	if !ok {
+		return nil, fmt.Errorf("mcp adapter: tools field must be an array")
+	}
+	for i := range toolEntries {
+		entry, ok := toolEntries[i].(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("mcp adapter: tool entry at index %d must be an object", i)
+		}
+		name, ok := entry["name"].(string)
+		if !ok || strings.TrimSpace(name) == "" {
+			return nil, fmt.Errorf("mcp adapter: tool entry at index %d is missing a non-empty name", i)
+		}
+		if rawSchema, hasSchema := entry["inputSchema"]; hasSchema {
+			if rawSchema == nil {
+				return nil, fmt.Errorf("mcp adapter: tool entry at index %d has null inputSchema", i)
+			}
+			if _, ok := rawSchema.(map[string]any); !ok {
+				return nil, fmt.Errorf("mcp adapter: tool entry at index %d inputSchema must be an object", i)
+			}
+		}
+	}
+
 	var resp ListToolsResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("mcp adapter: failed to parse tools/list response: %w", err)
@@ -63,13 +118,16 @@ func buildMetadata(t Tool) map[string]any {
 	if len(t.Metadata.Dependencies) > 0 {
 		deps := make([]map[string]any, 0, len(t.Metadata.Dependencies))
 		for _, dep := range t.Metadata.Dependencies {
-			if dep.Name == "" || dep.Version == "" || dep.Ecosystem == "" {
+			name := strings.TrimSpace(dep.Name)
+			version := strings.TrimSpace(dep.Version)
+			ecosystem := strings.TrimSpace(dep.Ecosystem)
+			if name == "" || version == "" || ecosystem == "" {
 				continue
 			}
 			deps = append(deps, map[string]any{
-				"name":      dep.Name,
-				"version":   dep.Version,
-				"ecosystem": dep.Ecosystem,
+				"name":      name,
+				"version":   version,
+				"ecosystem": ecosystem,
 			})
 		}
 		if len(deps) > 0 {
@@ -87,17 +145,38 @@ func buildMetadata(t Tool) map[string]any {
 func convertSchema(s InputSchema) jsonschema.Schema {
 	props := make(map[string]jsonschema.Property, len(s.Properties))
 	for k, v := range s.Properties {
-		props[k] = jsonschema.Property{
-			Type:        string(v.Type),
-			Description: v.Description,
-		}
+		props[k] = convertProperty(v)
 	}
-	return jsonschema.Schema{
+	schema := jsonschema.Schema{
 		Type:        string(s.Type),
 		Description: s.Description,
 		Properties:  props,
 		Required:    s.Required,
 	}
+	if s.Items != nil {
+		items := convertProperty(*s.Items)
+		schema.Items = &items
+	}
+	return schema
+}
+
+func convertProperty(p SchemaProperty) jsonschema.Property {
+	prop := jsonschema.Property{
+		Type:        string(p.Type),
+		Description: p.Description,
+		Enum:        p.Enum,
+	}
+	if len(p.Properties) > 0 {
+		prop.Properties = make(map[string]jsonschema.Property, len(p.Properties))
+		for k, v := range p.Properties {
+			prop.Properties[k] = convertProperty(v)
+		}
+	}
+	if p.Items != nil {
+		items := convertProperty(*p.Items)
+		prop.Items = &items
+	}
+	return prop
 }
 
 // permissionRule maps keyword signals to a Permission.
@@ -126,7 +205,7 @@ var permissionRules = []struct {
 		permissionRule{
 			propKeys:     []string{"url", "uri", "endpoint", "host"},
 			descKeywords: []string{"url", "network", "http", "https", "fetch", "remote", "download"},
-			nameKeywords: []string{"fetch", "scrape", "crawl", "download", "search", "query", "api", "request"},
+			nameKeywords: []string{"fetch", "scrape", "crawl", "download", "search", "api", "request"},
 		},
 	},
 	{
@@ -172,6 +251,7 @@ func inferPermissions(t Tool) []model.Permission {
 	descLower := strings.ToLower(t.Description)
 	nameLower := strings.ToLower(t.Name)
 	combined := nameLower + " " + descLower
+	propPaths := inputSchemaPropertyPaths(t.InputSchema)
 
 	seen := map[model.Permission]bool{}
 	var perms []model.Permission
@@ -185,23 +265,23 @@ func inferPermissions(t Tool) []model.Permission {
 
 	for _, entry := range permissionRules {
 		// Check schema property names
-		for propKey := range t.InputSchema.Properties {
-			propLower := strings.ToLower(propKey)
+		for _, propKey := range propPaths {
+			propTokens := propertyNameTokens(propKey)
 			for _, ruleKey := range entry.rule.propKeys {
-				if propLower == ruleKey || strings.Contains(propLower, ruleKey) {
+				if propertyNameMatchesRule(propKey, propTokens, ruleKey, entry.permission) {
 					add(entry.permission)
 				}
 			}
 		}
 		// Check description keywords
 		for _, kw := range entry.rule.descKeywords {
-			if strings.Contains(descLower, kw) {
+			if descriptionMatchesRule(descLower, kw, entry.permission) {
 				add(entry.permission)
 			}
 		}
 		// Check tool name keywords
 		for _, kw := range entry.rule.nameKeywords {
-			if strings.Contains(nameLower, kw) {
+			if nameMatchesRule(nameLower, kw, entry.permission) {
 				add(entry.permission)
 			}
 		}
@@ -213,4 +293,128 @@ func inferPermissions(t Tool) []model.Permission {
 		}
 	}
 	return perms
+}
+
+func nameMatchesRule(nameLower, keyword string, permission model.Permission) bool {
+	switch permission {
+	case model.PermissionFS:
+		if !containsAnyTerm(nameLower, filesystemNameContextTerms) {
+			return false
+		}
+	case model.PermissionNetwork:
+		if !containsAnyTerm(nameLower, networkNameContextTerms) {
+			return false
+		}
+	default:
+	}
+	return strings.Contains(nameLower, keyword)
+}
+
+func containsAnyTerm(s string, terms []string) bool {
+	for _, term := range terms {
+		if strings.Contains(s, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func propertyNameMatchesRule(propName string, propTokens []string, ruleKey string, permission model.Permission) bool {
+	propLower := strings.ToLower(propName)
+	if propLower == ruleKey {
+		return true
+	}
+	for _, token := range propTokens {
+		if token == ruleKey {
+			return true
+		}
+	}
+	return false
+}
+
+func descriptionMatchesRule(descLower, keyword string, permission model.Permission) bool {
+	if permission == model.PermissionDB && keyword == "query" {
+		return containsToken(descLower, "query") &&
+			(containsToken(descLower, "database") || containsToken(descLower, "sql"))
+	}
+	if permission == model.PermissionFS {
+		switch keyword {
+		case "file":
+			return containsToken(descLower, "file") || containsToken(descLower, "files")
+		case "directory":
+			return containsToken(descLower, "directory") || containsToken(descLower, "directories")
+		case "folder":
+			return containsToken(descLower, "folder") || containsToken(descLower, "folders")
+		}
+	}
+	return strings.Contains(descLower, keyword)
+}
+
+func containsToken(s, token string) bool {
+	for _, field := range strings.FieldsFunc(s, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	}) {
+		if field == token {
+			return true
+		}
+	}
+	return false
+}
+
+func propertyNameTokens(name string) []string {
+	parts := strings.FieldsFunc(name, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+	})
+	tokens := make([]string, 0, len(parts)*2)
+	for _, part := range parts {
+		tokens = append(tokens, camelCaseTokens(part)...)
+	}
+	return tokens
+}
+
+func camelCaseTokens(part string) []string {
+	if part == "" {
+		return nil
+	}
+	var tokens []string
+	start := 0
+	for i := 1; i < len(part); i++ {
+		prev := part[i-1]
+		curr := part[i]
+		nextUpperBoundary := prev >= 'a' && prev <= 'z' && curr >= 'A' && curr <= 'Z'
+		acronymBoundary := prev >= 'A' && prev <= 'Z' && curr >= 'A' && curr <= 'Z' && i+1 < len(part) && part[i+1] >= 'a' && part[i+1] <= 'z'
+		if nextUpperBoundary || acronymBoundary {
+			tokens = append(tokens, strings.ToLower(part[start:i]))
+			start = i
+		}
+	}
+	tokens = append(tokens, strings.ToLower(part[start:]))
+	return tokens
+}
+
+func inputSchemaPropertyPaths(schema InputSchema) []string {
+	if len(schema.Properties) == 0 && schema.Items == nil {
+		return nil
+	}
+	var paths []string
+	for name, prop := range schema.Properties {
+		paths = append(paths, schemaPropertyPaths(name, prop)...)
+	}
+	if schema.Items != nil {
+		paths = append(paths, schemaPropertyPaths("[]", *schema.Items)...)
+	}
+	return paths
+}
+
+func schemaPropertyPaths(path string, prop SchemaProperty) []string {
+	paths := []string{path}
+	for name, nested := range prop.Properties {
+		paths = append(paths, schemaPropertyPaths(path+"."+name, nested)...)
+	}
+	if prop.Items != nil {
+		for name, nested := range prop.Items.Properties {
+			paths = append(paths, schemaPropertyPaths(path+"[]."+name, nested)...)
+		}
+	}
+	return paths
 }

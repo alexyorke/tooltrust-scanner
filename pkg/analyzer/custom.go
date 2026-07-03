@@ -124,14 +124,19 @@ func LoadCustomRules(dir string) ([]checker, error) {
 			if errSingle := yaml.Unmarshal(data, &single); errSingle != nil {
 				return fmt.Errorf("failed to parse yaml %s: %w", path, unmarshalErr)
 			}
+			if single == (CustomRule{}) {
+				return fmt.Errorf("failed to parse yaml %s: top-level YAML value must be a rule object or array", path)
+			}
 			if single.ID != "" {
 				rules = append(rules, single)
 			}
+		} else if rules == nil {
+			return fmt.Errorf("failed to parse yaml %s: top-level YAML value must be a rule object or array", path)
 		}
 
 		for _, rule := range rules {
 			if rule.ID == "" || rule.Pattern == "" {
-				continue // skip invalid
+				return fmt.Errorf("missing id or pattern in %s", path)
 			}
 			re, reErr := regexp.Compile(rule.Pattern)
 			if reErr != nil {

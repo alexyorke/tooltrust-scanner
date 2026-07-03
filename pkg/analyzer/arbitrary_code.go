@@ -28,6 +28,12 @@ var arbitraryCodeKeywords = []string{
 	"runs user-provided",
 }
 
+type arbitraryCodeKeywordVariant struct {
+	phrase  string
+	compact string
+	snake   string
+}
+
 // arbitraryCodePatterns are compiled regexes for natural language variants
 // that the exact keyword list can't cover (e.g. "evaluates a JavaScript expression").
 var arbitraryCodePatterns = []*regexp.Regexp{
@@ -59,6 +65,24 @@ var arbitraryCodePatterns = []*regexp.Regexp{
 	regexp.MustCompile("(?i)`[^`]*\\b(curl|wget|bash|sh)\\b[^`]*`"),
 }
 
+var arbitraryCodePatternHints = []string{
+	"eval",
+	"evaluat",
+	"execut",
+	"run ",
+	"runs ",
+	"inject",
+	"python code",
+	"javascript",
+	" js",
+	"code snippet",
+	"page.evaluate",
+	"frame.evaluate",
+	"window.eval",
+	"document.eval",
+	"`",
+}
+
 // arbitraryCodeNameSuffixes are tool-name suffixes that strongly signal JS
 // evaluation (e.g. chrome_evaluate, puppeteer_evaluate, cdp_eval).
 var arbitraryCodeNameSuffixes = []string{
@@ -70,6 +94,8 @@ var arbitraryCodeNameSuffixes = []string{
 	"executejavascript",
 	"_runscript",
 }
+
+var arbitraryCodeKeywordVariants = buildArbitraryCodeKeywordVariants(arbitraryCodeKeywords)
 
 // arbitraryCodeSafeNamePrefixes are tool-name prefixes where evaluate/execute/analyze
 // mean "assess" or "inspect", not code execution. When a tool name starts with one
@@ -105,6 +131,27 @@ var arbitraryCodeSafeNameSubstrings = []string{
 	"policy_evaluate",
 }
 
+var executionSignals = []string{
+	"eval(", "eval (", "run script",
+	"run code", "execute code", "execute script",
+	"execute javascript", "execute js",
+	"run javascript", "run js code",
+	"javascript eval", "javascript execution",
+	"javascript code", "js injection",
+	"arbitrary code", "arbitrary script",
+	"browser context",
+	"page.evaluate", "frame.evaluate",
+}
+
+var negationPrefixes = []string{
+	"does not ",
+	"do not ",
+	"doesn't ",
+	"don't ",
+	"not ",
+	"without ",
+}
+
 // ArbitraryCodeChecker detects tools that can execute arbitrary script or
 // code (e.g. evaluate_script, execute JavaScript, browser injection).
 // These are AS-006 with CRITICAL severity — equivalent risk to exec.
@@ -124,17 +171,6 @@ func NewArbitraryCodeChecker() *ArbitraryCodeChecker { return &ArbitraryCodeChec
 // descriptionConfirmsExecution checks whether the description independently
 // contains strong signals of actual code/script execution (not just analysis).
 func descriptionConfirmsExecution(desc string) bool {
-	executionSignals := []string{
-		"eval(", "eval (", "run script",
-		"run code", "execute code", "execute script",
-		"execute javascript", "execute js",
-		"run javascript", "run js code",
-		"javascript eval", "javascript execution",
-		"javascript code", "js injection",
-		"arbitrary code", "arbitrary script",
-		"browser context",
-		"page.evaluate", "frame.evaluate",
-	}
 	for _, sig := range executionSignals {
 		if strings.Contains(desc, sig) {
 			return true
@@ -144,20 +180,24 @@ func descriptionConfirmsExecution(desc string) bool {
 }
 
 func descriptionNegatesKeyword(desc, kw string) bool {
-	negatedForms := []string{
-		"does not " + kw,
-		"do not " + kw,
-		"doesn't " + kw,
-		"don't " + kw,
-		"not " + kw,
-		"without " + kw,
-	}
-	for _, negated := range negatedForms {
-		if strings.Contains(desc, negated) {
+	for _, prefix := range negationPrefixes {
+		if strings.Contains(desc, prefix+kw) {
 			return true
 		}
 	}
 	return false
+}
+
+func buildArbitraryCodeKeywordVariants(keywords []string) []arbitraryCodeKeywordVariant {
+	out := make([]arbitraryCodeKeywordVariant, 0, len(keywords))
+	for _, kw := range keywords {
+		out = append(out, arbitraryCodeKeywordVariant{
+			phrase:  kw,
+			compact: strings.ReplaceAll(kw, " ", ""),
+			snake:   strings.ReplaceAll(kw, " ", "_"),
+		})
+	}
+	return out
 }
 
 // Check produces an AS-006 finding when name or description signals
@@ -167,23 +207,20 @@ func (c *ArbitraryCodeChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 	descLower := strings.ToLower(strings.TrimSpace(tool.Description))
 
 	// 1. Exact keyword match in name (normalised) or description.
-	for _, kw := range arbitraryCodeKeywords {
-		kwNorm := strings.ReplaceAll(kw, " ", "")
-		kwSnake := strings.ReplaceAll(kw, " ", "_")
-		nameMatch := strings.Contains(nameLower, kwNorm) ||
-			strings.Contains(nameLower, kwSnake) ||
-			strings.Contains(nameLower, strings.ReplaceAll(kw, " ", ""))
-		descMatch := strings.Contains(descLower, kw)
-		if !nameMatch && descMatch && descriptionNegatesKeyword(descLower, kw) {
+	for _, kw := range arbitraryCodeKeywordVariants {
+		nameMatch := strings.Contains(nameLower, kw.compact) ||
+			strings.Contains(nameLower, kw.snake)
+		descMatch := strings.Contains(descLower, kw.phrase)
+		if !nameMatch && descMatch && descriptionNegatesKeyword(descLower, kw.phrase) {
 			descMatch = false
 		}
 		if nameMatch || descMatch {
 			evidence := []model.Evidence{}
 			if nameMatch {
-				evidence = append(evidence, model.Evidence{Kind: "tool_name_keyword", Value: kw})
+				evidence = append(evidence, model.Evidence{Kind: "tool_name_keyword", Value: kw.phrase})
 			}
 			if descMatch {
-				evidence = append(evidence, model.Evidence{Kind: "description_keyword", Value: kw})
+				evidence = append(evidence, model.Evidence{Kind: "description_keyword", Value: kw.phrase})
 			}
 			return emitArbitraryCodeFinding(tool.Name, evidence, hasCodeExecutionCapability(tool)), nil
 		}
@@ -226,33 +263,35 @@ func (c *ArbitraryCodeChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 	// falsely flagged when the description happens to contain "execute" in a
 	// non-code-execution context.
 	combined := nameLower + " " + descLower
-	for _, re := range arbitraryCodePatterns {
-		if !re.MatchString(combined) {
-			continue
-		}
-		isSafe := false
-		for _, prefix := range arbitraryCodeSafeNamePrefixes {
-			if strings.HasPrefix(nameLower, prefix) {
-				isSafe = true
-				break
+	if containsAny(combined, arbitraryCodePatternHints...) {
+		for _, re := range arbitraryCodePatterns {
+			matched := re.FindString(combined)
+			if matched == "" {
+				continue
 			}
-		}
-		if !isSafe {
-			for _, safe := range arbitraryCodeSafeNameSubstrings {
-				if strings.Contains(nameLower, safe) {
+			isSafe := false
+			for _, prefix := range arbitraryCodeSafeNamePrefixes {
+				if strings.HasPrefix(nameLower, prefix) {
 					isSafe = true
 					break
 				}
 			}
+			if !isSafe {
+				for _, safe := range arbitraryCodeSafeNameSubstrings {
+					if strings.Contains(nameLower, safe) {
+						isSafe = true
+						break
+					}
+				}
+			}
+			if isSafe && !descriptionConfirmsExecution(descLower) {
+				continue
+			}
+			return emitArbitraryCodeFinding(tool.Name, []model.Evidence{
+				{Kind: "pattern", Value: re.String()},
+				{Kind: "match", Value: matched},
+			}, hasCodeExecutionCapability(tool)), nil
 		}
-		if isSafe && !descriptionConfirmsExecution(descLower) {
-			continue
-		}
-		matched := re.FindString(combined)
-		return emitArbitraryCodeFinding(tool.Name, []model.Evidence{
-			{Kind: "pattern", Value: re.String()},
-			{Kind: "match", Value: matched},
-		}, hasCodeExecutionCapability(tool)), nil
 	}
 
 	return nil, nil
@@ -264,12 +303,9 @@ func hasCodeExecutionCapability(tool model.UnifiedTool) bool {
 	if tool.HasPermission(model.PermissionExec) {
 		return true
 	}
-	for propName := range tool.InputSchema.Properties {
-		if isCodeExecPropName(strings.ToLower(propName)) {
-			return true
-		}
-	}
-	return false
+	return schemaHasPropertyMatching(tool.InputSchema, func(propName string) bool {
+		return isCodeExecPropName(strings.ToLower(propName))
+	})
 }
 
 // isCodeExecPropName reports whether an input property name denotes a

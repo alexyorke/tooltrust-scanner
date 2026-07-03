@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -36,9 +37,11 @@ func newScanRepoCmd() *cobra.Command {
 }
 
 func runScanRepo(ctx context.Context, opts scanRepoOpts) error {
+	opts.repoDir = strings.TrimSpace(opts.repoDir)
 	if opts.repoDir == "" {
 		return fmt.Errorf("--repo is required")
 	}
+	opts.output = normalizeOutput(opts.output)
 	if opts.output != "text" && opts.output != "json" {
 		return fmt.Errorf("invalid --output value %q (use: text | json)", opts.output)
 	}
@@ -64,7 +67,7 @@ func runScanRepo(ctx context.Context, opts scanRepoOpts) error {
 	}
 
 	if opts.outputFile != "" {
-		if writeErr := os.WriteFile(opts.outputFile, out, 0o644); writeErr != nil {
+		if writeErr := os.WriteFile(opts.outputFile, out, 0o600); writeErr != nil {
 			return fmt.Errorf("write output file %s: %w", opts.outputFile, writeErr)
 		}
 		return nil

@@ -49,6 +49,38 @@ func TestAdapter_Parse_BasicTool(t *testing.T) {
 	assert.Contains(t, tool.Permissions, model.PermissionFS)
 }
 
+func TestAdapter_Parse_ReadFilesInfersFilesystem(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "read_files",
+				Description: "Reads files from disk.",
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Permissions, model.PermissionFS)
+}
+
+func TestAdapter_Parse_ReadDirectoriesInfersFilesystem(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "read_directories",
+				Description: "Reads directories from disk.",
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Permissions, model.PermissionFS)
+}
+
 func TestAdapter_Parse_NetworkTool(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{
@@ -69,6 +101,162 @@ func TestAdapter_Parse_NetworkTool(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, tools, 1)
 	assert.Contains(t, tools[0].Permissions, model.PermissionNetwork)
+}
+
+func TestAdapter_Parse_URLFieldsDoNotInferFilesystem(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "oauth_profile",
+			"description": "Build an OAuth redirect URL for a user profile.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"redirect_uri": {"type": "string"},
+					"profile_url": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Permissions, model.PermissionNetwork)
+	assert.NotContains(t, tools[0].Permissions, model.PermissionFS)
+}
+
+func TestAdapter_Parse_GenericNameKeywordsDoNotInferPermissions(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "create_ticket",
+				Description: "Create a support ticket.",
+				InputSchema: mcp.InputSchema{
+					Type:       "object",
+					Properties: map[string]mcp.SchemaProperty{"id": {Type: "string"}},
+				},
+			},
+			{
+				Name:        "search_notes",
+				Description: "Search user notes.",
+				InputSchema: mcp.InputSchema{
+					Type:       "object",
+					Properties: map[string]mcp.SchemaProperty{"query": {Type: "string"}},
+				},
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 2)
+
+	assert.NotContains(t, tools[0].Permissions, model.PermissionFS)
+	assert.NotContains(t, tools[0].Permissions, model.PermissionNetwork)
+	assert.NotContains(t, tools[1].Permissions, model.PermissionFS)
+	assert.NotContains(t, tools[1].Permissions, model.PermissionNetwork)
+}
+
+func TestAdapter_Parse_InvalidSchemaTypeReturnsError(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "broken_tool",
+			"description": "Tool with malformed schema type.",
+			"inputSchema": {
+				"type": 123,
+				"properties": {
+					"path": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	_, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FlexType")
+}
+
+func TestAdapter_Parse_NullSchemaTypeReturnsError(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "broken_tool",
+			"description": "Tool with null schema type.",
+			"inputSchema": {
+				"type": null,
+				"properties": {
+					"path": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	_, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FlexType")
+}
+
+func TestAdapter_Parse_DescriptionFieldDoesNotInferExec(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "create_ticket",
+				Description: "Create a support ticket.",
+				InputSchema: mcp.InputSchema{
+					Type: "object",
+					Properties: map[string]mcp.SchemaProperty{
+						"description": {Type: "string"},
+					},
+				},
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.NotContains(t, tools[0].Permissions, model.PermissionExec)
+}
+
+func TestAdapter_Parse_SearchQueryDoesNotInferDatabase(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "search_docs",
+				Description: "Search documents by query.",
+				InputSchema: mcp.InputSchema{
+					Type: "object",
+					Properties: map[string]mcp.SchemaProperty{
+						"query": {Type: "string"},
+					},
+				},
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.NotContains(t, tools[0].Permissions, model.PermissionDB)
+}
+
+func TestAdapter_Parse_CamelCaseFilesystemFieldInfersFilesystem(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "read_file",
+			"description": "Read a file from disk.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"filePath": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Permissions, model.PermissionFS)
 }
 
 func TestAdapter_Parse_ExecTool(t *testing.T) {
@@ -117,6 +305,72 @@ func TestAdapter_Parse_InvalidJSON(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestAdapter_Parse_RejectsTopLevelNull(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte("null"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "top-level JSON value must be an object")
+}
+
+func TestAdapter_Parse_RejectsTopLevelArray(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte("[]"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "top-level JSON value must be an object")
+}
+
+func TestAdapter_Parse_RejectsMissingToolsField(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tools field is required and must be an array")
+}
+
+func TestAdapter_Parse_RejectsNullToolsField(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":null}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tools field must be an array")
+}
+
+func TestAdapter_Parse_RejectsNonArrayToolsField(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":{}}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tools field must be an array")
+}
+
+func TestAdapter_Parse_RejectsNullToolEntry(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[null]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool entry at index 0 must be an object")
+}
+
+func TestAdapter_Parse_RejectsNonObjectToolEntry(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":["bad"]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool entry at index 0 must be an object")
+}
+
+func TestAdapter_Parse_RejectsMissingToolName(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"description":"no name"}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing a non-empty name")
+}
+
+func TestAdapter_Parse_RejectsBlankToolName(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"   ","description":"blank name"}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing a non-empty name")
+}
+
+func TestAdapter_Parse_RejectsNullInputSchema(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","inputSchema":null}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has null inputSchema")
+}
+
+func TestAdapter_Parse_RejectsNonObjectInputSchema(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","inputSchema":[]}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inputSchema must be an object")
+}
+
 func TestAdapter_Parse_PreservesRawSource(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{
@@ -160,6 +414,29 @@ func TestAdapter_Parse_PopulatesSupplyChainMetadata(t *testing.T) {
 	assert.Equal(t, "axios", deps[0]["name"])
 	assert.Equal(t, "1.14.1", deps[0]["version"])
 	assert.Equal(t, "npm", deps[0]["ecosystem"])
+}
+
+func TestAdapter_Parse_SkipsWhitespaceOnlyDependencyMetadata(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "deploy_site",
+				Description: "Deploy the site",
+				Metadata: mcp.ToolMeta{
+					Dependencies: []mcp.DependencyMetadata{
+						{Name: "   ", Version: "1.14.1", Ecosystem: "npm"},
+						{Name: "axios", Version: "   ", Ecosystem: "npm"},
+						{Name: "axios", Version: "1.14.1", Ecosystem: "   "},
+					},
+				},
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Nil(t, tools[0].Metadata)
 }
 
 func TestAdapter_Parse_PrefersMetadataRepoURL(t *testing.T) {
@@ -305,6 +582,29 @@ func TestAdapter_Parse_DBTool(t *testing.T) {
 	assert.Contains(t, tools[0].Permissions, model.PermissionDB)
 }
 
+func TestAdapter_Parse_QueryDatabaseDoesNotInferNetwork(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "query_database",
+				Description: "Run a SQL query against the configured database.",
+				InputSchema: mcp.InputSchema{
+					Type: "object",
+					Properties: map[string]mcp.SchemaProperty{
+						"query": {Type: "string"},
+					},
+				},
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Permissions, model.PermissionDB)
+	assert.NotContains(t, tools[0].Permissions, model.PermissionNetwork)
+}
+
 // TestAdapter_Parse_ArrayTypeField verifies that a JSON Schema "type" value
 // encoded as an array (e.g. ["string","null"]) is accepted without error and
 // that the first non-null element is used as the property type.
@@ -329,6 +629,135 @@ func TestAdapter_Parse_ArrayTypeField(t *testing.T) {
 	assert.Equal(t, "GOOGLESHEETS_ADD_SHEET", tools[0].Name)
 	assert.Equal(t, "string", tools[0].InputSchema.Properties["title"].Type)
 	assert.Equal(t, "boolean", tools[0].InputSchema.Properties["hidden"].Type)
+}
+
+func TestAdapter_Parse_NullOnlyArrayTypeReturnsError(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "broken_tool",
+			"description": "Tool with null-only array schema type.",
+			"inputSchema": {
+				"type": ["null"],
+				"properties": {
+					"path": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	_, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "schema type array must contain at least one non-null type")
+}
+
+func TestAdapter_Parse_EmptyArrayTypeReturnsError(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "broken_tool",
+			"description": "Tool with empty array schema type.",
+			"inputSchema": {
+				"type": [],
+				"properties": {
+					"path": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	_, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "schema type array must contain at least one non-null type")
+}
+
+func TestAdapter_Parse_PreservesNestedSchemaDetails(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "create_ticket",
+			"description": "Create a ticket with typed metadata.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"priority": {
+						"type": "string",
+						"description": "Ticket priority",
+						"enum": ["low", "medium", "high"]
+					},
+					"labels": {
+						"type": "array",
+						"items": {"type": "string", "description": "Label name"}
+					},
+					"metadata": {
+						"type": "object",
+						"properties": {
+							"source": {"type": "string", "description": "Request source"}
+						}
+					}
+				}
+			}
+		}]
+	}`)
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+
+	props := tools[0].InputSchema.Properties
+	assert.Equal(t, []any{"low", "medium", "high"}, props["priority"].Enum)
+	require.NotNil(t, props["labels"].Items)
+	assert.Equal(t, "string", props["labels"].Items.Type)
+	require.Contains(t, props["metadata"].Properties, "source")
+	assert.Equal(t, "Request source", props["metadata"].Properties["source"].Description)
+}
+
+func TestAdapter_Parse_PreservesTopLevelArrayItemsAndInfersPermission(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "prepare_requests",
+			"description": "Prepare outbound requests.",
+			"inputSchema": {
+				"type": "array",
+				"items": {
+					"type": "object",
+					"properties": {
+						"url": {"type": "string", "description": "Target URL"}
+					}
+				}
+			}
+		}]
+	}`)
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	require.NotNil(t, tools[0].InputSchema.Items)
+	require.Contains(t, tools[0].InputSchema.Items.Properties, "url")
+	assert.Equal(t, "Target URL", tools[0].InputSchema.Items.Properties["url"].Description)
+	assert.Contains(t, tools[0].Permissions, model.PermissionNetwork)
+}
+
+func TestAdapter_Parse_InfersPermissionFromNestedSchemaProperty(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "prepare_payload",
+			"description": "Prepare a payload.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"payload": {
+						"type": "object",
+						"properties": {
+							"url": {"type": "string"}
+						}
+					}
+				}
+			}
+		}]
+	}`)
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Permissions, model.PermissionNetwork)
 }
 
 // TestAdapter_Parse_LichessCloudEvalDoesNotInferExec verifies that a read-only chess

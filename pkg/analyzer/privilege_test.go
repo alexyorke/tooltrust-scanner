@@ -41,11 +41,36 @@ func TestPrivilegeChecker_BroadScope_WriteWildcard(t *testing.T) {
 	assert.Equal(t, "AS-005", issues[0].RuleID)
 }
 
+func TestPrivilegeChecker_BroadScope_GoogleDriveFullAccess(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:     "drive_tool",
+		Metadata: map[string]any{"oauth_scopes": []any{"https://www.googleapis.com/auth/drive"}},
+	}
+
+	issues, err := analyzer.NewPrivilegeEscalationChecker().Check(tool)
+	require.NoError(t, err)
+	require.NotEmpty(t, issues)
+	assert.Equal(t, "AS-005", issues[0].RuleID)
+	assert.Equal(t, "BROAD_OAUTH_SCOPE", issues[0].Code)
+	assert.Equal(t, model.SeverityHigh, issues[0].Severity)
+}
+
 func TestPrivilegeChecker_NarrowScope_NoFinding(t *testing.T) {
 	tool := model.UnifiedTool{
 		Name:     "read_only_tool",
 		Metadata: map[string]any{"oauth_scopes": []any{"read:user", "gist"}},
 	}
+	issues, err := analyzer.NewPrivilegeEscalationChecker().Check(tool)
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+}
+
+func TestPrivilegeChecker_ReadOnlyAdminMetadataScope_NoFinding(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:     "read_admin_metadata",
+		Metadata: map[string]any{"oauth_scopes": []any{"read:admin_metadata"}},
+	}
+
 	issues, err := analyzer.NewPrivilegeEscalationChecker().Check(tool)
 	require.NoError(t, err)
 	assert.Empty(t, issues)

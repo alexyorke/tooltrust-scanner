@@ -10,24 +10,6 @@ import (
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
-// ---------------------------------------------------------------------------
-// Mock OSV client
-// ---------------------------------------------------------------------------
-
-// mockOSVClient implements the internal osvClient interface via a test double.
-// It is wired in through newSupplyChainCheckerWithClient (unexported helper
-// exposed to the _test package via the same package-level test file).
-type mockOSVResponse struct {
-	vulns []osvVulnFixture
-	err   error
-}
-
-type osvVulnFixture struct {
-	id       string
-	summary  string
-	severity string // CVSS v3 score string, e.g. "9.8"
-}
-
 // We cannot directly use the unexported osvClient interface from the test
 // package, so we use the exported Engine.ScanWithSupplyChain helper instead.
 // For direct SupplyChainChecker testing we use the exported
@@ -253,6 +235,69 @@ func TestSupplyChainChecker_RepoURLLockfileDependency_IncludesEvidenceSource(t *
 	assert.Equal(t, "MALICIOUS_PACKAGE", issues[0].Code)
 }
 
+func TestSupplyChainChecker_RepoURLLockfileDependency_KeepsMetadataSourceForDirectDependency(t *testing.T) {
+	prev := analyzer.LockfileDepsFetcherForTest()
+	analyzer.SetLockfileDepsFetcherForTest(func(string) []analyzer.Dependency {
+		return []analyzer.Dependency{
+			{Name: "axios", Version: "1.14.1", Ecosystem: "npm"},
+		}
+	})
+	t.Cleanup(func() {
+		analyzer.SetLockfileDepsFetcherForTest(prev)
+	})
+
+	checker := analyzer.NewSupplyChainCheckerWithMock([]analyzer.MockVuln{
+		{ID: "CVE-2026-5001", Summary: "Prototype pollution", CVSSScore: "7.5"},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "repo_tool",
+		Metadata: map[string]any{
+			"repo_url": "https://github.com/example/repo",
+			"dependencies": []any{
+				map[string]any{"name": "axios", "version": "1.14.1", "ecosystem": "npm"},
+			},
+		},
+	}
+
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "SUPPLY_CHAIN_CVE", issues[0].Code)
+	assert.Equal(t, model.SeverityHigh, issues[0].Severity)
+	assert.Equal(t, "metadata", issues[0].Evidence[3].Value)
+}
+
+func TestSupplyChainChecker_MalformedMetadataWithRepoURL_StillUsesLockfileDeps(t *testing.T) {
+	prev := analyzer.LockfileDepsFetcherForTest()
+	analyzer.SetLockfileDepsFetcherForTest(func(string) []analyzer.Dependency {
+		return []analyzer.Dependency{
+			{Name: "axios", Version: "1.14.1", Ecosystem: "npm"},
+		}
+	})
+	t.Cleanup(func() {
+		analyzer.SetLockfileDepsFetcherForTest(prev)
+	})
+
+	checker := analyzer.NewSupplyChainCheckerWithMock([]analyzer.MockVuln{
+		{ID: "MAL-2026-9000", Summary: "Known malicious package", CVSSScore: "9.8"},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "broken_metadata_tool",
+		Metadata: map[string]any{
+			"repo_url":     "https://github.com/example/repo",
+			"dependencies": "not a dependency list",
+		},
+	}
+
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "MALICIOUS_PACKAGE", issues[0].Code)
+	assert.Equal(t, "lockfile", issues[0].Evidence[3].Value)
+}
+
 // ---------------------------------------------------------------------------
 // Lockfile parser unit tests
 // ---------------------------------------------------------------------------
@@ -278,6 +323,41 @@ func TestParsePackageLockJSON_V2(t *testing.T) {
 	assert.Equal(t, "6.5.2", names["qs"])
 }
 
+func TestParsePackageLockJSON_RejectsTopLevelNull(t *testing.T) {
+	_, err := analyzer.ParsePackageLockJSONForTest([]byte("null"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse package-lock.json: top-level JSON value must be an object")
+}
+
+func TestParsePackageLockJSON_RejectsTopLevelArray(t *testing.T) {
+	_, err := analyzer.ParsePackageLockJSONForTest([]byte("[]"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse package-lock.json: top-level JSON value must be an object")
+}
+
+func TestParsePackageLockJSON_NPMAliasUsesRealPackageName(t *testing.T) {
+	data := []byte(`{
+  "packages": {
+    "": {
+      "version": "1.0.0",
+      "dependencies": {
+        "string-width-cjs": "npm:string-width@^4.2.3"
+      }
+    },
+    "node_modules/string-width-cjs": {
+      "name": "string-width",
+      "version": "4.2.3"
+    }
+  }
+}`)
+	deps, err := analyzer.ParsePackageLockJSONForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "string-width", deps[0].Name)
+	assert.Equal(t, "4.2.3", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+}
+
 func TestParseGoSum(t *testing.T) {
 	data := []byte(`github.com/foo/bar v1.2.3 h1:abc
 github.com/foo/bar v1.2.3/go.mod h1:def
@@ -301,11 +381,12 @@ func TestParseRequirementsTxt(t *testing.T) {
 django==4.2.0
 requests>=2.28.0
 Flask==2.3.1 ; python_requires >= "3.8"
+requests[socks]==2.31.0
 -r other.txt
 `)
 	deps, err := analyzer.ParseRequirementsTxtForTest(data)
 	require.NoError(t, err)
-	assert.Len(t, deps, 2, "only exact == pins and no -r lines")
+	assert.Len(t, deps, 3, "only exact == pins and no -r lines")
 
 	names := make(map[string]string)
 	for _, d := range deps {
@@ -314,6 +395,7 @@ Flask==2.3.1 ; python_requires >= "3.8"
 	}
 	assert.Equal(t, "4.2.0", names["django"])
 	assert.Equal(t, "2.3.1", names["Flask"])
+	assert.Equal(t, "2.31.0", names["requests"], "extras must be stripped from PyPI package names")
 }
 
 func TestParsePNPMLockYAML(t *testing.T) {
@@ -338,6 +420,33 @@ packages:
 	assert.Equal(t, "2.3.4", names["@scope/sdk"])
 }
 
+func TestParsePNPMLockYAML_RejectsTopLevelNull(t *testing.T) {
+	_, err := analyzer.ParsePNPMLockYAMLForTest([]byte("null"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse pnpm-lock.yaml: top-level YAML value must be a mapping")
+}
+
+func TestParsePNPMLockYAML_RejectsTopLevelSequence(t *testing.T) {
+	_, err := analyzer.ParsePNPMLockYAMLForTest([]byte("[]"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse pnpm-lock.yaml: top-level YAML value must be a mapping")
+}
+
+func TestParsePNPMLockYAML_NPMAliasUsesRealPackageName(t *testing.T) {
+	data := []byte(`
+lockfileVersion: '9.0'
+packages:
+  /string-width-cjs@npm:string-width@^4.2.3:
+    resolution: {integrity: sha512-abc}
+`)
+	deps, err := analyzer.ParsePNPMLockYAMLForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "string-width", deps[0].Name)
+	assert.Equal(t, "^4.2.3", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+}
+
 func TestParseYarnLock(t *testing.T) {
 	data := []byte(`
 "axios@^1.14.1":
@@ -358,6 +467,19 @@ func TestParseYarnLock(t *testing.T) {
 	}
 	assert.Equal(t, "1.14.1", names["axios"])
 	assert.Equal(t, "2.3.4", names["@scope/sdk"])
+}
+
+func TestParseYarnLock_NPMAliasUsesRealPackageName(t *testing.T) {
+	data := []byte(`
+"string-width-cjs@npm:string-width@^4.2.0":
+  version "4.2.3"
+`)
+	deps, err := analyzer.ParseYarnLockForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "string-width", deps[0].Name)
+	assert.Equal(t, "4.2.3", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
 }
 
 // ---------------------------------------------------------------------------

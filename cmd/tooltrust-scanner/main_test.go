@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/pterm/pterm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -53,6 +58,408 @@ func TestCheckFailOn_InvalidValue(t *testing.T) {
 	err := checkFailOn("bogus", ScanSummary{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid --fail-on")
+}
+
+func TestNewScanCmd_ProtocolFlagIsMCPOnly(t *testing.T) {
+	cmd := newScanCmd()
+	flag := cmd.Flags().Lookup("protocol")
+	if assert.NotNil(t, flag) {
+		assert.Contains(t, flag.Usage, "mcp")
+		assert.NotContains(t, flag.Usage, "openai")
+		assert.NotContains(t, flag.Usage, "skills")
+	}
+}
+
+func TestNewScanCmd_OutputFlagListsSupportedFormats(t *testing.T) {
+	cmd := newScanCmd()
+	flag := cmd.Flags().Lookup("output")
+	if assert.NotNil(t, flag) {
+		assert.Contains(t, flag.Usage, "text")
+		assert.Contains(t, flag.Usage, "json")
+		assert.Contains(t, flag.Usage, "sarif")
+	}
+}
+
+func TestRunScan_InvalidFailOnDoesNotWriteReport(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "tools.json")
+	output := filepath.Join(tmp, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte(`{"tools":[]}`), 0o644))
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "mcp",
+		output:     "json",
+		outputFile: output,
+		failOn:     "bogus",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid --fail-on")
+	assert.NoFileExists(t, output)
+}
+
+func TestRunScan_RejectsWhitespaceOnlyServerFlag(t *testing.T) {
+	prev := scanLiveServerFn
+	scanLiveServerFn = func(context.Context, string) ([]model.UnifiedTool, error) {
+		t.Fatal("scanLiveServerFn should not be called when --server is whitespace only")
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		scanLiveServerFn = prev
+	})
+
+	err := runScan(context.Background(), scanOpts{
+		serverCmd: "   ",
+		output:    "json",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exactly one of --input or --server must be provided")
+}
+
+func TestRunScan_RejectsWhitespaceOnlyInputFlag(t *testing.T) {
+	prev := scanLiveServerFn
+	scanLiveServerFn = func(context.Context, string) ([]model.UnifiedTool, error) {
+		t.Fatal("scanLiveServerFn should not be called when --input is whitespace only")
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		scanLiveServerFn = prev
+	})
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile: "   ",
+		output:    "json",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exactly one of --input or --server must be provided")
+}
+
+func TestRunScan_JSONOutputDoesNotSuppressLaterTextOutput(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "tools.json")
+	jsonOutput := filepath.Join(tmp, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte(`{"tools":[]}`), 0o644))
+
+	prevOutput := pterm.Output
+	pterm.EnableOutput()
+	t.Cleanup(func() {
+		if prevOutput {
+			pterm.EnableOutput()
+		} else {
+			pterm.DisableOutput()
+		}
+		pterm.SetDefaultOutput(os.Stdout)
+	})
+
+	var buf bytes.Buffer
+	pterm.SetDefaultOutput(&buf)
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "mcp",
+		output:     "json",
+		outputFile: jsonOutput,
+	})
+	require.NoError(t, err)
+
+	buf.Reset()
+
+	err = runScan(context.Background(), scanOpts{
+		inputFile: input,
+		protocol:  "mcp",
+		output:    "text",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, buf.String(), "Scan Summary")
+}
+
+func TestRunScan_JSONOutput_EmptyPoliciesUseArray(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "tools.json")
+	output := filepath.Join(tmp, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte(`{"tools":[]}`), 0o644))
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "mcp",
+		output:     "json",
+		outputFile: output,
+	})
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(output)
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(data, &payload))
+
+	policies, ok := payload["policies"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, policies)
+}
+
+func TestWriteOutput_JSONOmitsDependencyVisibilityFields(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "report.json")
+	report := ScanReport{
+		SchemaVersion: "1.0",
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName: "read_file",
+				Action:   model.ActionAllow,
+				Score:    model.RiskScore{Grade: model.GradeA},
+			},
+		},
+		Summary: ScanSummary{
+			Total:     1,
+			Allowed:   1,
+			AvgScore:  0,
+			AvgGrade:  "A",
+			ScannedAt: time.Now().UTC(),
+		},
+	}
+
+	require.NoError(t, writeOutput(scanOpts{output: "json", outputFile: out}, report))
+
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "dependency_visibility")
+	assert.NotContains(t, string(data), "dependency_note")
+}
+
+func TestRunScan_RejectsMCPConfigInput(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, ".mcp.json")
+	output := filepath.Join(tmp, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte(`{
+		"mcpServers": {
+			"evil": {
+				"command": "npx",
+				"args": ["-y", "some-server"]
+			}
+		}
+	}`), 0o644))
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "mcp",
+		output:     "json",
+		outputFile: output,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MCP tools/list")
+	assert.NoFileExists(t, output)
+}
+
+func TestRunScan_NormalizesSupportedProtocol(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "tools.json")
+	output := filepath.Join(tmp, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte(`{"tools":[]}`), 0o644))
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "  MCP  ",
+		output:     "json",
+		outputFile: output,
+	})
+
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(output)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"schema_version": "1.0"`)
+}
+
+func TestRunScan_NormalizesFailOn(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "tools.json")
+	output := filepath.Join(tmp, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte(`{"tools":[]}`), 0o644))
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "mcp",
+		output:     "json",
+		outputFile: output,
+		failOn:     "  AlLoW  ",
+	})
+
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(output)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"schema_version": "1.0"`)
+}
+
+func TestRunScan_NormalizesOutputFormat(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "tools.json")
+	output := filepath.Join(tmp, "report.json")
+	require.NoError(t, os.WriteFile(input, []byte(`{"tools":[]}`), 0o644))
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "mcp",
+		output:     "  JSON  ",
+		outputFile: output,
+	})
+
+	require.NoError(t, err)
+	data, readErr := os.ReadFile(output)
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), `"schema_version": "1.0"`)
+}
+
+func TestRunScan_PersistenceErrorSurfaces(t *testing.T) {
+	tmp := t.TempDir()
+	input := filepath.Join(tmp, "tools.json")
+	output := filepath.Join(tmp, "report.json")
+	dbPath := filepath.Join(tmp, "missing", "scans.db")
+	require.NoError(t, os.WriteFile(input, []byte(`{"tools":[]}`), 0o644))
+
+	err := runScan(context.Background(), scanOpts{
+		inputFile:  input,
+		protocol:   "mcp",
+		output:     "json",
+		outputFile: output,
+		dbPath:     dbPath,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "persist")
+	assert.NoFileExists(t, dbPath)
+}
+
+func TestPrintPtermUI_UsesPrecomputedSummary(t *testing.T) {
+	prevOutput := pterm.Output
+	pterm.EnableOutput()
+	t.Cleanup(func() {
+		if prevOutput {
+			pterm.EnableOutput()
+		} else {
+			pterm.DisableOutput()
+		}
+		pterm.SetDefaultOutput(os.Stdout)
+	})
+
+	var buf bytes.Buffer
+	pterm.SetDefaultOutput(&buf)
+
+	report := ScanReport{
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName: "read_file",
+				Action:   model.ActionAllow,
+				Score:    model.RiskScore{Score: 1, Grade: model.GradeA},
+			},
+		},
+		Summary: ScanSummary{
+			Total:     1,
+			Allowed:   1,
+			AvgScore:  99,
+			AvgGrade:  "Z",
+			ScannedAt: time.Now().UTC(),
+		},
+	}
+
+	require.NoError(t, printPtermUI(report))
+	assert.Contains(t, buf.String(), "Avg Risk Score   : 99 (grade Z)")
+}
+
+func TestPrintPtermUI_OmitsDependencyVisibilityContext(t *testing.T) {
+	prevOutput := pterm.Output
+	pterm.EnableOutput()
+	t.Cleanup(func() {
+		if prevOutput {
+			pterm.EnableOutput()
+		} else {
+			pterm.DisableOutput()
+		}
+		pterm.SetDefaultOutput(os.Stdout)
+	})
+
+	var buf bytes.Buffer
+	pterm.SetDefaultOutput(&buf)
+
+	report := ScanReport{
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName: "deploy_site",
+				Action:   model.ActionRequireApproval,
+				Behavior: []string{"uses_network"},
+				Score:    model.RiskScore{Grade: model.GradeC},
+			},
+		},
+		Summary: ScanSummary{
+			Total:           1,
+			RequireApproval: 1,
+			AvgGrade:        "C",
+			ScannedAt:       time.Now().UTC(),
+		},
+	}
+
+	require.NoError(t, printPtermUI(report))
+	assert.NotContains(t, buf.String(), "Dependency visibility:")
+	assert.NotContains(t, buf.String(), "dependency artifacts")
+}
+
+func TestWriteOutput_TextHonorsOutputFile(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "report.txt")
+	report := ScanReport{
+		Policies: []model.GatewayPolicy{},
+		Summary: ScanSummary{
+			ScannedAt: time.Now().UTC(),
+		},
+	}
+
+	require.NoError(t, writeOutput(scanOpts{output: "text", outputFile: out}, report))
+
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "Scan Summary")
+}
+
+func TestWriteOutput_TextOutputFileRestoresPtermOutput(t *testing.T) {
+	prevOutput := pterm.Output
+	pterm.EnableOutput()
+	t.Cleanup(func() {
+		if prevOutput {
+			pterm.EnableOutput()
+		} else {
+			pterm.DisableOutput()
+		}
+		pterm.SetDefaultOutput(os.Stdout)
+	})
+
+	var buf bytes.Buffer
+	pterm.SetDefaultOutput(&buf)
+
+	out := filepath.Join(t.TempDir(), "report.txt")
+	report := ScanReport{
+		Policies: []model.GatewayPolicy{},
+		Summary: ScanSummary{
+			ScannedAt: time.Now().UTC(),
+		},
+	}
+
+	require.NoError(t, writeOutput(scanOpts{output: "text", outputFile: out}, report))
+
+	buf.Reset()
+	require.NoError(t, printPtermUI(report))
+	assert.Contains(t, buf.String(), "Scan Summary")
+}
+
+func TestShouldPrintWriteNotice_FileIsNonInteractive(t *testing.T) {
+	output, err := os.Create(filepath.Join(t.TempDir(), "stderr.txt"))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = output.Close()
+	})
+
+	assert.False(t, shouldPrintWriteNotice(output))
+	assert.False(t, shouldPrintWriteNotice(nil))
 }
 
 func TestFormatToolLabel_HidesScoreForAllowGradeA(t *testing.T) {
@@ -240,30 +647,6 @@ func TestToolReasonLabel_ForBlock(t *testing.T) {
 	assert.Equal(t, "Why blocked: ", toolReasonLabel(model.GatewayPolicy{Action: model.ActionBlock}))
 }
 
-func TestDependencyVisibilityForTool_None(t *testing.T) {
-	visibility, note := dependencyVisibilityForTool(model.UnifiedTool{
-		Name: "plain_tool",
-	})
-
-	assert.Equal(t, "No dependency data", visibility)
-	assert.Contains(t, note, "No metadata.dependencies or repo_url")
-}
-
-func TestDependencyVisibilityForTool_MetadataAndRepoURL(t *testing.T) {
-	visibility, note := dependencyVisibilityForTool(model.UnifiedTool{
-		Name: "tool",
-		Metadata: map[string]any{
-			"repo_url": "https://github.com/example/repo",
-			"dependencies": []map[string]any{
-				{"name": "axios", "version": "1.14.1", "ecosystem": "npm", "source": "local_lockfile"},
-			},
-		},
-	})
-
-	assert.Equal(t, "Verified from local lockfile + Repo URL available", visibility)
-	assert.Empty(t, note)
-}
-
 func TestToolContextLines_EmptyForAllowGradeA(t *testing.T) {
 	lines := toolContextLines(model.GatewayPolicy{
 		Action: model.ActionAllow,
@@ -299,18 +682,6 @@ func TestToolContextLines_ForFlaggedTool(t *testing.T) {
 	}, lines)
 }
 
-func TestDependencyVisibilityLines_HiddenForAllowGradeAWithoutCoverage(t *testing.T) {
-	line, note := dependencyVisibilityLines(model.GatewayPolicy{
-		Action:               model.ActionAllow,
-		Score:                model.RiskScore{Grade: model.GradeA},
-		DependencyVisibility: "No dependency data",
-		DependencyNote:       "No metadata.dependencies or repo_url were exposed by this MCP server.",
-	})
-
-	assert.Equal(t, "", line)
-	assert.Equal(t, "", note)
-}
-
 func TestFormatIssueLabel_HidesAS014NoiseForAllowGradeA(t *testing.T) {
 	label := formatIssueLabel(model.Issue{
 		RuleID:      "AS-014",
@@ -327,40 +698,72 @@ func TestFormatIssueLabel_HidesAS014NoiseForAllowGradeA(t *testing.T) {
 	assert.Equal(t, "", label)
 }
 
-func TestEnrichLiveToolsWithLocalNodeDependencies(t *testing.T) {
-	// Use a path-based arg (node ./server.js) so detectLocalProjectRoot finds the
-	// local project via arg-based detection (CWD-seeding was removed in 0.3.16).
+func TestParseRequirementsFile_StripsMarkersAndInlineComments(t *testing.T) {
 	tmp := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte(`{"name":"demo"}`), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package-lock.json"), []byte(`{
-  "packages": {
-    "": {"version": "1.0.0"},
-    "node_modules/axios": {"version": "1.14.1"}
-  }
-}`), 0o644))
-	// server.js must exist so os.Stat succeeds during arg-based path resolution.
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "server.js"), []byte("// stub"), 0o644))
+	path := filepath.Join(tmp, "requirements.txt")
+	require.NoError(t, os.WriteFile(path, []byte(`
+requests==2.31.0 ; python_version >= "3.10"
+flask==3.0.0 # web framework
+urllib3[socks]==2.2.1
+`), 0o644))
 
-	prevWD, err := os.Getwd()
+	deps, err := parseRequirementsFile(path)
 	require.NoError(t, err)
-	require.NoError(t, os.Chdir(tmp))
-	t.Cleanup(func() {
-		_ = os.Chdir(prevWD)
-	})
+	require.Len(t, deps, 3)
+	assert.Equal(t, nodeDependency{Name: "requests", Version: "2.31.0", Ecosystem: "PyPI", Source: "local_lockfile"}, deps[0])
+	assert.Equal(t, nodeDependency{Name: "flask", Version: "3.0.0", Ecosystem: "PyPI", Source: "local_lockfile"}, deps[1])
+	assert.Equal(t, nodeDependency{Name: "urllib3", Version: "2.2.1", Ecosystem: "PyPI", Source: "local_lockfile"}, deps[2])
+}
 
-	// OLD behaviour (before 0.3.16): ["npm", "run", "dev"] would pick up the CWD.
-	// NEW behaviour: only path-based args trigger local project detection.
-	tools := enrichLiveToolsWithLocalNodeDependencies([]string{"node", "./server.js"}, []model.UnifiedTool{{
-		Name: "deploy_site",
-	}})
-	require.Len(t, tools, 1)
-	visibility, note := dependencyVisibilityForTool(tools[0])
-	assert.Equal(t, "Verified from local lockfile", visibility)
-	assert.Contains(t, note, "Local dependency artifacts scanned")
+func TestParsePNPMLockfile_StripsPeerSuffixes(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "pnpm-lock.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+packages:
+  '/@scope/pkg@1.2.3(peer@2.0.0)':
+    resolution: {}
+  '/left-pad@1.3.0':
+    resolution: {}
+`), 0o644))
 
-	rawDeps, ok := tools[0].Metadata["dependencies"].([]map[string]any)
-	require.True(t, ok)
-	require.Len(t, rawDeps, 1)
-	assert.Equal(t, "axios", rawDeps[0]["name"])
-	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
+	deps, err := parsePNPMLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 2)
+	assert.Contains(t, deps, nodeDependency{Name: "@scope/pkg", Version: "1.2.3", Ecosystem: "npm", Source: "local_lockfile"})
+	assert.Contains(t, deps, nodeDependency{Name: "left-pad", Version: "1.3.0", Ecosystem: "npm", Source: "local_lockfile"})
+}
+
+func TestParsePNPMLockfile_ModernBarePackageKeys(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "pnpm-lock.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+lockfileVersion: '11.0'
+packages:
+  string-width@4.2.3:
+    resolution: {}
+  '@scope/pkg@1.2.3(peer@2.0.0)':
+    resolution: {}
+`), 0o644))
+
+	deps, err := parsePNPMLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 2)
+	assert.Contains(t, deps, nodeDependency{Name: "string-width", Version: "4.2.3", Ecosystem: "npm", Source: "local_lockfile"})
+	assert.Contains(t, deps, nodeDependency{Name: "@scope/pkg", Version: "1.2.3", Ecosystem: "npm", Source: "local_lockfile"})
+}
+
+func TestParsePNPMLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "pnpm-lock.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+lockfileVersion: '11.0'
+packages:
+  /string-width-cjs@npm:string-width@^4.2.3:
+    resolution: {}
+`), 0o644))
+
+	deps, err := parsePNPMLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, nodeDependency{Name: "string-width", Version: "^4.2.3", Ecosystem: "npm", Source: "local_lockfile"}, deps[0])
 }

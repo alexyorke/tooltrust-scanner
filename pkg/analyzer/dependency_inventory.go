@@ -26,15 +26,15 @@ func (c *DependencyInventoryChecker) Check(tool model.UnifiedTool) ([]model.Issu
 	}
 
 	deps, err := collectDependencies(tool)
-	if err != nil || len(deps) > 0 {
+	if len(deps) > 0 {
 		return nil, nil
 	}
 
 	note := "Tool did not expose metadata.dependencies or repo_url, so supply-chain coverage is limited."
-	if tool.Metadata != nil {
-		if n := metadataNote(tool.Metadata); n != "" {
-			note = n
-		}
+	if err != nil {
+		note = "Tool exposed dependency metadata, but it could not be parsed, so supply-chain coverage is limited."
+	} else if _, visibilityNote := DependencyVisibilityForTool(tool); visibilityNote != "" {
+		note = visibilityNote
 	}
 
 	return []model.Issue{{
@@ -48,11 +48,4 @@ func (c *DependencyInventoryChecker) Check(tool model.UnifiedTool) ([]model.Issu
 			{Kind: "dependency_visibility", Value: "none"},
 		},
 	}}, nil
-}
-
-func metadataNote(meta map[string]any) string {
-	if note, ok := meta["dependency_visibility_note"].(string); ok {
-		return note
-	}
-	return ""
 }

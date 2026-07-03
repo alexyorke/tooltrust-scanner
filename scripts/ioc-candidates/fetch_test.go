@@ -1,12 +1,19 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildCandidates_Golden(t *testing.T) {
@@ -79,7 +86,7 @@ func TestBuildCandidates_Golden(t *testing.T) {
 		},
 	}
 
-	got, stats := buildCandidates(vulns, "npm", map[string]struct{}{}, now, 24*time.Hour)
+	got, stats := buildCandidates(vulns, "npm", nil, now, 24*time.Hour)
 
 	if len(got) != 1 {
 		t.Fatalf("expected 1 MCP-relevant MAL- candidate, got %d: %#v", len(got), got)
@@ -133,7 +140,7 @@ func TestBuildCandidates_EmitsMaliciousPackageRecord(t *testing.T) {
 			},
 		},
 	}
-	got, _ := buildCandidates(vulns, "npm", map[string]struct{}{}, now, 24*time.Hour)
+	got, _ := buildCandidates(vulns, "npm", nil, now, 24*time.Hour)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 candidate from MCP-relevant MAL- record, got %d", len(got))
 	}
@@ -160,7 +167,7 @@ func TestBuildCandidates_SkipsOrdinaryCVEEvenHighSeverity(t *testing.T) {
 			},
 		},
 	}
-	got, _ := buildCandidates(vulns, "npm", map[string]struct{}{}, now, 24*time.Hour)
+	got, _ := buildCandidates(vulns, "npm", nil, now, 24*time.Hour)
 	if len(got) != 0 {
 		t.Fatalf("ordinary CVE (no MAL- id) must never be a candidate, got %#v", got)
 	}
@@ -181,7 +188,7 @@ func TestFetchCandidatesWithClient_FeedFailureIsWarning(t *testing.T) {
 		Now:         time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC),
 	}
 	client := &httpClientStub{}
-	candidates, warnings, err := fetchCandidatesWithClient(context.Background(), cfg, client, map[string]struct{}{})
+	candidates, warnings, err := fetchCandidatesWithClient(context.Background(), cfg, client, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -191,6 +198,31 @@ func TestFetchCandidatesWithClient_FeedFailureIsWarning(t *testing.T) {
 	if len(warnings) == 0 {
 		t.Fatalf("expected warning on feed failure")
 	}
+}
+
+func TestReadExistingBlacklist_RejectsTopLevelObject(t *testing.T) {
+	dir := t.TempDir()
+	existingPath := filepath.Join(dir, "existing.json")
+	err := os.WriteFile(existingPath, []byte(`{}`), 0o600)
+	require.NoError(t, err)
+
+	_, err = readExistingBlacklist(existingPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse existing blacklist: top-level JSON value must be an array")
+}
+
+func TestParseFeedZip_RejectsTopLevelArrayEntry(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("MAL-2026-0001.json")
+	require.NoError(t, err)
+	_, err = w.Write([]byte("[]"))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+
+	_, err = parseFeedZip(buf.Bytes())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse MAL-2026-0001.json: top-level JSON value must be an object")
 }
 
 type httpClientStub struct{}
@@ -329,7 +361,7 @@ func TestBuildCandidates_NonMCPMaliciousIsFiltered(t *testing.T) {
 			},
 		},
 	}
-	got, stats := buildCandidates(vulns, "npm", map[string]struct{}{}, now, 24*time.Hour)
+	got, stats := buildCandidates(vulns, "npm", nil, now, 24*time.Hour)
 	if len(got) != 0 {
 		t.Fatalf("crypto/non-MCP MAL- records must be filtered out by relevance gate, got %d: %#v", len(got), got)
 	}
@@ -339,4 +371,97 @@ func TestBuildCandidates_NonMCPMaliciousIsFiltered(t *testing.T) {
 	if stats.MCPRelevant != 0 {
 		t.Errorf("stats.MCPRelevant: got %d want 0", stats.MCPRelevant)
 	}
+}
+
+func TestBuildCandidates_SkipsVersionsCoveredByExistingBlacklistRange(t *testing.T) {
+	dir := t.TempDir()
+	existingPath := filepath.Join(dir, "existing.json")
+	err := os.WriteFile(existingPath, []byte(`[
+		{"ecosystem":"github-actions","component":"setup-trivy","affected_versions":["< v0.2.6"]}
+	]`), 0o600)
+	require.NoError(t, err)
+
+	existing, err := readExistingBlacklist(existingPath)
+	require.NoError(t, err)
+
+	now := time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC)
+	vulns := []osvVulnerability{
+		{
+			ID:        "MAL-2026-4242",
+			Summary:   "Malicious code in setup-trivy",
+			Details:   "This malicious package masquerades as an MCP server helper.",
+			Published: "2026-06-06T18:00:00Z",
+			Affected: []osvAffected{
+				{
+					Package: struct {
+						Name      string `json:"name"`
+						Ecosystem string `json:"ecosystem"`
+					}{Name: "setup-trivy", Ecosystem: "github-actions"},
+					Versions: []string{"v0.2.5"},
+				},
+			},
+		},
+	}
+
+	got, _ := buildCandidates(vulns, "github-actions", existing, now, 24*time.Hour)
+	assert.Empty(t, got)
+}
+
+func TestBuildCandidates_AcceptsRFC3339NanoPublishedTime(t *testing.T) {
+	now := time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC)
+	vulns := []osvVulnerability{
+		{
+			ID:        "MAL-2026-4244",
+			Summary:   "Malicious code in claude-mcp",
+			Details:   "This malicious package masquerades as an MCP server helper.",
+			Published: "2026-06-06T18:00:00.123Z",
+			Affected: []osvAffected{
+				{
+					Package: struct {
+						Name      string `json:"name"`
+						Ecosystem string `json:"ecosystem"`
+					}{Name: "claude-mcp", Ecosystem: "npm"},
+					Versions: []string{"1.0.0"},
+				},
+			},
+		},
+	}
+
+	got, _ := buildCandidates(vulns, "npm", nil, now, 24*time.Hour)
+	require.Len(t, got, 1)
+	assert.Equal(t, "claude-mcp", got[0].Value)
+}
+
+func TestBuildCandidates_SkipsLooseVersionRangeCoverage(t *testing.T) {
+	dir := t.TempDir()
+	existingPath := filepath.Join(dir, "existing.json")
+	err := os.WriteFile(existingPath, []byte(`[
+		{"ecosystem":"PyPI","component":"oldpkg","affected_versions":["<= 1.2.post10"]}
+	]`), 0o600)
+	require.NoError(t, err)
+
+	existing, err := readExistingBlacklist(existingPath)
+	require.NoError(t, err)
+
+	now := time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC)
+	vulns := []osvVulnerability{
+		{
+			ID:        "MAL-2026-4245",
+			Summary:   "Malicious code in oldpkg",
+			Details:   "This malicious package masquerades as an MCP server helper.",
+			Published: "2026-06-06T18:00:00Z",
+			Affected: []osvAffected{
+				{
+					Package: struct {
+						Name      string `json:"name"`
+						Ecosystem string `json:"ecosystem"`
+					}{Name: "oldpkg", Ecosystem: "PyPI"},
+					Versions: []string{"1.2.post2"},
+				},
+			},
+		},
+	}
+
+	got, _ := buildCandidates(vulns, "PyPI", existing, now, 24*time.Hour)
+	assert.Empty(t, got)
 }

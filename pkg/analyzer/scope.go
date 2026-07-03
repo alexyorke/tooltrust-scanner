@@ -59,13 +59,7 @@ func (c *ScopeChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {
 	}
 
 	if isReadOnlyName {
-		isCloudAPI := false
-		for _, sub := range cloudAPISubstrings {
-			if strings.Contains(nameLower, sub) {
-				isCloudAPI = true
-				break
-			}
-		}
+		isCloudAPI := isCloudAPIName(nameLower)
 		for _, perm := range tool.Permissions {
 			for _, wp := range writePermissions {
 				// Exception: 'network' permission is allowed for read-only API tools like get_*, list_*, fetch_*
@@ -107,24 +101,42 @@ func (c *ScopeChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {
 	writeLocalPerms := []model.Permission{model.PermissionFS, model.PermissionDB, model.PermissionExec}
 	if isWriteName && len(tool.Permissions) > 0 {
 		hasLocalWritePerm := false
+		hasHTTPWritePerm := false
+		hasNetworkWritePerm := false
 		for _, perm := range tool.Permissions {
 			for _, lp := range writeLocalPerms {
 				if perm == lp {
 					hasLocalWritePerm = true
 				}
 			}
+			if perm == model.PermissionHTTP {
+				hasHTTPWritePerm = true
+			}
+			if perm == model.PermissionNetwork {
+				hasNetworkWritePerm = true
+			}
 		}
-		if !hasLocalWritePerm {
+		hasScopedRemoteWritePerm := hasHTTPWritePerm || (hasNetworkWritePerm && isCloudAPIName(nameLower))
+		if !hasLocalWritePerm && !hasScopedRemoteWritePerm {
 			issues = append(issues, model.Issue{
 				RuleID:      "AS-003",
 				ToolName:    tool.Name,
 				Severity:    model.SeverityMedium,
 				Code:        "SCOPE_MISMATCH",
-				Description: fmt.Sprintf("tool name %q implies local write operation but only remote/network-class permissions were detected", tool.Name),
+				Description: fmt.Sprintf("tool name %q implies write operation but no write-class permissions were detected", tool.Name),
 				Location:    "name+permissions",
 			})
 		}
 	}
 
 	return issues, nil
+}
+
+func isCloudAPIName(nameLower string) bool {
+	for _, sub := range cloudAPISubstrings {
+		if strings.Contains(nameLower, sub) {
+			return true
+		}
+	}
+	return false
 }

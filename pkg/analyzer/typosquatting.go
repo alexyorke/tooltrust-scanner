@@ -49,33 +49,183 @@ var popularMCPToolNames = []string{
 	"get_sentry_issue", "resolve_sentry_issue",
 }
 
-// levenshtein computes the edit distance between two strings.
-func levenshtein(a, b string) int {
+var toolNameNormalizer = strings.NewReplacer("_", "", "-", "", " ", "")
+
+type normalizedToolName struct {
+	original   string
+	normalized string
+	length     int
+}
+
+var normalizedPopularMCPToolNames = buildNormalizedToolNames(popularMCPToolNames)
+var normalizedPopularMCPToolNameBuckets = buildNormalizedToolNameBuckets(normalizedPopularMCPToolNames)
+var normalizedPopularMCPToolNameSet = buildNormalizedToolNameSet(normalizedPopularMCPToolNames)
+
+const (
+	maxTyposquatDistance     = 2
+	smallLevenshteinRowWidth = 64
+)
+
+// levenshteinWithin computes the edit distance between two strings up to
+// maxDistance. It returns maxDistance+1 when the true distance exceeds that
+// bound so callers can cheaply reject distant names.
+func levenshteinWithin(a, b string, maxDistance int) int {
 	la, lb := len(a), len(b)
+	if la < lb {
+		a, b = b, a
+		la, lb = lb, la
+	}
 	if la == 0 {
+		if lb > maxDistance {
+			return maxDistance + 1
+		}
 		return lb
 	}
 	if lb == 0 {
+		if la > maxDistance {
+			return maxDistance + 1
+		}
 		return la
 	}
-	// Use two rows to save memory.
-	prev := make([]int, lb+1)
-	curr := make([]int, lb+1)
+	if la-lb > maxDistance {
+		return maxDistance + 1
+	}
+
+	if la == lb {
+		mismatches := 0
+		for i := 0; i < la; i++ {
+			if a[i] != b[i] {
+				mismatches++
+				if mismatches > maxDistance {
+					return maxDistance + 1
+				}
+			}
+		}
+		return mismatches
+	}
+
+	// This checker only asks for distances up to 2. Use a tiny banded DP for
+	// that hot path so we only evaluate the cells that can still produce a
+	// result within the threshold.
+	if maxDistance <= 2 {
+		return levenshteinWithinBounded(a, b, la, lb, maxDistance)
+	}
+
+	var prevSmall [smallLevenshteinRowWidth]int
+	var currSmall [smallLevenshteinRowWidth]int
+
+	var prev, curr []int
+	if lb+1 <= smallLevenshteinRowWidth {
+		prev = prevSmall[:lb+1]
+		curr = currSmall[:lb+1]
+	} else {
+		prev = make([]int, lb+1)
+		curr = make([]int, lb+1)
+	}
 	for j := 0; j <= lb; j++ {
 		prev[j] = j
 	}
 	for i := 1; i <= la; i++ {
 		curr[0] = i
+		rowMin := curr[0]
 		for j := 1; j <= lb; j++ {
 			cost := 1
 			if a[i-1] == b[j-1] {
 				cost = 0
 			}
 			curr[j] = min3(curr[j-1]+1, prev[j]+1, prev[j-1]+cost)
+			if curr[j] < rowMin {
+				rowMin = curr[j]
+			}
+		}
+		if rowMin > maxDistance {
+			return maxDistance + 1
 		}
 		prev, curr = curr, prev
 	}
+	if prev[lb] > maxDistance {
+		return maxDistance + 1
+	}
 	return prev[lb]
+}
+
+func levenshteinWithinBounded(a, b string, la, lb, maxDistance int) int {
+	const bandWidth = 5 // maxDistance <= 2, so the active band is at most 5 cells wide.
+
+	var prev [bandWidth]int
+	var curr [bandWidth]int
+
+	prevStart := 0
+	prevEnd := lb
+	if prevEnd > maxDistance {
+		prevEnd = maxDistance
+	}
+	for j := prevStart; j <= prevEnd; j++ {
+		prev[j-prevStart] = j
+	}
+
+	for i := 1; i <= la; i++ {
+		start := i - maxDistance
+		if start < 0 {
+			start = 0
+		}
+		end := i + maxDistance
+		if end > lb {
+			end = lb
+		}
+
+		for k := range curr {
+			curr[k] = maxDistance + 1
+		}
+
+		rowMin := maxDistance + 1
+		for j := start; j <= end; j++ {
+			idx := j - start
+			if j == 0 {
+				curr[idx] = i
+				if curr[idx] < rowMin {
+					rowMin = curr[idx]
+				}
+				continue
+			}
+
+			del := maxDistance + 1
+			if j >= prevStart && j <= prevEnd {
+				del = prev[j-prevStart] + 1
+			}
+
+			ins := maxDistance + 1
+			if j > start {
+				ins = curr[idx-1] + 1
+			}
+
+			sub := maxDistance + 1
+			if j-1 >= prevStart && j-1 <= prevEnd {
+				cost := 1
+				if a[i-1] == b[j-1] {
+					cost = 0
+				}
+				sub = prev[(j-1)-prevStart] + cost
+			}
+
+			curr[idx] = min3(ins, del, sub)
+			if curr[idx] < rowMin {
+				rowMin = curr[idx]
+			}
+		}
+
+		if rowMin > maxDistance {
+			return maxDistance + 1
+		}
+
+		prev, curr = curr, prev
+		prevStart, prevEnd = start, end
+	}
+
+	if lb < prevStart || lb > prevEnd {
+		return maxDistance + 1
+	}
+	return prev[lb-prevStart]
 }
 
 func min3(a, b, c int) int {
@@ -95,11 +245,36 @@ func min3(a, b, c int) int {
 // edit-distance comparison (list_files vs listfiles vs list-files all normalize
 // to "listfiles" so that separators don't consume edit-distance budget).
 func normalizeToolName(name string) string {
-	s := strings.ToLower(name)
-	s = strings.ReplaceAll(s, "_", "")
-	s = strings.ReplaceAll(s, "-", "")
-	s = strings.ReplaceAll(s, " ", "")
-	return s
+	return toolNameNormalizer.Replace(strings.ToLower(name))
+}
+
+func buildNormalizedToolNames(names []string) []normalizedToolName {
+	out := make([]normalizedToolName, 0, len(names))
+	for _, name := range names {
+		normalized := normalizeToolName(name)
+		out = append(out, normalizedToolName{
+			original:   name,
+			normalized: normalized,
+			length:     len(normalized),
+		})
+	}
+	return out
+}
+
+func buildNormalizedToolNameBuckets(names []normalizedToolName) map[int][]normalizedToolName {
+	buckets := make(map[int][]normalizedToolName, len(names))
+	for _, name := range names {
+		buckets[name.length] = append(buckets[name.length], name)
+	}
+	return buckets
+}
+
+func buildNormalizedToolNameSet(names []normalizedToolName) map[string]struct{} {
+	out := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		out[name.normalized] = struct{}{}
+	}
+	return out
 }
 
 // TyposquattingChecker detects tool names within edit distance ≤ 2 of a known
@@ -127,71 +302,84 @@ func (c *TyposquattingChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 	}
 	normName := normalizeToolName(name)
 
-	// If this name IS a canonical tool, it cannot be a typosquat — bail before
+	// If this name IS a canonical tool, it cannot be a typosquat - bail before
 	// the distance loop so we don't accidentally flag it against a different
 	// entry that happens to be within edit-distance 2 (e.g. search_code vs
 	// search_nodes).
-	for _, known := range popularMCPToolNames {
-		if normName == normalizeToolName(known) {
-			return nil, nil
-		}
+	if _, ok := normalizedPopularMCPToolNameSet[normName]; ok {
+		return nil, nil
 	}
 
-	for _, known := range popularMCPToolNames {
-		normKnown := normalizeToolName(known)
-		// Skip if length difference alone exceeds threshold (fast reject).
-		diff := len(normName) - len(normKnown)
-		if diff < 0 {
-			diff = -diff
-		}
-		if diff > 2 {
-			continue
-		}
-		// Skip singular/plural and prefix-extension variants (e.g.
-		// create_relation vs create_relations).  These are legitimate tool
-		// families, not impersonations.
-		if strings.HasPrefix(normName, normKnown) || strings.HasPrefix(normKnown, normName) {
-			continue
-		}
-		dist := levenshtein(normName, normKnown)
-		if dist < 1 {
-			continue
-		}
-		shorter := len(normName)
-		if len(normKnown) < shorter {
-			shorter = len(normKnown)
-		}
-		// Distance-2 matching on short/medium names produces too many false
-		// positives: generic verb+noun patterns (list_pages vs list_tags,
-		// list_comments vs list_commits, pg_describe_table vs describe_table)
-		// coincidentally collide at distance 2.  Only flag distance-2 when
-		// both normalised names are long (≥15 chars), providing enough entropy
-		// to be meaningful.
-		if dist == 2 && shorter < 15 {
-			continue
-		}
-		// Distance-1 substitutions (same normalised length) on short names are
-		// also noisy: git_tag vs get_tag, git_commit vs get_commit,
-		// search_notes vs search_nodes.  Only flag same-length dist-1 when
-		// both names are long enough (≥12 chars).  Insertion/deletion typos
-		// (different lengths) are always flagged — list_fles vs list_files,
-		// brave_web_searrch vs brave_web_search.
-		if dist == 1 && len(normName) == len(normKnown) && shorter < 12 {
-			continue
-		}
-		if dist <= 2 {
-			return []model.Issue{{
-				RuleID:   "AS-009",
-				ToolName: tool.Name,
-				Severity: model.SeverityMedium,
-				Code:     "TYPOSQUATTING",
-				Description: fmt.Sprintf(
-					"tool name %q is suspiciously similar to the well-known MCP tool %q (edit distance %d) — possible typosquatting",
-					tool.Name, known, dist,
-				),
-				Location: "name",
-			}}, nil
+	for length := len(normName) - maxTyposquatDistance; length <= len(normName)+maxTyposquatDistance; length++ {
+		for _, known := range normalizedPopularMCPToolNameBuckets[length] {
+			normKnown := known.normalized
+			// Skip if length difference alone exceeds threshold (fast reject).
+			diff := len(normName) - len(normKnown)
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff > 2 {
+				continue
+			}
+			shorter := len(normName)
+			if len(normKnown) < shorter {
+				shorter = len(normKnown)
+			}
+			// Distance-1 and distance-2 matches are both suppressed for short
+			// same-length names, and distance-2 matches are suppressed for any
+			// pair with a shorter normalized length below 15. Skip those pairs
+			// before running Levenshtein, since they cannot produce a finding.
+			if shorter < 15 {
+				if len(normName) == len(normKnown) || diff > 1 {
+					continue
+				}
+			}
+			// Skip simple singular/plural variants (e.g. create_relation vs
+			// create_relations). Do not skip arbitrary prefixes/suffixes such as
+			// read_file2, which are still typosquat-like.
+			if isSingularPluralVariant(normName, normKnown) {
+				continue
+			}
+			dist := levenshteinWithin(normName, normKnown, maxTyposquatDistance)
+			if dist < 1 {
+				continue
+			}
+			// Distance-2 matching on short/medium names produces too many false
+			// positives: generic verb+noun patterns (list_pages vs list_tags,
+			// list_comments vs list_commits, pg_describe_table vs describe_table)
+			// coincidentally collide at distance 2. Only flag distance-2 when
+			// both normalized names are long (>=15 chars), providing enough entropy
+			// to be meaningful.
+			if dist == 2 && shorter < 15 {
+				continue
+			}
+			// Distance-1 substitutions (same normalized length) on short names are
+			// also noisy: git_tag vs get_tag, git_commit vs get_commit,
+			// search_notes vs search_nodes. Only flag same-length dist-1 when
+			// both names are long enough (>=12 chars). Insertion/deletion typos
+			// (different lengths) are always flagged - list_fles vs list_files,
+			// brave_web_searrch vs brave_web_search.
+			if dist == 1 && len(normName) == len(normKnown) && shorter < 12 {
+				continue
+			}
+			if dist <= maxTyposquatDistance {
+				return []model.Issue{{
+					RuleID:   "AS-009",
+					ToolName: tool.Name,
+					Severity: model.SeverityMedium,
+					Code:     "TYPOSQUATTING",
+					Description: fmt.Sprintf(
+						"tool name %q is suspiciously similar to the well-known MCP tool %q (edit distance %d) - possible typosquatting",
+						tool.Name, known.original, dist,
+					),
+					Location: "name",
+				}}, nil
+			}
 		}
 	}
 	return nil, nil
+}
+
+func isSingularPluralVariant(a, b string) bool {
+	return a+"s" == b || b+"s" == a
 }

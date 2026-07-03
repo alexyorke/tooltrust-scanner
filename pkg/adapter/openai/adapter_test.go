@@ -15,8 +15,8 @@ func TestAdapter_Protocol(t *testing.T) {
 	assert.Equal(t, model.ProtocolOpenAI, a.Protocol())
 }
 
-func TestAdapter_Parse_NotImplemented(t *testing.T) {
-	t.Skip("OpenAI adapter not yet implemented")
+func TestAdapter_Parse_ReturnsNotImplemented(t *testing.T) {
 	_, err := openai.NewAdapter().Parse(context.Background(), []byte("{}"))
-	assert.NoError(t, err)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not yet implemented")
 }
