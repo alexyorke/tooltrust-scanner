@@ -284,7 +284,7 @@ func mergeDependencies(tool *model.UnifiedTool, deps []nodeDependency) {
 		version := stringMapValue(dep, "version")
 		ecosystem := stringMapValue(dep, "ecosystem")
 		key := dependencyMergeKey(ecosystem, name, version)
-		source := stringMapValue(dep, "source")
+		source := strings.TrimSpace(stringMapValue(dep, "source"))
 		if source == "" {
 			source = "metadata"
 		}
@@ -302,7 +302,7 @@ func mergeDependencies(tool *model.UnifiedTool, deps []nodeDependency) {
 
 	for _, dep := range deps {
 		key := dependencyMergeKey(dep.Ecosystem, dep.Name, dep.Version)
-		source := dep.Source
+		source := strings.TrimSpace(dep.Source)
 		if source == "" {
 			source = "local_lockfile"
 		}
