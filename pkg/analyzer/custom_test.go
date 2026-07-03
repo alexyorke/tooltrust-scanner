@@ -197,4 +197,14 @@ pattern: "bar"
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "missing id or pattern")
 	})
+
+	t.Run("top-level null yaml returns error", func(t *testing.T) {
+		dir := t.TempDir()
+		err := os.WriteFile(filepath.Join(dir, "rules.yml"), []byte("null\n"), 0o644)
+		require.NoError(t, err)
+
+		_, err = LoadCustomRules(dir)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "top-level YAML value must be a rule object or array")
+	})
 }
