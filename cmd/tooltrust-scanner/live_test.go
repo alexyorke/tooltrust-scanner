@@ -319,6 +319,20 @@ func TestParsePNPMLockfile_RejectsTopLevelNull(t *testing.T) {
 	assert.Contains(t, err.Error(), "top-level YAML value must be a mapping")
 }
 
+func TestParseRequirementsFile_StripsHashPinsFromVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "requirements.txt")
+	require.NoError(t, os.WriteFile(path, []byte(`
+requests==2.31.0 --hash=sha256:deadbeef
+urllib3[socks]==2.2.1 --hash=sha256:cafebabe ; python_version >= "3.10"
+`), 0o644))
+
+	deps, err := parseRequirementsFile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 2)
+	assert.Equal(t, nodeDependency{Name: "requests", Version: "2.31.0", Ecosystem: "PyPI", Source: "local_lockfile"}, deps[0])
+	assert.Equal(t, nodeDependency{Name: "urllib3", Version: "2.2.1", Ecosystem: "PyPI", Source: "local_lockfile"}, deps[1])
+}
+
 func TestParsePNPMLockfile_RejectsTopLevelSequence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pnpm-lock.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("[]"), 0o644))

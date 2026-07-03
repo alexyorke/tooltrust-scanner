@@ -593,6 +593,9 @@ func parseRequirementsFile(path string) ([]nodeDependency, error) {
 			if comment := strings.IndexByte(version, '#'); comment >= 0 {
 				version = strings.TrimSpace(version[:comment])
 			}
+			if fields := strings.Fields(version); len(fields) > 0 {
+				version = fields[0]
+			}
 			if name != "" && version != "" {
 				deps = append(deps, nodeDependency{Name: name, Version: version, Ecosystem: "PyPI", Source: "local_lockfile"})
 			}
