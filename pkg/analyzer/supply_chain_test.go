@@ -420,6 +420,12 @@ func TestParsePNPMLockYAML_RejectsTopLevelNull(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse pnpm-lock.yaml: top-level YAML value must be a mapping")
 }
 
+func TestParsePNPMLockYAML_RejectsTopLevelSequence(t *testing.T) {
+	_, err := analyzer.ParsePNPMLockYAMLForTest([]byte("[]"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse pnpm-lock.yaml: top-level YAML value must be a mapping")
+}
+
 func TestParsePNPMLockYAML_NPMAliasUsesRealPackageName(t *testing.T) {
 	data := []byte(`
 lockfileVersion: '9.0'

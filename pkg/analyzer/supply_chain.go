@@ -344,12 +344,20 @@ type pnpmLockfile struct {
 }
 
 func parsePNPMLockYAML(data []byte) ([]Dependency, error) {
+	var topLevel any
+	if err := yaml.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse pnpm-lock.yaml: %w", err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("parse pnpm-lock.yaml: top-level YAML value must be a mapping")
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
+		return nil, fmt.Errorf("parse pnpm-lock.yaml: top-level YAML value must be a mapping")
+	}
+
 	var lock pnpmLockfile
 	if err := yaml.Unmarshal(data, &lock); err != nil {
 		return nil, fmt.Errorf("parse pnpm-lock.yaml: %w", err)
-	}
-	if lock.Packages == nil && bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
-		return nil, fmt.Errorf("parse pnpm-lock.yaml: top-level YAML value must be a mapping")
 	}
 
 	seen := make(map[string]bool)
