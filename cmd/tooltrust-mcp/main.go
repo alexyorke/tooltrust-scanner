@@ -855,8 +855,12 @@ func validateMCPServerEntryShape(name string, entry map[string]any) error {
 			return fmt.Errorf("mcpServers[%q].args must be an array of strings", name)
 		}
 		for i := range args {
-			if _, ok := args[i].(string); !ok {
+			arg, ok := args[i].(string)
+			if !ok {
 				return fmt.Errorf("mcpServers[%q].args[%d] must be a string", name, i)
+			}
+			if isEmptyCommandToken(arg) || strings.ContainsRune(arg, '\x00') {
+				return fmt.Errorf("mcpServers[%q].args[%d] must not be empty", name, i)
 			}
 		}
 	}
@@ -869,8 +873,15 @@ func validateMCPServerEntryShape(name string, entry map[string]any) error {
 			return fmt.Errorf("mcpServers[%q].env must be an object", name)
 		}
 		for key, value := range env {
-			if _, ok := value.(string); !ok {
+			if !isValidEnvName(key) {
+				return fmt.Errorf("mcpServers[%q].env.%s has an invalid variable name", name, key)
+			}
+			strValue, ok := value.(string)
+			if !ok {
 				return fmt.Errorf("mcpServers[%q].env.%s must be a string", name, key)
+			}
+			if strings.ContainsRune(strValue, '\x00') {
+				return fmt.Errorf("mcpServers[%q].env.%s must not contain NUL", name, key)
 			}
 		}
 	}
