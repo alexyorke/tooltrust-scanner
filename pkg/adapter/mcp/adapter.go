@@ -54,8 +54,19 @@ func (a *Adapter) Parse(_ context.Context, data []byte) ([]model.UnifiedTool, er
 	if rawTools == nil {
 		return nil, fmt.Errorf("mcp adapter: tools field must be an array")
 	}
-	if _, ok := rawTools.([]any); !ok {
+	toolEntries, ok := rawTools.([]any)
+	if !ok {
 		return nil, fmt.Errorf("mcp adapter: tools field must be an array")
+	}
+	for i := range toolEntries {
+		entry, ok := toolEntries[i].(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("mcp adapter: tool entry at index %d must be an object", i)
+		}
+		name, ok := entry["name"].(string)
+		if !ok || strings.TrimSpace(name) == "" {
+			return nil, fmt.Errorf("mcp adapter: tool entry at index %d is missing a non-empty name", i)
+		}
 	}
 
 	var resp ListToolsResponse

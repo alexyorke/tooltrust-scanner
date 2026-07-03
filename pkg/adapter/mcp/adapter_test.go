@@ -335,6 +335,30 @@ func TestAdapter_Parse_RejectsNonArrayToolsField(t *testing.T) {
 	assert.Contains(t, err.Error(), "tools field must be an array")
 }
 
+func TestAdapter_Parse_RejectsNullToolEntry(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[null]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool entry at index 0 must be an object")
+}
+
+func TestAdapter_Parse_RejectsNonObjectToolEntry(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":["bad"]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool entry at index 0 must be an object")
+}
+
+func TestAdapter_Parse_RejectsMissingToolName(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"description":"no name"}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing a non-empty name")
+}
+
+func TestAdapter_Parse_RejectsBlankToolName(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"   ","description":"blank name"}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing a non-empty name")
+}
+
 func TestAdapter_Parse_PreservesRawSource(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{
