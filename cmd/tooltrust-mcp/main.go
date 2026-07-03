@@ -854,6 +854,9 @@ func validateMCPServerEntryShape(name string, entry map[string]any) error {
 	if strings.TrimSpace(command) == "" {
 		return fmt.Errorf("mcpServers[%q].command must not be empty", name)
 	}
+	if strings.ContainsRune(command, '\x00') {
+		return fmt.Errorf("mcpServers[%q].command must not contain NUL", name)
+	}
 	if rawArgs, hasArgs := entry["args"]; hasArgs {
 		if rawArgs == nil {
 			return fmt.Errorf("mcpServers[%q].args must be an array of strings", name)

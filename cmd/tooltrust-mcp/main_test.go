@@ -900,6 +900,20 @@ func TestLoadMCPConfig_RejectsNullServerCommand(t *testing.T) {
 	assert.Contains(t, err.Error(), `mcpServers["broken"].command must be a string`)
 }
 
+func TestLoadMCPConfig_RejectsServerCommandWithNUL(t *testing.T) {
+	dir := t.TempDir()
+	configData := "{\"mcpServers\":{\"broken\":{\"command\":\"go\\u0000bad\"}}}"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(configData), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `mcpServers["broken"].command must not contain NUL`)
+}
+
 func TestLoadMCPConfig_RejectsNullServerArgs(t *testing.T) {
 	dir := t.TempDir()
 	configData := `{"mcpServers":{"broken":{"command":"node","args":null}}}`
