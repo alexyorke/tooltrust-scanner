@@ -201,3 +201,35 @@ func TestStore_Get_RejectsNullFindingsPayload(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "storage: findings must be a JSON array")
 }
+
+func TestStore_Get_RejectsInvalidGrade(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	findings := `[{"rule_id":"AS-001","severity":"CRITICAL","code":"TOOL_POISONING"}]`
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"bad-grade",
+		"run_shell",
+		string(model.ProtocolMCP),
+		55,
+		"Z",
+		findings,
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "bad-grade")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: invalid grade")
+}

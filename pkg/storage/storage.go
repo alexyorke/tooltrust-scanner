@@ -170,6 +170,12 @@ func scanRow(s scanner) (ScanRecord, error) {
 	r.Protocol = model.ProtocolType(protocol)
 	r.Grade = model.Grade(grade)
 	r.ScannedAt = scannedAt
+	if !isValidProtocol(r.Protocol) {
+		return ScanRecord{}, fmt.Errorf("storage: invalid protocol %q", protocol)
+	}
+	if !isValidGrade(r.Grade) {
+		return ScanRecord{}, fmt.Errorf("storage: invalid grade %q", grade)
+	}
 
 	var topLevel any
 	if err := json.Unmarshal([]byte(findingsJSON), &topLevel); err != nil {
@@ -186,4 +192,22 @@ func scanRow(s scanner) (ScanRecord, error) {
 		return ScanRecord{}, fmt.Errorf("storage: unmarshal findings: %w", err)
 	}
 	return r, nil
+}
+
+func isValidProtocol(protocol model.ProtocolType) bool {
+	switch protocol {
+	case model.ProtocolMCP, model.ProtocolOpenAI, model.ProtocolSkills, model.ProtocolA2A:
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidGrade(grade model.Grade) bool {
+	switch grade {
+	case model.GradeA, model.GradeB, model.GradeC, model.GradeD, model.GradeF:
+		return true
+	default:
+		return false
+	}
 }
