@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -207,6 +209,20 @@ func TestReadExistingBlacklist_RejectsTopLevelObject(t *testing.T) {
 	_, err = readExistingBlacklist(existingPath)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parse existing blacklist: top-level JSON value must be an array")
+}
+
+func TestParseFeedZip_RejectsTopLevelArrayEntry(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("MAL-2026-0001.json")
+	require.NoError(t, err)
+	_, err = w.Write([]byte("[]"))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+
+	_, err = parseFeedZip(buf.Bytes())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse MAL-2026-0001.json: top-level JSON value must be an object")
 }
 
 type httpClientStub struct{}

@@ -278,6 +278,16 @@ func parseFeedZip(data []byte) ([]osvVulnerability, error) {
 		if closeErr != nil {
 			return nil, fmt.Errorf("close %s: %w", file.Name, closeErr)
 		}
+		var topLevel any
+		if err := json.Unmarshal(payload, &topLevel); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", file.Name, err)
+		}
+		if topLevel == nil {
+			return nil, fmt.Errorf("parse %s: top-level JSON value must be an object", file.Name)
+		}
+		if _, ok := topLevel.(map[string]any); !ok {
+			return nil, fmt.Errorf("parse %s: top-level JSON value must be an object", file.Name)
+		}
 		var vuln osvVulnerability
 		if err := json.Unmarshal(payload, &vuln); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", file.Name, err)
