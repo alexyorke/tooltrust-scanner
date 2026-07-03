@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -31,17 +30,22 @@ func (a *Adapter) Protocol() model.ProtocolType { return model.ProtocolMCP }
 
 // Parse implements adapter.Adapter for the MCP tools/list response format.
 func (a *Adapter) Parse(_ context.Context, data []byte) ([]model.UnifiedTool, error) {
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal(data, &envelope); err == nil {
-		if envelope == nil {
-			return nil, fmt.Errorf("mcp adapter: top-level JSON value must be an object")
-		}
-		if _, ok := envelope["mcpServers"]; ok {
-			return nil, fmt.Errorf("mcp adapter: expected MCP tools/list JSON, got MCP server config")
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		var resp ListToolsResponse
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return nil, fmt.Errorf("mcp adapter: failed to parse tools/list response: %w", err)
 		}
 	}
-	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+	if topLevel == nil {
 		return nil, fmt.Errorf("mcp adapter: top-level JSON value must be an object")
+	}
+	envelope, ok := topLevel.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("mcp adapter: top-level JSON value must be an object")
+	}
+	if _, hasServers := envelope["mcpServers"]; hasServers {
+		return nil, fmt.Errorf("mcp adapter: expected MCP tools/list JSON, got MCP server config")
 	}
 
 	var resp ListToolsResponse
