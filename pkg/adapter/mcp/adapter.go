@@ -85,13 +85,16 @@ func buildMetadata(t Tool) map[string]any {
 	if len(t.Metadata.Dependencies) > 0 {
 		deps := make([]map[string]any, 0, len(t.Metadata.Dependencies))
 		for _, dep := range t.Metadata.Dependencies {
-			if dep.Name == "" || dep.Version == "" || dep.Ecosystem == "" {
+			name := strings.TrimSpace(dep.Name)
+			version := strings.TrimSpace(dep.Version)
+			ecosystem := strings.TrimSpace(dep.Ecosystem)
+			if name == "" || version == "" || ecosystem == "" {
 				continue
 			}
 			deps = append(deps, map[string]any{
-				"name":      dep.Name,
-				"version":   dep.Version,
-				"ecosystem": dep.Ecosystem,
+				"name":      name,
+				"version":   version,
+				"ecosystem": ecosystem,
 			})
 		}
 		if len(deps) > 0 {

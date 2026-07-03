@@ -356,6 +356,29 @@ func TestAdapter_Parse_PopulatesSupplyChainMetadata(t *testing.T) {
 	assert.Equal(t, "npm", deps[0]["ecosystem"])
 }
 
+func TestAdapter_Parse_SkipsWhitespaceOnlyDependencyMetadata(t *testing.T) {
+	payload := mustMarshal(mcp.ListToolsResponse{
+		Tools: []mcp.Tool{
+			{
+				Name:        "deploy_site",
+				Description: "Deploy the site",
+				Metadata: mcp.ToolMeta{
+					Dependencies: []mcp.DependencyMetadata{
+						{Name: "   ", Version: "1.14.1", Ecosystem: "npm"},
+						{Name: "axios", Version: "   ", Ecosystem: "npm"},
+						{Name: "axios", Version: "1.14.1", Ecosystem: "   "},
+					},
+				},
+			},
+		},
+	})
+
+	tools, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	assert.Nil(t, tools[0].Metadata)
+}
+
 func TestAdapter_Parse_PrefersMetadataRepoURL(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{
