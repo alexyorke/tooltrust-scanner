@@ -533,6 +533,42 @@ func TestInstallViaConfig_RejectsArrayServerEntry(t *testing.T) {
 	assert.NotContains(t, err.Error(), "cannot unmarshal")
 }
 
+func TestInstallViaConfig_RejectsMissingServerCommand(t *testing.T) {
+	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{"mcpServers":{"broken":{"args":["server.js"]}}}`), 0o644))
+
+	err = installViaConfig("server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `failed to parse existing mcpServers in .mcp.json: mcpServers["broken"] is missing command`)
+}
+
+func TestInstallViaConfig_RejectsNullServerCommand(t *testing.T) {
+	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{"mcpServers":{"broken":{"command":null}}}`), 0o644))
+
+	err = installViaConfig("server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `failed to parse existing mcpServers in .mcp.json: mcpServers["broken"].command must be a string`)
+}
+
 func TestInstallViaConfig_ReadErrorOnExistingProjectConfigSurfaces(t *testing.T) {
 	dir := t.TempDir()
 

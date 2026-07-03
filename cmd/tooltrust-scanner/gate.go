@@ -462,6 +462,14 @@ func parseMCPServers(data json.RawMessage) (map[string]mcpServerEntry, error) {
 			return nil, fmt.Errorf("mcpServers[%q] must be an object", name)
 		}
 
+		entryMap, ok := entryTopLevel.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("mcpServers[%q] must be an object", name)
+		}
+		if err := validateMCPServerEntryShape(name, entryMap); err != nil {
+			return nil, err
+		}
+
 		var entry mcpServerEntry
 		if err := json.Unmarshal(rawEntry, &entry); err != nil {
 			return nil, fmt.Errorf("mcpServers[%q] must be an object: %w", name, err)
@@ -470,6 +478,21 @@ func parseMCPServers(data json.RawMessage) (map[string]mcpServerEntry, error) {
 	}
 
 	return servers, nil
+}
+
+func validateMCPServerEntryShape(name string, entry map[string]any) error {
+	rawCommand, ok := entry["command"]
+	if !ok {
+		return fmt.Errorf("mcpServers[%q] is missing command", name)
+	}
+	command, ok := rawCommand.(string)
+	if !ok {
+		return fmt.Errorf("mcpServers[%q].command must be a string", name)
+	}
+	if strings.TrimSpace(command) == "" {
+		return fmt.Errorf("mcpServers[%q].command must not be empty", name)
+	}
+	return nil
 }
 
 // resolveConfigPath returns the path to the appropriate config file.

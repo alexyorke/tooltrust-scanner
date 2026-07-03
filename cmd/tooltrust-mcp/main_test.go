@@ -832,6 +832,34 @@ func TestLoadMCPConfig_RejectsArrayServerEntry(t *testing.T) {
 	assert.NotContains(t, err.Error(), "cannot unmarshal")
 }
 
+func TestLoadMCPConfig_RejectsMissingServerCommand(t *testing.T) {
+	dir := t.TempDir()
+	configData := `{"mcpServers":{"broken":{"args":["server.js"]}}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(configData), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `mcpServers["broken"] is missing command`)
+}
+
+func TestLoadMCPConfig_RejectsNullServerCommand(t *testing.T) {
+	dir := t.TempDir()
+	configData := `{"mcpServers":{"broken":{"command":null}}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(configData), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `mcpServers["broken"].command must be a string`)
+}
+
 func TestHandleScanConfig_EmptyServers(t *testing.T) {
 	dir := t.TempDir()
 	configData := `{"mcpServers":{}}`
