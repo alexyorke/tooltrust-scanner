@@ -118,6 +118,30 @@ func TestStore_Save_RejectsInvalidGrade(t *testing.T) {
 	assert.Contains(t, err.Error(), "storage: invalid grade")
 }
 
+func TestStore_Save_RejectsNegativeRiskScore(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("bad-risk-score")
+	rec.RiskScore = -1
+	rec.Grade = model.GradeA
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: invalid risk score")
+}
+
+func TestStore_Save_RejectsGradeRiskScoreMismatch(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("bad-grade-mismatch")
+	rec.RiskScore = 80
+	rec.Grade = model.GradeA
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match risk score")
+}
+
 func TestStore_Count(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -286,4 +310,68 @@ func TestStore_Get_RejectsInvalidProtocol(t *testing.T) {
 	_, err = s.Get(context.Background(), "bad-protocol")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "storage: invalid protocol")
+}
+
+func TestStore_Get_RejectsNegativeRiskScore(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	findings := `[{"rule_id":"AS-001","severity":"CRITICAL","code":"TOOL_POISONING"}]`
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"bad-risk-score",
+		"run_shell",
+		string(model.ProtocolMCP),
+		-1,
+		string(model.GradeA),
+		findings,
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "bad-risk-score")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: invalid risk score")
+}
+
+func TestStore_Get_RejectsGradeRiskScoreMismatch(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	findings := `[{"rule_id":"AS-001","severity":"CRITICAL","code":"TOOL_POISONING"}]`
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"bad-grade-mismatch",
+		"run_shell",
+		string(model.ProtocolMCP),
+		80,
+		string(model.GradeA),
+		findings,
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "bad-grade-mismatch")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match risk score")
 }

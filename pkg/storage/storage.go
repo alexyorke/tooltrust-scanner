@@ -85,8 +85,14 @@ func (s *Store) Save(ctx context.Context, r ScanRecord) error {
 	if !isValidProtocol(r.Protocol) {
 		return fmt.Errorf("storage: invalid protocol %q", r.Protocol)
 	}
+	if !isValidRiskScore(r.RiskScore) {
+		return fmt.Errorf("storage: invalid risk score %d", r.RiskScore)
+	}
 	if !isValidGrade(r.Grade) {
 		return fmt.Errorf("storage: invalid grade %q", r.Grade)
+	}
+	if !gradeMatchesRiskScore(r.RiskScore, r.Grade) {
+		return fmt.Errorf("storage: grade %q does not match risk score %d", r.Grade, r.RiskScore)
 	}
 	findings, err := json.Marshal(r.Findings)
 	if err != nil {
@@ -179,8 +185,14 @@ func scanRow(s scanner) (ScanRecord, error) {
 	if !isValidProtocol(r.Protocol) {
 		return ScanRecord{}, fmt.Errorf("storage: invalid protocol %q", protocol)
 	}
+	if !isValidRiskScore(r.RiskScore) {
+		return ScanRecord{}, fmt.Errorf("storage: invalid risk score %d", r.RiskScore)
+	}
 	if !isValidGrade(r.Grade) {
 		return ScanRecord{}, fmt.Errorf("storage: invalid grade %q", grade)
+	}
+	if !gradeMatchesRiskScore(r.RiskScore, r.Grade) {
+		return ScanRecord{}, fmt.Errorf("storage: grade %q does not match risk score %d", r.Grade, r.RiskScore)
 	}
 
 	var topLevel any
@@ -216,4 +228,12 @@ func isValidGrade(grade model.Grade) bool {
 	default:
 		return false
 	}
+}
+
+func isValidRiskScore(score int) bool {
+	return score >= 0
+}
+
+func gradeMatchesRiskScore(score int, grade model.Grade) bool {
+	return model.GradeFromScore(score) == grade
 }
