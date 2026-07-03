@@ -577,6 +577,44 @@ func TestAdapter_Parse_ArrayTypeField(t *testing.T) {
 	assert.Equal(t, "boolean", tools[0].InputSchema.Properties["hidden"].Type)
 }
 
+func TestAdapter_Parse_NullOnlyArrayTypeReturnsError(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "broken_tool",
+			"description": "Tool with null-only array schema type.",
+			"inputSchema": {
+				"type": ["null"],
+				"properties": {
+					"path": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	_, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "schema type array must contain at least one non-null type")
+}
+
+func TestAdapter_Parse_EmptyArrayTypeReturnsError(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "broken_tool",
+			"description": "Tool with empty array schema type.",
+			"inputSchema": {
+				"type": [],
+				"properties": {
+					"path": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	_, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "schema type array must contain at least one non-null type")
+}
+
 func TestAdapter_Parse_PreservesNestedSchemaDetails(t *testing.T) {
 	payload := []byte(`{
 		"tools": [{

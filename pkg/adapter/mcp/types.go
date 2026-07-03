@@ -41,8 +41,7 @@ func (ft *FlexType) UnmarshalJSON(b []byte) error {
 				return nil
 			}
 		}
-		*ft = "null"
-		return nil
+		return fmt.Errorf("FlexType: schema type array must contain at least one non-null type")
 	}
 	return fmt.Errorf("FlexType: unsupported JSON token %q", string(b))
 }
