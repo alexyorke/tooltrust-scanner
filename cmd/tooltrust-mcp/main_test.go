@@ -762,6 +762,21 @@ func TestLoadMCPConfig_RejectsNullServers(t *testing.T) {
 	assert.Contains(t, err.Error(), "mcpServers must be an object")
 }
 
+func TestLoadMCPConfig_RejectsArrayServers(t *testing.T) {
+	dir := t.TempDir()
+	configData := `{"mcpServers":[]}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(configData), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mcpServers must be an object")
+	assert.NotContains(t, err.Error(), "cannot unmarshal")
+}
+
 func TestLoadMCPConfig_RejectsTopLevelNull(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte("null"), 0o644))

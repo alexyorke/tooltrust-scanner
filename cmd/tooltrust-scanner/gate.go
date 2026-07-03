@@ -434,7 +434,14 @@ func installViaConfig(serverName string, opts gateOpts) error {
 }
 
 func parseMCPServers(data json.RawMessage) (map[string]mcpServerEntry, error) {
-	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("mcpServers must be an object: %w", err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("mcpServers must be an object")
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
 		return nil, fmt.Errorf("mcpServers must be an object")
 	}
 

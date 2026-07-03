@@ -792,7 +792,14 @@ func parseMCPConfig(data []byte) (mcpConfig, error) {
 	if !ok {
 		return cfg, nil
 	}
-	if bytes.Equal(bytes.TrimSpace(rawServers), []byte("null")) {
+	var serversTopLevel any
+	if err := json.Unmarshal(rawServers, &serversTopLevel); err != nil {
+		return mcpConfig{}, fmt.Errorf("mcpServers must be an object: %w", err)
+	}
+	if serversTopLevel == nil {
+		return mcpConfig{}, fmt.Errorf("mcpServers must be an object")
+	}
+	if _, ok := serversTopLevel.(map[string]any); !ok {
 		return mcpConfig{}, fmt.Errorf("mcpServers must be an object")
 	}
 	var rawEntries map[string]json.RawMessage
