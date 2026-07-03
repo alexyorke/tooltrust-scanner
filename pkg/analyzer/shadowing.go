@@ -40,6 +40,15 @@ func NewShadowingChecker() *ShadowingChecker {
 	return &ShadowingChecker{seen: make(map[string]string)}
 }
 
+// ResetSession clears previously seen names so a fresh scan session starts
+// without cross-call shadowing findings.
+func (c *ShadowingChecker) ResetSession() {
+	if c.seen == nil {
+		return
+	}
+	clear(c.seen)
+}
+
 // Check produces an AS-013 finding when tool.Name exactly duplicates (after
 // normalization) a tool name already seen in the current scan session.
 func (c *ShadowingChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {

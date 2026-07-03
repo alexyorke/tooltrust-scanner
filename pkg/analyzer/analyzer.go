@@ -33,6 +33,10 @@ type checker interface {
 	Meta() RuleMeta
 }
 
+type sessionResetter interface {
+	ResetSession()
+}
+
 // Scanner orchestrates all registered checkers and aggregates their output
 // into a single RiskScore.
 type Scanner struct {
@@ -80,6 +84,18 @@ func (s *Scanner) Rules() []RuleMeta {
 		rules[i] = c.Meta()
 	}
 	return rules
+}
+
+// ResetSession clears any per-scan-session checker state so the scanner can be
+// reused for an independent one-tool scan without leaking cross-call findings.
+func (s *Scanner) ResetSession() {
+	for _, c := range s.checkers {
+		resetter, ok := c.(sessionResetter)
+		if !ok {
+			continue
+		}
+		resetter.ResetSession()
+	}
 }
 
 // Scan runs all checkers against the tool and returns the aggregated RiskScore.

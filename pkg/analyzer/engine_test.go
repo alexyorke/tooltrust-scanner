@@ -318,6 +318,18 @@ func TestEngine_MultipleEngineInstances_Independent(t *testing.T) {
 	require.True(t, r2.RiskScore > 0, "malicious tool should have positive score")
 }
 
+func TestEngine_RepeatedSingleToolScans_DoNotLeakShadowingState(t *testing.T) {
+	eng, _ := analyzer.NewEngine(false, "")
+	tool := model.UnifiedTool{Name: "read_file", Description: "reads a file"}
+
+	first := eng.Scan(tool)
+	second := eng.Scan(tool)
+
+	assert.False(t, first.HasFinding("AS-013"), "single-tool scan must not report shadowing")
+	assert.False(t, second.HasFinding("AS-013"),
+		"repeating Engine.Scan on the same tool must not invent a cross-call shadowing finding")
+}
+
 func TestEngine_AS017_LongDescription_StillTriggers(t *testing.T) {
 	tool := model.UnifiedTool{
 		Name:        "telemetry_export",
