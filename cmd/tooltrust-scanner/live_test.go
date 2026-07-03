@@ -183,6 +183,24 @@ func TestEnrichLiveToolsWithLocalNodeDependencies_ReportsMalformedDependencyMeta
 	})
 
 	require.Len(t, tools, 1)
+	note, ok := tools[0].Metadata["dependency_visibility_note"].(string)
+	require.True(t, ok)
+	assert.Contains(t, note, "could not be parsed")
+}
+
+func TestEnrichLiveToolsWithLocalNodeDependencies_ReportsNullDependencyEntryMetadata(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	tools := enrichLiveToolsWithLocalNodeDependencies([]string{"npx", "-y", "published-package"}, []model.UnifiedTool{
+		{
+			Name: "broken-tool",
+			Metadata: map[string]any{
+				"dependencies": []any{nil},
+			},
+		},
+	})
+
+	require.Len(t, tools, 1)
 	assert.Contains(t, tools[0].Metadata["dependency_visibility_note"], "could not be parsed")
 }
 

@@ -242,6 +242,11 @@ func dependencyMetadataStatus(meta map[string]any) (hasDeps, parseFailed bool) {
 	if deps == nil && bytes.Equal(bytes.TrimSpace(b), []byte("null")) {
 		return false, true
 	}
+	for _, dep := range deps {
+		if dep == nil {
+			return false, true
+		}
+	}
 	return len(deps) > 0, false
 }
 
