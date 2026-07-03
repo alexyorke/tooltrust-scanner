@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -452,7 +451,14 @@ func parseMCPServers(data json.RawMessage) (map[string]mcpServerEntry, error) {
 
 	servers := make(map[string]mcpServerEntry, len(rawEntries))
 	for name, rawEntry := range rawEntries {
-		if bytes.Equal(bytes.TrimSpace(rawEntry), []byte("null")) {
+		var entryTopLevel any
+		if err := json.Unmarshal(rawEntry, &entryTopLevel); err != nil {
+			return nil, fmt.Errorf("mcpServers[%q] must be an object: %w", name, err)
+		}
+		if entryTopLevel == nil {
+			return nil, fmt.Errorf("mcpServers[%q] must be an object", name)
+		}
+		if _, ok := entryTopLevel.(map[string]any); !ok {
 			return nil, fmt.Errorf("mcpServers[%q] must be an object", name)
 		}
 

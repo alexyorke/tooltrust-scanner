@@ -4,7 +4,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -808,7 +807,14 @@ func parseMCPConfig(data []byte) (mcpConfig, error) {
 	}
 	cfg.MCPServers = make(map[string]mcpServerEntry, len(rawEntries))
 	for name, rawEntry := range rawEntries {
-		if bytes.Equal(bytes.TrimSpace(rawEntry), []byte("null")) {
+		var entryTopLevel any
+		if err := json.Unmarshal(rawEntry, &entryTopLevel); err != nil {
+			return mcpConfig{}, fmt.Errorf("mcpServers[%q] must be an object: %w", name, err)
+		}
+		if entryTopLevel == nil {
+			return mcpConfig{}, fmt.Errorf("mcpServers[%q] must be an object", name)
+		}
+		if _, ok := entryTopLevel.(map[string]any); !ok {
 			return mcpConfig{}, fmt.Errorf("mcpServers[%q] must be an object", name)
 		}
 		var entry mcpServerEntry

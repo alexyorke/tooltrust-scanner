@@ -817,6 +817,21 @@ func TestLoadMCPConfig_RejectsNullServerEntry(t *testing.T) {
 	assert.Contains(t, err.Error(), `mcpServers["broken"] must be an object`)
 }
 
+func TestLoadMCPConfig_RejectsArrayServerEntry(t *testing.T) {
+	dir := t.TempDir()
+	configData := `{"mcpServers":{"broken":[]}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(configData), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `mcpServers["broken"] must be an object`)
+	assert.NotContains(t, err.Error(), "cannot unmarshal")
+}
+
 func TestHandleScanConfig_EmptyServers(t *testing.T) {
 	dir := t.TempDir()
 	configData := `{"mcpServers":{}}`
