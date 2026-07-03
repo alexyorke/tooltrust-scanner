@@ -308,3 +308,13 @@ func TestParsePNPMLockfile_RejectsTopLevelNull(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse pnpm lockfile")
 	assert.Contains(t, err.Error(), "top-level YAML value must be a mapping")
 }
+
+func TestParsePNPMLockfile_RejectsTopLevelSequence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pnpm-lock.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("[]"), 0o644))
+
+	_, err := parsePNPMLockfile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse pnpm lockfile")
+	assert.Contains(t, err.Error(), "top-level YAML value must be a mapping")
+}

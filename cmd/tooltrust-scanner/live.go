@@ -15,6 +15,7 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/pterm/pterm"
+	"gopkg.in/yaml.v3"
 
 	localmcp "github.com/AgentSafe-AI/tooltrust-scanner/pkg/adapter/mcp"
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
@@ -608,7 +609,14 @@ func parsePNPMLockfile(path string) ([]nodeDependency, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read pnpm lockfile %s: %w", path, err)
 	}
-	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+	var topLevel any
+	if err := yaml.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse pnpm lockfile %s: %w", path, err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("parse pnpm lockfile %s: top-level YAML value must be a mapping", path)
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
 		return nil, fmt.Errorf("parse pnpm lockfile %s: top-level YAML value must be a mapping", path)
 	}
 	lines := strings.Split(string(data), "\n")
