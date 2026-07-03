@@ -148,6 +148,22 @@ func TestMergeDependencies_NormalizesCaseAndVersionBeforeDeduping(t *testing.T) 
 	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
 }
 
+func TestEnrichLiveToolsWithLocalNodeDependencies_ReportsMalformedDependencyMetadata(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	tools := enrichLiveToolsWithLocalNodeDependencies([]string{"npx", "-y", "published-package"}, []model.UnifiedTool{
+		{
+			Name: "broken-tool",
+			Metadata: map[string]any{
+				"dependencies": nil,
+			},
+		},
+	})
+
+	require.Len(t, tools, 1)
+	assert.Contains(t, tools[0].Metadata["dependency_visibility_note"], "could not be parsed")
+}
+
 func TestParseYarnLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "yarn.lock")
 	require.NoError(t, os.WriteFile(path, []byte(`

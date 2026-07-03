@@ -159,8 +159,13 @@ func enrichLiveToolsWithLocalNodeDependencies(args []string, tools []model.Unifi
 	if root == "" {
 		for i := range tools {
 			ensureMetadata(&tools[i])
-			if !hasDependencyMetadata(tools[i].Metadata) && !hasRepoURL(tools[i].Metadata) {
-				tools[i].Metadata["dependency_visibility_note"] = "No metadata.dependencies or repo_url were exposed by this MCP server, and no local project manifest could be inferred from the launch command."
+			hasDeps, depsParseFailed := dependencyMetadataStatus(tools[i].Metadata)
+			if !hasDeps && !hasRepoURL(tools[i].Metadata) {
+				if depsParseFailed {
+					tools[i].Metadata["dependency_visibility_note"] = "Tool exposed dependency metadata, but it could not be parsed, and no local project manifest could be inferred from the launch command."
+				} else {
+					tools[i].Metadata["dependency_visibility_note"] = "No metadata.dependencies or repo_url were exposed by this MCP server, and no local project manifest could be inferred from the launch command."
+				}
 			}
 		}
 		return tools
@@ -170,8 +175,13 @@ func enrichLiveToolsWithLocalNodeDependencies(args []string, tools []model.Unifi
 	if len(artifacts) == 0 {
 		for i := range tools {
 			ensureMetadata(&tools[i])
-			if !hasDependencyMetadata(tools[i].Metadata) && !hasRepoURL(tools[i].Metadata) {
-				tools[i].Metadata["dependency_visibility_note"] = fmt.Sprintf("Local project detected at %s, but no supported dependency artifact was found.", root)
+			hasDeps, depsParseFailed := dependencyMetadataStatus(tools[i].Metadata)
+			if !hasDeps && !hasRepoURL(tools[i].Metadata) {
+				if depsParseFailed {
+					tools[i].Metadata["dependency_visibility_note"] = fmt.Sprintf("Tool exposed dependency metadata, but it could not be parsed. Local project detected at %s, but no supported dependency artifact was found.", root)
+				} else {
+					tools[i].Metadata["dependency_visibility_note"] = fmt.Sprintf("Local project detected at %s, but no supported dependency artifact was found.", root)
+				}
 			}
 		}
 		return tools
@@ -190,8 +200,13 @@ func enrichLiveToolsWithLocalNodeDependencies(args []string, tools []model.Unifi
 	if len(merged) == 0 {
 		for i := range tools {
 			ensureMetadata(&tools[i])
-			if !hasDependencyMetadata(tools[i].Metadata) && !hasRepoURL(tools[i].Metadata) {
-				tools[i].Metadata["dependency_visibility_note"] = fmt.Sprintf("Local dependency artifacts were found under %s, but ToolTrust could not extract usable dependencies.", root)
+			hasDeps, depsParseFailed := dependencyMetadataStatus(tools[i].Metadata)
+			if !hasDeps && !hasRepoURL(tools[i].Metadata) {
+				if depsParseFailed {
+					tools[i].Metadata["dependency_visibility_note"] = fmt.Sprintf("Tool exposed dependency metadata, but it could not be parsed. Local dependency artifacts were found under %s, but ToolTrust could not extract usable dependencies.", root)
+				} else {
+					tools[i].Metadata["dependency_visibility_note"] = fmt.Sprintf("Local dependency artifacts were found under %s, but ToolTrust could not extract usable dependencies.", root)
+				}
 			}
 		}
 		return tools
@@ -211,20 +226,23 @@ func ensureMetadata(tool *model.UnifiedTool) {
 	}
 }
 
-func hasDependencyMetadata(meta map[string]any) bool {
+func dependencyMetadataStatus(meta map[string]any) (hasDeps, parseFailed bool) {
 	raw, ok := meta["dependencies"]
 	if !ok {
-		return false
+		return false, false
 	}
 	b, err := json.Marshal(raw)
 	if err != nil {
-		return false
+		return false, true
 	}
 	var deps []map[string]any
 	if err := json.Unmarshal(b, &deps); err != nil {
-		return false
+		return false, true
 	}
-	return len(deps) > 0
+	if deps == nil && bytes.Equal(bytes.TrimSpace(b), []byte("null")) {
+		return false, true
+	}
+	return len(deps) > 0, false
 }
 
 func hasRepoURL(meta map[string]any) bool {
