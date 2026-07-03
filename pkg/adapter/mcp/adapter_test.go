@@ -389,6 +389,30 @@ func TestAdapter_Parse_RejectsNullNestedSchemaProperty(t *testing.T) {
 	assert.Contains(t, err.Error(), "inputSchema.properties.path must be an object")
 }
 
+func TestAdapter_Parse_RejectsNullRequired(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","inputSchema":{"type":"object","required":null}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inputSchema.required must be an array of strings")
+}
+
+func TestAdapter_Parse_RejectsNonStringRequiredEntry(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","inputSchema":{"type":"object","required":[1]}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inputSchema.required[0] must be a string")
+}
+
+func TestAdapter_Parse_RejectsNullEnum(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","inputSchema":{"type":"object","properties":{"mode":{"type":"string","enum":null}}}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inputSchema.properties.mode.enum must be an array")
+}
+
+func TestAdapter_Parse_RejectsNonArrayEnum(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","inputSchema":{"type":"object","properties":{"mode":{"type":"string","enum":{}}}}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inputSchema.properties.mode.enum must be an array")
+}
+
 func TestAdapter_Parse_RejectsNullMetadata(t *testing.T) {
 	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","metadata":null}]}`))
 	require.Error(t, err)

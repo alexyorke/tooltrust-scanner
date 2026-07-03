@@ -186,6 +186,28 @@ func validateDependencyEntry(toolIdx, depIdx int, dep map[string]any) error {
 }
 
 func validateSchemaObject(schema map[string]any, path string) error {
+	if rawRequired, hasRequired := schema["required"]; hasRequired {
+		if rawRequired == nil {
+			return fmt.Errorf("%s.required must be an array of strings", path)
+		}
+		required, ok := rawRequired.([]any)
+		if !ok {
+			return fmt.Errorf("%s.required must be an array of strings", path)
+		}
+		for idx := range required {
+			if _, ok := required[idx].(string); !ok {
+				return fmt.Errorf("%s.required[%d] must be a string", path, idx)
+			}
+		}
+	}
+	if rawEnum, hasEnum := schema["enum"]; hasEnum {
+		if rawEnum == nil {
+			return fmt.Errorf("%s.enum must be an array", path)
+		}
+		if _, ok := rawEnum.([]any); !ok {
+			return fmt.Errorf("%s.enum must be an array", path)
+		}
+	}
 	if rawProps, hasProps := schema["properties"]; hasProps {
 		if rawProps == nil {
 			return fmt.Errorf("%s.properties must be an object", path)
