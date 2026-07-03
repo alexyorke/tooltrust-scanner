@@ -370,11 +370,19 @@ func installViaConfig(serverName string, opts gateOpts) error {
 	// Read existing config if present.
 	data, readErr := os.ReadFile(configPath) // #nosec G304 -- configPath is resolved to the project/user MCP config.
 	if readErr == nil {
-		if uErr := json.Unmarshal(data, &document); uErr != nil {
+		var topLevel any
+		if uErr := json.Unmarshal(data, &topLevel); uErr != nil {
 			return fmt.Errorf("failed to parse existing config %s: %w", configPath, uErr)
 		}
-		if document == nil {
+		if topLevel == nil {
 			return fmt.Errorf("failed to parse existing config %s: config must be a JSON object", configPath)
+		}
+		if _, ok := topLevel.(map[string]any); !ok {
+			return fmt.Errorf("failed to parse existing config %s: config must be a JSON object", configPath)
+		}
+
+		if uErr := json.Unmarshal(data, &document); uErr != nil {
+			return fmt.Errorf("failed to parse existing config %s: %w", configPath, uErr)
 		}
 		if serversRaw, ok := document["mcpServers"]; ok {
 			servers, uErr := parseMCPServers(serversRaw)

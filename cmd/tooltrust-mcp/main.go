@@ -771,12 +771,20 @@ func loadMCPConfig() (string, mcpConfig, error) {
 }
 
 func parseMCPConfig(data []byte) (mcpConfig, error) {
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return mcpConfig{}, fmt.Errorf("parse config json: %w", err)
+	}
+	if topLevel == nil {
+		return mcpConfig{}, fmt.Errorf("config must be a JSON object")
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
+		return mcpConfig{}, fmt.Errorf("config must be a JSON object")
+	}
+
 	var doc map[string]json.RawMessage
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return mcpConfig{}, fmt.Errorf("parse config json: %w", err)
-	}
-	if doc == nil {
-		return mcpConfig{}, fmt.Errorf("config must be a JSON object")
 	}
 
 	var cfg mcpConfig

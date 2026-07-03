@@ -477,6 +477,24 @@ func TestInstallViaConfig_RejectsTopLevelNullConfig(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to parse existing config .mcp.json: config must be a JSON object")
 }
 
+func TestInstallViaConfig_RejectsTopLevelArrayConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte("[]"), 0o644))
+
+	err = installViaConfig("server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse existing config .mcp.json: config must be a JSON object")
+}
+
 func TestInstallViaConfig_ReadErrorOnExistingProjectConfigSurfaces(t *testing.T) {
 	dir := t.TempDir()
 
