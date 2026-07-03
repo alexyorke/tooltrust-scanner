@@ -703,7 +703,7 @@ func collectDependencies(tool model.UnifiedTool) ([]dependencyEvidence, error) {
 			dep.Version = version
 			dep.Ecosystem = ecosystem
 			k := strings.ToLower(dep.Ecosystem) + ":" + strings.ToLower(dep.Name) + "@" + normaliseVersion(dep.Version)
-			source := dep.Source
+			source := strings.TrimSpace(dep.Source)
 			if source == "" {
 				source = "metadata"
 			}

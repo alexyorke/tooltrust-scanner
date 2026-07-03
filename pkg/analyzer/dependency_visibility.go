@@ -55,7 +55,7 @@ func dependencySourcesFromMetadata(meta map[string]any) ([]string, bool) {
 							continue
 						}
 					}
-					source := dep.Source
+					source := strings.TrimSpace(dep.Source)
 					if source == "" {
 						source = "metadata"
 					}

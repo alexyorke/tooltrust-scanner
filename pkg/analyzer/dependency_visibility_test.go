@@ -36,3 +36,17 @@ func TestDependencyVisibilityForTool_SkipsNullDependencyEntries(t *testing.T) {
 	assert.NotContains(t, visibility, "Declared by MCP metadata")
 	assert.Contains(t, note, "could not be parsed")
 }
+
+func TestDependencyVisibilityForTool_WhitespaceSourceFallsBackToMetadata(t *testing.T) {
+	visibility, note := analyzer.DependencyVisibilityForTool(model.UnifiedTool{
+		Name: "whitespace-source-tool",
+		Metadata: map[string]any{
+			"dependencies": []any{
+				map[string]any{"source": "   "},
+			},
+		},
+	})
+
+	assert.Equal(t, "Declared by MCP metadata", visibility)
+	assert.Equal(t, "", note)
+}

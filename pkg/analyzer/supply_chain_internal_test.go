@@ -55,6 +55,19 @@ func TestCollectDependencies_SkipsEntriesMissingRequiredFields(t *testing.T) {
 	assert.Equal(t, "metadata", deps[0].Source)
 }
 
+func TestCollectDependencies_WhitespaceSourceFallsBackToMetadata(t *testing.T) {
+	t.Parallel()
+
+	deps, err := collectDependencies(toolWithMetadataForTest(map[string]any{
+		"dependencies": []any{
+			map[string]any{"name": "axios", "version": "1.14.1", "ecosystem": "npm", "source": "   "},
+		},
+	}))
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "metadata", deps[0].Source)
+}
+
 func toolWithMetadataForTest(meta map[string]any) model.UnifiedTool {
 	return model.UnifiedTool{
 		Name:     "test-tool",
