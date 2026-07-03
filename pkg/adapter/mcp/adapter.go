@@ -92,8 +92,12 @@ func (a *Adapter) Parse(_ context.Context, data []byte) ([]model.UnifiedTool, er
 					return nil, fmt.Errorf("mcp adapter: tool entry at index %d metadata.dependencies must be an array", i)
 				}
 				for depIdx := range deps {
-					if _, ok := deps[depIdx].(map[string]any); !ok {
+					dep, ok := deps[depIdx].(map[string]any)
+					if !ok {
 						return nil, fmt.Errorf("mcp adapter: tool entry at index %d metadata.dependencies[%d] must be an object", i, depIdx)
+					}
+					if err := validateDependencyEntry(i, depIdx, dep); err != nil {
+						return nil, err
 					}
 				}
 			}
@@ -162,6 +166,19 @@ func buildMetadata(t Tool) map[string]any {
 		return nil
 	}
 	return meta
+}
+
+func validateDependencyEntry(toolIdx, depIdx int, dep map[string]any) error {
+	for _, field := range []string{"name", "version", "ecosystem"} {
+		value, ok := dep[field]
+		if !ok {
+			return fmt.Errorf("mcp adapter: tool entry at index %d metadata.dependencies[%d] is missing %s", toolIdx, depIdx, field)
+		}
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("mcp adapter: tool entry at index %d metadata.dependencies[%d].%s must be a string", toolIdx, depIdx, field)
+		}
+	}
+	return nil
 }
 
 // convertSchema maps an MCP InputSchema to the internal jsonschema.Schema.

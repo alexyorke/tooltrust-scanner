@@ -401,6 +401,24 @@ func TestAdapter_Parse_RejectsNonObjectDependencyMetadataEntry(t *testing.T) {
 	assert.Contains(t, err.Error(), "metadata.dependencies[0] must be an object")
 }
 
+func TestAdapter_Parse_RejectsDependencyMetadataMissingName(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","metadata":{"dependencies":[{"version":"1.14.1","ecosystem":"npm"}]}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "metadata.dependencies[0] is missing name")
+}
+
+func TestAdapter_Parse_RejectsDependencyMetadataNullVersion(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","metadata":{"dependencies":[{"name":"axios","version":null,"ecosystem":"npm"}]}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "metadata.dependencies[0].version must be a string")
+}
+
+func TestAdapter_Parse_RejectsDependencyMetadataNonStringEcosystem(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","metadata":{"dependencies":[{"name":"axios","version":"1.14.1","ecosystem":123}]}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "metadata.dependencies[0].ecosystem must be a string")
+}
+
 func TestAdapter_Parse_PreservesRawSource(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{
