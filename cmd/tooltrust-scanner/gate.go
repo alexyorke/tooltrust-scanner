@@ -455,6 +455,9 @@ func parseMCPServers(data json.RawMessage) (map[string]mcpServerEntry, error) {
 		if trimmedName == "" {
 			return nil, fmt.Errorf("mcpServers contains an empty server name")
 		}
+		if strings.ContainsRune(name, '\x00') {
+			return nil, fmt.Errorf("mcpServers[%q] has an invalid server name", name)
+		}
 		if trimmedName != name {
 			return nil, fmt.Errorf("mcpServers[%q] has invalid surrounding whitespace", name)
 		}

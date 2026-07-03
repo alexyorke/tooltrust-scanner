@@ -1026,6 +1026,21 @@ func TestLoadMCPConfig_RejectsServerNameWithWhitespace(t *testing.T) {
 	assert.Contains(t, err.Error(), `mcpServers[" bad "] has invalid surrounding whitespace`)
 }
 
+func TestLoadMCPConfig_RejectsServerNameWithNUL(t *testing.T) {
+	dir := t.TempDir()
+	configData := "{\"mcpServers\":{\"bad\\u0000name\":{\"command\":\"node\"}}}"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(configData), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `mcpServers["bad`)
+	assert.Contains(t, err.Error(), `has an invalid server name`)
+}
+
 func TestHandleScanConfig_EmptyServers(t *testing.T) {
 	dir := t.TempDir()
 	configData := `{"mcpServers":{}}`

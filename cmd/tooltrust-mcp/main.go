@@ -811,6 +811,9 @@ func parseMCPConfig(data []byte) (mcpConfig, error) {
 		if trimmedName == "" {
 			return mcpConfig{}, fmt.Errorf("mcpServers contains an empty server name")
 		}
+		if strings.ContainsRune(name, '\x00') {
+			return mcpConfig{}, fmt.Errorf("mcpServers[%q] has an invalid server name", name)
+		}
 		if trimmedName != name {
 			return mcpConfig{}, fmt.Errorf("mcpServers[%q] has invalid surrounding whitespace", name)
 		}

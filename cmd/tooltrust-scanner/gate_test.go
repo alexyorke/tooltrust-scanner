@@ -731,6 +731,25 @@ func TestInstallViaConfig_RejectsServerNameWithWhitespace(t *testing.T) {
 	assert.Contains(t, err.Error(), `failed to parse existing mcpServers in .mcp.json: mcpServers[" bad "] has invalid surrounding whitespace`)
 }
 
+func TestInstallViaConfig_RejectsServerNameWithNUL(t *testing.T) {
+	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte("{\"mcpServers\":{\"bad\\u0000name\":{\"command\":\"node\"}}}"), 0o644))
+
+	err = installViaConfig("server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `failed to parse existing mcpServers in .mcp.json: mcpServers["bad`)
+	assert.Contains(t, err.Error(), `has an invalid server name`)
+}
+
 func TestInstallViaConfig_ReadErrorOnExistingProjectConfigSurfaces(t *testing.T) {
 	dir := t.TempDir()
 
