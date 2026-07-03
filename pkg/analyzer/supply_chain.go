@@ -147,12 +147,20 @@ func (c *httpOSVClient) Query(ctx context.Context, dep Dependency) ([]osvVuln, e
 		return nil, fmt.Errorf("osv: read body: %w", err)
 	}
 
+	var topLevel any
+	if unmarshalErr := json.Unmarshal(data, &topLevel); unmarshalErr != nil {
+		return nil, fmt.Errorf("osv: unmarshal response: %w", unmarshalErr)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("osv: top-level JSON value must be an object")
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
+		return nil, fmt.Errorf("osv: top-level JSON value must be an object")
+	}
+
 	var result osvResponse
 	if err = json.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("osv: unmarshal response: %w", err)
-	}
-	if result.Vulns == nil && bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
-		return nil, fmt.Errorf("osv: top-level JSON value must be an object")
 	}
 	return result.Vulns, nil
 }
