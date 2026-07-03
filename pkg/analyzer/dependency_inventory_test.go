@@ -109,3 +109,19 @@ func TestDependencyInventoryChecker_RepoURLOnly_UsesRepoAvailabilityNote(t *test
 	assert.Equal(t, "DEPENDENCY_INVENTORY_UNAVAILABLE", issues[0].Code)
 	assert.Equal(t, "repo_url is available, so ToolTrust can try to inspect remote lockfiles for dependency evidence.", issues[0].Description)
 }
+
+func TestDependencyVisibilityForTool_SourceLessDependenciesDefaultToMetadata(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:     "safe_tool",
+		Protocol: model.ProtocolMCP,
+		Metadata: map[string]any{
+			"dependencies": []any{
+				map[string]any{"name": "axios", "version": "1.14.1", "ecosystem": "npm"},
+			},
+		},
+	}
+
+	visibility, note := analyzer.DependencyVisibilityForTool(tool)
+	assert.Equal(t, "Declared by MCP metadata", visibility)
+	assert.Empty(t, note)
+}

@@ -38,27 +38,39 @@ func dependencySourcesFromMetadata(meta map[string]any) ([]string, bool) {
 	if raw, ok := meta["dependencies"]; ok {
 		b, err := json.Marshal(raw)
 		if err == nil {
-			var deps []struct {
-				Source string `json:"source"`
-			}
+			var deps []map[string]any
 			if err := json.Unmarshal(b, &deps); err == nil {
 				if deps == nil && bytes.Equal(bytes.TrimSpace(b), []byte("null")) {
 					depsParseFailed = true
 				}
 				for _, dep := range deps {
-					if strings.TrimSpace(dep.Source) == "" {
-						var zero struct {
-							Source string `json:"source"`
-						}
-						if dep == zero {
-							depsParseFailed = true
-							continue
-						}
+					if dep == nil {
+						depsParseFailed = true
+						continue
 					}
-					source := strings.TrimSpace(dep.Source)
-					if source == "" {
-						source = "metadata"
+
+					source, hasSource := dep["source"].(string)
+					source = strings.TrimSpace(source)
+					if hasSource {
+						if source == "" {
+							source = "metadata"
+						}
+						if !seen[source] {
+							seen[source] = true
+							sources = append(sources, source)
+						}
+						continue
 					}
+
+					name := visibilityStringValue(dep, "name")
+					version := visibilityStringValue(dep, "version")
+					ecosystem := visibilityStringValue(dep, "ecosystem")
+					if strings.TrimSpace(name) == "" || strings.TrimSpace(version) == "" || strings.TrimSpace(ecosystem) == "" {
+						depsParseFailed = true
+						continue
+					}
+
+					source = "metadata"
 					if !seen[source] {
 						seen[source] = true
 						sources = append(sources, source)
@@ -121,6 +133,13 @@ func formatDependencyVisibility(sources []string) string {
 
 func metadataString(meta map[string]any, key string) string {
 	if value, ok := meta[key].(string); ok {
+		return value
+	}
+	return ""
+}
+
+func visibilityStringValue(dep map[string]any, key string) string {
+	if value, ok := dep[key].(string); ok {
 		return value
 	}
 	return ""
