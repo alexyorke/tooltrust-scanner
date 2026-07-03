@@ -362,8 +362,9 @@ type nodeLockfile struct {
 }
 
 type nodeLockEntry struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name         string          `json:"name"`
+	Version      string          `json:"version"`
+	Dependencies json.RawMessage `json:"dependencies"`
 }
 
 type nodeDependency struct {
@@ -444,20 +445,29 @@ func parseNodeLockfile(path string) ([]nodeDependency, error) {
 	}
 
 	for name, entry := range lock.Dependencies {
-		if entry.Name != "" {
-			name = entry.Name
-		}
-		if name == "" || entry.Version == "" {
-			continue
-		}
-		k := name + "@" + entry.Version
-		if seen[k] {
-			continue
-		}
-		seen[k] = true
-		deps = append(deps, nodeDependency{Name: name, Version: entry.Version, Ecosystem: "npm", Source: "local_lockfile"})
+		appendNodeLockDependencyTree(name, entry, seen, &deps)
 	}
 	return deps, nil
+}
+
+func appendNodeLockDependencyTree(name string, entry nodeLockEntry, seen map[string]bool, deps *[]nodeDependency) {
+	if entry.Name != "" {
+		name = entry.Name
+	}
+	if name != "" && entry.Version != "" {
+		k := name + "@" + entry.Version
+		if !seen[k] {
+			seen[k] = true
+			*deps = append(*deps, nodeDependency{Name: name, Version: entry.Version, Ecosystem: "npm", Source: "local_lockfile"})
+		}
+	}
+	var nested map[string]nodeLockEntry
+	if err := json.Unmarshal(entry.Dependencies, &nested); err != nil {
+		return
+	}
+	for childName, child := range nested {
+		appendNodeLockDependencyTree(childName, child, seen, deps)
+	}
 }
 
 func detectLocalProjectRoot(args []string) string {

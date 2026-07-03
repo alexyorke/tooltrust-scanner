@@ -230,8 +230,9 @@ type packageLockJSON struct {
 }
 
 type packageLockEntry struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name         string          `json:"name"`
+	Version      string          `json:"version"`
+	Dependencies json.RawMessage `json:"dependencies"`
 }
 
 func parsePackageLockJSON(data []byte) ([]Dependency, error) {
@@ -276,18 +277,30 @@ func parsePackageLockJSON(data []byte) ([]Dependency, error) {
 	} else {
 		// npm v1: flat "dependencies" map
 		for name, entry := range lock.Dependencies {
-			if entry.Name != "" {
-				name = entry.Name
-			}
-			k := name + "@" + entry.Version
-			if entry.Version == "" || seen[k] {
-				continue
-			}
-			seen[k] = true
-			deps = append(deps, Dependency{Name: name, Version: entry.Version, Ecosystem: "npm"})
+			appendPackageLockDependencyTree(name, entry, seen, &deps)
 		}
 	}
 	return deps, nil
+}
+
+func appendPackageLockDependencyTree(name string, entry packageLockEntry, seen map[string]bool, deps *[]Dependency) {
+	if entry.Name != "" {
+		name = entry.Name
+	}
+	if name != "" && entry.Version != "" {
+		k := name + "@" + entry.Version
+		if !seen[k] {
+			seen[k] = true
+			*deps = append(*deps, Dependency{Name: name, Version: entry.Version, Ecosystem: "npm"})
+		}
+	}
+	var nested map[string]packageLockEntry
+	if err := json.Unmarshal(entry.Dependencies, &nested); err != nil {
+		return
+	}
+	for childName, child := range nested {
+		appendPackageLockDependencyTree(childName, child, seen, deps)
+	}
 }
 
 func parseGoSum(data []byte) ([]Dependency, error) {

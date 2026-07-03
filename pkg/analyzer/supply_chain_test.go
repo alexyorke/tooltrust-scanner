@@ -358,6 +358,34 @@ func TestParsePackageLockJSON_NPMAliasUsesRealPackageName(t *testing.T) {
 	assert.Equal(t, "npm", deps[0].Ecosystem)
 }
 
+func TestParsePackageLockJSON_V1IncludesNestedDependencies(t *testing.T) {
+	data := []byte(`{
+  "name": "demo",
+  "lockfileVersion": 1,
+  "dependencies": {
+    "express": {
+      "version": "4.18.2",
+      "dependencies": {
+        "qs": {
+          "version": "6.11.0"
+        }
+      }
+    }
+  }
+}`)
+	deps, err := analyzer.ParsePackageLockJSONForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 2)
+
+	names := make(map[string]string)
+	for _, d := range deps {
+		names[d.Name] = d.Version
+		assert.Equal(t, "npm", d.Ecosystem)
+	}
+	assert.Equal(t, "4.18.2", names["express"])
+	assert.Equal(t, "6.11.0", names["qs"])
+}
+
 func TestParseGoSum(t *testing.T) {
 	data := []byte(`github.com/foo/bar v1.2.3 h1:abc
 github.com/foo/bar v1.2.3/go.mod h1:def

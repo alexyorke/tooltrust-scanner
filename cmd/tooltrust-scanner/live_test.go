@@ -322,6 +322,37 @@ func TestParseNodeLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
 	assert.Equal(t, "local_lockfile", deps[0].Source)
 }
 
+func TestParseNodeLockfile_V1IncludesNestedDependencies(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "package-lock.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+  "name": "demo",
+  "lockfileVersion": 1,
+  "dependencies": {
+    "express": {
+      "version": "4.18.2",
+      "dependencies": {
+        "qs": {
+          "version": "6.11.0"
+        }
+      }
+    }
+  }
+}`), 0o644))
+
+	deps, err := parseNodeLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 2)
+
+	names := make(map[string]string)
+	for _, dep := range deps {
+		names[dep.Name] = dep.Version
+		assert.Equal(t, "npm", dep.Ecosystem)
+		assert.Equal(t, "local_lockfile", dep.Source)
+	}
+	assert.Equal(t, "4.18.2", names["express"])
+	assert.Equal(t, "6.11.0", names["qs"])
+}
+
 func TestParseNodeLockfile_RejectsTopLevelNull(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "package-lock.json")
 	require.NoError(t, os.WriteFile(path, []byte("null"), 0o644))
