@@ -569,6 +569,24 @@ func TestInstallViaConfig_RejectsNullServerCommand(t *testing.T) {
 	assert.Contains(t, err.Error(), `failed to parse existing mcpServers in .mcp.json: mcpServers["broken"].command must be a string`)
 }
 
+func TestInstallViaConfig_RejectsServerCommandWithNUL(t *testing.T) {
+	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte("{\"mcpServers\":{\"broken\":{\"command\":\"go\\u0000bad\"}}}"), 0o644))
+
+	err = installViaConfig("server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `failed to parse existing mcpServers in .mcp.json: mcpServers["broken"].command must not contain NUL`)
+}
+
 func TestInstallViaConfig_RejectsNullServerArgs(t *testing.T) {
 	dir := t.TempDir()
 
