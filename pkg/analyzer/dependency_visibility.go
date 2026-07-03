@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 
@@ -41,6 +42,9 @@ func dependencySourcesFromMetadata(meta map[string]any) ([]string, bool) {
 				Source string `json:"source"`
 			}
 			if err := json.Unmarshal(b, &deps); err == nil {
+				if deps == nil && bytes.Equal(bytes.TrimSpace(b), []byte("null")) {
+					depsParseFailed = true
+				}
 				for _, dep := range deps {
 					source := dep.Source
 					if source == "" {
