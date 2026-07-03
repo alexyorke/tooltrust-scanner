@@ -51,6 +51,7 @@ func dependencySourcesFromMetadata(meta map[string]any) ([]string, bool) {
 							Source string `json:"source"`
 						}
 						if dep == zero {
+							depsParseFailed = true
 							continue
 						}
 					}

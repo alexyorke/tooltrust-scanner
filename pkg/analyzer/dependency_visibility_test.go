@@ -34,5 +34,5 @@ func TestDependencyVisibilityForTool_SkipsNullDependencyEntries(t *testing.T) {
 
 	assert.Equal(t, "Verified from remote lockfile", visibility)
 	assert.NotContains(t, visibility, "Declared by MCP metadata")
-	assert.Equal(t, "", note)
+	assert.Contains(t, note, "could not be parsed")
 }

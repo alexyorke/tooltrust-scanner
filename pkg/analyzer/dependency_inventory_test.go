@@ -58,6 +58,23 @@ func TestDependencyInventoryChecker_MCPWithMalformedDependencies_Fires(t *testin
 	assert.Equal(t, "DEPENDENCY_INVENTORY_UNAVAILABLE", issues[0].Code)
 }
 
+func TestDependencyInventoryChecker_MCPWithNullDependencyEntry_ReportsMalformedMetadata(t *testing.T) {
+	checker := analyzer.NewDependencyInventoryChecker()
+	tool := model.UnifiedTool{
+		Name:     "bad_inventory",
+		Protocol: model.ProtocolMCP,
+		Metadata: map[string]any{
+			"dependencies": []any{nil},
+		},
+	}
+
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "DEPENDENCY_INVENTORY_UNAVAILABLE", issues[0].Code)
+	assert.Contains(t, issues[0].Description, "could not be parsed")
+}
+
 func TestDependencyInventoryChecker_NonMCP_NoFinding(t *testing.T) {
 	checker := analyzer.NewDependencyInventoryChecker()
 	tool := model.UnifiedTool{
