@@ -261,8 +261,20 @@ func mergeDependencies(tool *model.UnifiedTool, deps []nodeDependency) {
 		}
 	}
 
+	sanitized := make([]map[string]any, 0, len(existing))
+	for _, dep := range existing {
+		if dep != nil {
+			sanitized = append(sanitized, dep)
+		}
+	}
+	existing = sanitized
+
 	index := map[string]int{}
+	existingByKey := make(map[string]map[string]any, len(existing))
 	for i, dep := range existing {
+		if dep == nil {
+			continue
+		}
 		name := stringMapValue(dep, "name")
 		version := stringMapValue(dep, "version")
 		ecosystem := stringMapValue(dep, "ecosystem")
@@ -274,11 +286,13 @@ func mergeDependencies(tool *model.UnifiedTool, deps []nodeDependency) {
 		if idx, ok := index[key]; ok {
 			if sourceRank(source) > sourceRank(stringMapValue(existing[idx], "source")) {
 				existing[idx]["source"] = source
+				existingByKey[key] = existing[idx]
 			}
 			continue
 		}
 		index[key] = i
-		dep["source"] = source
+		existing[i]["source"] = source
+		existingByKey[key] = existing[i]
 	}
 
 	for _, dep := range deps {
@@ -287,19 +301,21 @@ func mergeDependencies(tool *model.UnifiedTool, deps []nodeDependency) {
 		if source == "" {
 			source = "local_lockfile"
 		}
-		if idx, ok := index[key]; ok {
-			if sourceRank(source) > sourceRank(stringMapValue(existing[idx], "source")) {
-				existing[idx]["source"] = source
+		if current, ok := existingByKey[key]; ok {
+			if sourceRank(source) > sourceRank(stringMapValue(current, "source")) {
+				current["source"] = source
 			}
 			continue
 		}
-		index[key] = len(existing)
-		existing = append(existing, map[string]any{
+		entry := map[string]any{
 			"name":      dep.Name,
 			"version":   dep.Version,
 			"ecosystem": dep.Ecosystem,
 			"source":    source,
-		})
+		}
+		index[key] = len(existing)
+		existing = append(existing, entry)
+		existingByKey[key] = entry
 	}
 
 	if len(existing) > 0 {

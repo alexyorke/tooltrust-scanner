@@ -148,6 +148,28 @@ func TestMergeDependencies_NormalizesCaseAndVersionBeforeDeduping(t *testing.T) 
 	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
 }
 
+func TestMergeDependencies_SkipsNullExistingEntries(t *testing.T) {
+	tool := &model.UnifiedTool{
+		Metadata: map[string]any{
+			"dependencies": []any{nil},
+		},
+	}
+
+	require.NotPanics(t, func() {
+		mergeDependencies(tool, []nodeDependency{
+			{Name: "axios", Version: "1.14.1", Ecosystem: "npm", Source: "local_lockfile"},
+		})
+	})
+
+	rawDeps, ok := tool.Metadata["dependencies"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, rawDeps, 1)
+	assert.Equal(t, "axios", rawDeps[0]["name"])
+	assert.Equal(t, "1.14.1", rawDeps[0]["version"])
+	assert.Equal(t, "npm", rawDeps[0]["ecosystem"])
+	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
+}
+
 func TestEnrichLiveToolsWithLocalNodeDependencies_ReportsMalformedDependencyMetadata(t *testing.T) {
 	t.Chdir(t.TempDir())
 
