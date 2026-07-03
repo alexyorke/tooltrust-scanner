@@ -371,6 +371,36 @@ func TestAdapter_Parse_RejectsNonObjectInputSchema(t *testing.T) {
 	assert.Contains(t, err.Error(), "inputSchema must be an object")
 }
 
+func TestAdapter_Parse_RejectsNullMetadata(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","metadata":null}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has null metadata")
+}
+
+func TestAdapter_Parse_RejectsNonObjectMetadata(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","metadata":[]}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "metadata must be an object")
+}
+
+func TestAdapter_Parse_RejectsNullDependencyMetadataArray(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","metadata":{"dependencies":null}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "metadata.dependencies must be an array")
+}
+
+func TestAdapter_Parse_RejectsNonArrayDependencyMetadata(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","metadata":{"dependencies":{}}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "metadata.dependencies must be an array")
+}
+
+func TestAdapter_Parse_RejectsNonObjectDependencyMetadataEntry(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","metadata":{"dependencies":[null]}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "metadata.dependencies[0] must be an object")
+}
+
 func TestAdapter_Parse_PreservesRawSource(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{

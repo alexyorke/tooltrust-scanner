@@ -75,6 +75,29 @@ func (a *Adapter) Parse(_ context.Context, data []byte) ([]model.UnifiedTool, er
 				return nil, fmt.Errorf("mcp adapter: tool entry at index %d inputSchema must be an object", i)
 			}
 		}
+		if rawMetadata, hasMetadata := entry["metadata"]; hasMetadata {
+			if rawMetadata == nil {
+				return nil, fmt.Errorf("mcp adapter: tool entry at index %d has null metadata", i)
+			}
+			metadata, ok := rawMetadata.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("mcp adapter: tool entry at index %d metadata must be an object", i)
+			}
+			if rawDeps, hasDeps := metadata["dependencies"]; hasDeps {
+				if rawDeps == nil {
+					return nil, fmt.Errorf("mcp adapter: tool entry at index %d metadata.dependencies must be an array", i)
+				}
+				deps, ok := rawDeps.([]any)
+				if !ok {
+					return nil, fmt.Errorf("mcp adapter: tool entry at index %d metadata.dependencies must be an array", i)
+				}
+				for depIdx := range deps {
+					if _, ok := deps[depIdx].(map[string]any); !ok {
+						return nil, fmt.Errorf("mcp adapter: tool entry at index %d metadata.dependencies[%d] must be an object", i, depIdx)
+					}
+				}
+			}
+		}
 	}
 
 	var resp ListToolsResponse
