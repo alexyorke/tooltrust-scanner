@@ -807,6 +807,14 @@ func parseMCPConfig(data []byte) (mcpConfig, error) {
 	}
 	cfg.MCPServers = make(map[string]mcpServerEntry, len(rawEntries))
 	for name, rawEntry := range rawEntries {
+		trimmedName := strings.TrimSpace(name)
+		if trimmedName == "" {
+			return mcpConfig{}, fmt.Errorf("mcpServers contains an empty server name")
+		}
+		if trimmedName != name {
+			return mcpConfig{}, fmt.Errorf("mcpServers[%q] has invalid surrounding whitespace", name)
+		}
+
 		var entryTopLevel any
 		if err := json.Unmarshal(rawEntry, &entryTopLevel); err != nil {
 			return mcpConfig{}, fmt.Errorf("mcpServers[%q] must be an object: %w", name, err)

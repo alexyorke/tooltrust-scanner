@@ -451,6 +451,14 @@ func parseMCPServers(data json.RawMessage) (map[string]mcpServerEntry, error) {
 
 	servers := make(map[string]mcpServerEntry, len(rawEntries))
 	for name, rawEntry := range rawEntries {
+		trimmedName := strings.TrimSpace(name)
+		if trimmedName == "" {
+			return nil, fmt.Errorf("mcpServers contains an empty server name")
+		}
+		if trimmedName != name {
+			return nil, fmt.Errorf("mcpServers[%q] has invalid surrounding whitespace", name)
+		}
+
 		var entryTopLevel any
 		if err := json.Unmarshal(rawEntry, &entryTopLevel); err != nil {
 			return nil, fmt.Errorf("mcpServers[%q] must be an object: %w", name, err)
