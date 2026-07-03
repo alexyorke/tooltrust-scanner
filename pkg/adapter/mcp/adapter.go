@@ -67,6 +67,14 @@ func (a *Adapter) Parse(_ context.Context, data []byte) ([]model.UnifiedTool, er
 		if !ok || strings.TrimSpace(name) == "" {
 			return nil, fmt.Errorf("mcp adapter: tool entry at index %d is missing a non-empty name", i)
 		}
+		if rawSchema, hasSchema := entry["inputSchema"]; hasSchema {
+			if rawSchema == nil {
+				return nil, fmt.Errorf("mcp adapter: tool entry at index %d has null inputSchema", i)
+			}
+			if _, ok := rawSchema.(map[string]any); !ok {
+				return nil, fmt.Errorf("mcp adapter: tool entry at index %d inputSchema must be an object", i)
+			}
+		}
 	}
 
 	var resp ListToolsResponse

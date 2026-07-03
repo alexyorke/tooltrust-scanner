@@ -359,6 +359,18 @@ func TestAdapter_Parse_RejectsBlankToolName(t *testing.T) {
 	assert.Contains(t, err.Error(), "missing a non-empty name")
 }
 
+func TestAdapter_Parse_RejectsNullInputSchema(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","inputSchema":null}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has null inputSchema")
+}
+
+func TestAdapter_Parse_RejectsNonObjectInputSchema(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","inputSchema":[]}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inputSchema must be an object")
+}
+
 func TestAdapter_Parse_PreservesRawSource(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{
