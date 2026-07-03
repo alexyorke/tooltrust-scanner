@@ -268,9 +268,19 @@ func mergeDependencies(tool *model.UnifiedTool, deps []nodeDependency) {
 
 	sanitized := make([]map[string]any, 0, len(existing))
 	for _, dep := range existing {
-		if dep != nil {
-			sanitized = append(sanitized, dep)
+		if dep == nil {
+			continue
 		}
+		name := strings.TrimSpace(stringMapValue(dep, "name"))
+		version := strings.TrimSpace(stringMapValue(dep, "version"))
+		ecosystem := strings.TrimSpace(stringMapValue(dep, "ecosystem"))
+		if name == "" || version == "" || ecosystem == "" {
+			continue
+		}
+		dep["name"] = name
+		dep["version"] = version
+		dep["ecosystem"] = ecosystem
+		sanitized = append(sanitized, dep)
 	}
 	existing = sanitized
 

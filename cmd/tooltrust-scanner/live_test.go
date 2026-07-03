@@ -189,6 +189,30 @@ func TestMergeDependencies_WhitespaceSourceFallsBackToCanonicalLabels(t *testing
 	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
 }
 
+func TestMergeDependencies_SkipsExistingEntriesMissingRequiredFields(t *testing.T) {
+	tool := &model.UnifiedTool{
+		Metadata: map[string]any{
+			"dependencies": []any{
+				map[string]any{"name": "", "version": "1.14.1", "ecosystem": "npm"},
+				map[string]any{"name": "axios", "version": "", "ecosystem": "npm"},
+				map[string]any{"name": "axios", "version": "1.14.1", "ecosystem": ""},
+			},
+		},
+	}
+
+	mergeDependencies(tool, []nodeDependency{
+		{Name: "axios", Version: "1.14.1", Ecosystem: "npm", Source: "local_lockfile"},
+	})
+
+	rawDeps, ok := tool.Metadata["dependencies"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, rawDeps, 1)
+	assert.Equal(t, "axios", rawDeps[0]["name"])
+	assert.Equal(t, "1.14.1", rawDeps[0]["version"])
+	assert.Equal(t, "npm", rawDeps[0]["ecosystem"])
+	assert.Equal(t, "local_lockfile", rawDeps[0]["source"])
+}
+
 func TestEnrichLiveToolsWithLocalNodeDependencies_ReportsMalformedDependencyMetadata(t *testing.T) {
 	t.Chdir(t.TempDir())
 
