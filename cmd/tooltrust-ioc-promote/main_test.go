@@ -65,10 +65,30 @@ func TestReadNPMIOCs_RejectsTopLevelNull(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse npm_iocs.json: top-level JSON value must be an array")
 }
 
+func TestReadNPMIOCs_RejectsTopLevelObject(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "npm_iocs.json")
+	require.NoError(t, os.WriteFile(path, []byte("{}"), 0o644))
+
+	_, err := readNPMIOCs(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse npm_iocs.json: top-level JSON value must be an array")
+}
+
 func TestReadBlacklist_RejectsTopLevelNull(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "blacklist.json")
 	require.NoError(t, os.WriteFile(path, []byte("null"), 0o644))
+
+	_, err := readBlacklist(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse blacklist.json: top-level JSON value must be an array")
+}
+
+func TestReadBlacklist_RejectsTopLevelObject(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "blacklist.json")
+	require.NoError(t, os.WriteFile(path, []byte("{}"), 0o644))
 
 	_, err := readBlacklist(path)
 	require.Error(t, err)
@@ -333,6 +353,37 @@ func TestRun_RejectsTopLevelNullCandidateFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(
 		filepath.Join(dir, "candidate.json"),
 		[]byte("null"),
+		0o644,
+	))
+
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() {
+		_ = os.Chdir(orig)
+	})
+
+	err = run([]string{"candidate.json"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse candidate file: top-level JSON value must be an array")
+}
+
+func TestRun_RejectsTopLevelObjectCandidateFile(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pkg", "analyzer", "data"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "npm_iocs.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "blacklist.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "candidate.json"),
+		[]byte("{}"),
 		0o644,
 	))
 

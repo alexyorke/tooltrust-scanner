@@ -72,6 +72,16 @@ func run(args []string) error {
 	}
 
 	var candidates []candidateIOC
+	var topLevel any
+	if unmarshalErr := json.Unmarshal(data, &topLevel); unmarshalErr != nil {
+		return fmt.Errorf("parse candidate file: %w", unmarshalErr)
+	}
+	if topLevel == nil {
+		return errors.New("parse candidate file: top-level JSON value must be an array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return errors.New("parse candidate file: top-level JSON value must be an array")
+	}
 	if unmarshalErr := json.Unmarshal(data, &candidates); unmarshalErr != nil {
 		return fmt.Errorf("parse candidate file: %w", unmarshalErr)
 	}
@@ -266,6 +276,16 @@ func readNPMIOCs(path string) ([]npmIOCEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read npm_iocs.json: %w", err)
 	}
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse npm_iocs.json: %w", err)
+	}
+	if topLevel == nil {
+		return nil, errors.New("parse npm_iocs.json: top-level JSON value must be an array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return nil, errors.New("parse npm_iocs.json: top-level JSON value must be an array")
+	}
 	var entries []npmIOCEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("parse npm_iocs.json: %w", err)
@@ -280,6 +300,16 @@ func readBlacklist(path string) ([]blacklistEntry, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- path is derived from the repository data directory.
 	if err != nil {
 		return nil, fmt.Errorf("read blacklist.json: %w", err)
+	}
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse blacklist.json: %w", err)
+	}
+	if topLevel == nil {
+		return nil, errors.New("parse blacklist.json: top-level JSON value must be an array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return nil, errors.New("parse blacklist.json: top-level JSON value must be an array")
 	}
 	var entries []blacklistEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
