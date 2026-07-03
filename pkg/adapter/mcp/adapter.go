@@ -71,8 +71,12 @@ func (a *Adapter) Parse(_ context.Context, data []byte) ([]model.UnifiedTool, er
 			if rawSchema == nil {
 				return nil, fmt.Errorf("mcp adapter: tool entry at index %d has null inputSchema", i)
 			}
-			if _, ok := rawSchema.(map[string]any); !ok {
+			schema, ok := rawSchema.(map[string]any)
+			if !ok {
 				return nil, fmt.Errorf("mcp adapter: tool entry at index %d inputSchema must be an object", i)
+			}
+			if err := validateSchemaObject(schema, fmt.Sprintf("mcp adapter: tool entry at index %d inputSchema", i)); err != nil {
+				return nil, err
 			}
 		}
 		if rawMetadata, hasMetadata := entry["metadata"]; hasMetadata {
@@ -176,6 +180,43 @@ func validateDependencyEntry(toolIdx, depIdx int, dep map[string]any) error {
 		}
 		if _, ok := value.(string); !ok {
 			return fmt.Errorf("mcp adapter: tool entry at index %d metadata.dependencies[%d].%s must be a string", toolIdx, depIdx, field)
+		}
+	}
+	return nil
+}
+
+func validateSchemaObject(schema map[string]any, path string) error {
+	if rawProps, hasProps := schema["properties"]; hasProps {
+		if rawProps == nil {
+			return fmt.Errorf("%s.properties must be an object", path)
+		}
+		props, ok := rawProps.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s.properties must be an object", path)
+		}
+		for name, rawProp := range props {
+			if rawProp == nil {
+				return fmt.Errorf("%s.properties.%s must be an object", path, name)
+			}
+			prop, ok := rawProp.(map[string]any)
+			if !ok {
+				return fmt.Errorf("%s.properties.%s must be an object", path, name)
+			}
+			if err := validateSchemaObject(prop, path+".properties."+name); err != nil {
+				return err
+			}
+		}
+	}
+	if rawItems, hasItems := schema["items"]; hasItems {
+		if rawItems == nil {
+			return fmt.Errorf("%s.items must be an object", path)
+		}
+		items, ok := rawItems.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s.items must be an object", path)
+		}
+		if err := validateSchemaObject(items, path+".items"); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -371,6 +371,24 @@ func TestAdapter_Parse_RejectsNonObjectInputSchema(t *testing.T) {
 	assert.Contains(t, err.Error(), "inputSchema must be an object")
 }
 
+func TestAdapter_Parse_RejectsNullInputSchemaProperties(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","inputSchema":{"type":"object","properties":null}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inputSchema.properties must be an object")
+}
+
+func TestAdapter_Parse_RejectsNullInputSchemaItems(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","inputSchema":{"type":"array","items":null}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inputSchema.items must be an object")
+}
+
+func TestAdapter_Parse_RejectsNullNestedSchemaProperty(t *testing.T) {
+	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","inputSchema":{"type":"object","properties":{"path":null}}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inputSchema.properties.path must be an object")
+}
+
 func TestAdapter_Parse_RejectsNullMetadata(t *testing.T) {
 	_, err := mcp.NewAdapter().Parse(context.Background(), []byte(`{"tools":[{"name":"read_file","metadata":null}]}`))
 	require.Error(t, err)
