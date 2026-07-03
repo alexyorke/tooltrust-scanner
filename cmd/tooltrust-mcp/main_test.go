@@ -860,6 +860,62 @@ func TestLoadMCPConfig_RejectsNullServerCommand(t *testing.T) {
 	assert.Contains(t, err.Error(), `mcpServers["broken"].command must be a string`)
 }
 
+func TestLoadMCPConfig_RejectsNullServerArgs(t *testing.T) {
+	dir := t.TempDir()
+	configData := `{"mcpServers":{"broken":{"command":"node","args":null}}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(configData), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `mcpServers["broken"].args must be an array of strings`)
+}
+
+func TestLoadMCPConfig_RejectsNonStringServerArg(t *testing.T) {
+	dir := t.TempDir()
+	configData := `{"mcpServers":{"broken":{"command":"node","args":[1]}}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(configData), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `mcpServers["broken"].args[0] must be a string`)
+}
+
+func TestLoadMCPConfig_RejectsNullServerEnv(t *testing.T) {
+	dir := t.TempDir()
+	configData := `{"mcpServers":{"broken":{"command":"node","env":null}}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(configData), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `mcpServers["broken"].env must be an object`)
+}
+
+func TestLoadMCPConfig_RejectsNonStringServerEnvValue(t *testing.T) {
+	dir := t.TempDir()
+	configData := `{"mcpServers":{"broken":{"command":"node","env":{"PORT":3000}}}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(configData), 0o644))
+
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	_, _, err := loadMCPConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `mcpServers["broken"].env.PORT must be a string`)
+}
+
 func TestHandleScanConfig_EmptyServers(t *testing.T) {
 	dir := t.TempDir()
 	configData := `{"mcpServers":{}}`

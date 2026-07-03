@@ -569,6 +569,78 @@ func TestInstallViaConfig_RejectsNullServerCommand(t *testing.T) {
 	assert.Contains(t, err.Error(), `failed to parse existing mcpServers in .mcp.json: mcpServers["broken"].command must be a string`)
 }
 
+func TestInstallViaConfig_RejectsNullServerArgs(t *testing.T) {
+	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{"mcpServers":{"broken":{"command":"node","args":null}}}`), 0o644))
+
+	err = installViaConfig("server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `failed to parse existing mcpServers in .mcp.json: mcpServers["broken"].args must be an array of strings`)
+}
+
+func TestInstallViaConfig_RejectsNonStringServerArg(t *testing.T) {
+	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{"mcpServers":{"broken":{"command":"node","args":[1]}}}`), 0o644))
+
+	err = installViaConfig("server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `failed to parse existing mcpServers in .mcp.json: mcpServers["broken"].args[0] must be a string`)
+}
+
+func TestInstallViaConfig_RejectsNullServerEnv(t *testing.T) {
+	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{"mcpServers":{"broken":{"command":"node","env":null}}}`), 0o644))
+
+	err = installViaConfig("server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `failed to parse existing mcpServers in .mcp.json: mcpServers["broken"].env must be an object`)
+}
+
+func TestInstallViaConfig_RejectsNonStringServerEnvValue(t *testing.T) {
+	dir := t.TempDir()
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort restore in test cleanup
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{"mcpServers":{"broken":{"command":"node","env":{"PORT":3000}}}}`), 0o644))
+
+	err = installViaConfig("server-memory", gateOpts{
+		packageName: "@modelcontextprotocol/server-memory",
+		scope:       "project",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `failed to parse existing mcpServers in .mcp.json: mcpServers["broken"].env.PORT must be a string`)
+}
+
 func TestInstallViaConfig_ReadErrorOnExistingProjectConfigSurfaces(t *testing.T) {
 	dir := t.TempDir()
 
