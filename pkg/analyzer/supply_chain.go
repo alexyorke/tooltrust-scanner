@@ -227,12 +227,20 @@ type packageLockEntry struct {
 }
 
 func parsePackageLockJSON(data []byte) ([]Dependency, error) {
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse package-lock.json: %w", err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("parse package-lock.json: top-level JSON value must be an object")
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
+		return nil, fmt.Errorf("parse package-lock.json: top-level JSON value must be an object")
+	}
+
 	var lock packageLockJSON
 	if err := json.Unmarshal(data, &lock); err != nil {
 		return nil, fmt.Errorf("parse package-lock.json: %w", err)
-	}
-	if lock.Packages == nil && lock.Dependencies == nil && bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
-		return nil, fmt.Errorf("parse package-lock.json: top-level JSON value must be an object")
 	}
 	seen := make(map[string]bool)
 	var deps []Dependency

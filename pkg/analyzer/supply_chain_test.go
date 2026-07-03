@@ -329,6 +329,12 @@ func TestParsePackageLockJSON_RejectsTopLevelNull(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse package-lock.json: top-level JSON value must be an object")
 }
 
+func TestParsePackageLockJSON_RejectsTopLevelArray(t *testing.T) {
+	_, err := analyzer.ParsePackageLockJSONForTest([]byte("[]"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse package-lock.json: top-level JSON value must be an object")
+}
+
 func TestParsePackageLockJSON_NPMAliasUsesRealPackageName(t *testing.T) {
 	data := []byte(`{
   "packages": {

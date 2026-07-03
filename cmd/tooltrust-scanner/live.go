@@ -400,12 +400,20 @@ func parseNodeLockfile(path string) ([]nodeDependency, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read node lockfile %s: %w", path, err)
 	}
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse node lockfile %s: %w", path, err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("parse node lockfile %s: top-level JSON value must be an object", path)
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
+		return nil, fmt.Errorf("parse node lockfile %s: top-level JSON value must be an object", path)
+	}
+
 	var lock nodeLockfile
 	if err := json.Unmarshal(data, &lock); err != nil {
 		return nil, fmt.Errorf("parse node lockfile %s: %w", path, err)
-	}
-	if lock.Packages == nil && lock.Dependencies == nil && bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
-		return nil, fmt.Errorf("parse node lockfile %s: top-level JSON value must be an object", path)
 	}
 
 	seen := map[string]bool{}

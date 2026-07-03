@@ -299,6 +299,16 @@ func TestParseNodeLockfile_RejectsTopLevelNull(t *testing.T) {
 	assert.Contains(t, err.Error(), "top-level JSON value must be an object")
 }
 
+func TestParseNodeLockfile_RejectsTopLevelArray(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "package-lock.json")
+	require.NoError(t, os.WriteFile(path, []byte("[]"), 0o644))
+
+	_, err := parseNodeLockfile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse node lockfile")
+	assert.Contains(t, err.Error(), "top-level JSON value must be an object")
+}
+
 func TestParsePNPMLockfile_RejectsTopLevelNull(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pnpm-lock.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("null"), 0o644))
