@@ -82,6 +82,9 @@ func (s *Store) Save(ctx context.Context, r ScanRecord) error {
 	if strings.TrimSpace(r.ID) == "" {
 		return fmt.Errorf("storage: missing id")
 	}
+	if strings.TrimSpace(r.ToolName) == "" {
+		return fmt.Errorf("storage: missing tool_name")
+	}
 	if !isValidProtocol(r.Protocol) {
 		return fmt.Errorf("storage: invalid protocol %q", r.Protocol)
 	}
@@ -185,6 +188,9 @@ func scanRow(s scanner) (ScanRecord, error) {
 	r.Protocol = model.ProtocolType(protocol)
 	r.Grade = model.Grade(grade)
 	r.ScannedAt = scannedAt
+	if strings.TrimSpace(r.ToolName) == "" {
+		return ScanRecord{}, fmt.Errorf("storage: missing tool_name")
+	}
 	if !isValidProtocol(r.Protocol) {
 		return ScanRecord{}, fmt.Errorf("storage: invalid protocol %q", protocol)
 	}
