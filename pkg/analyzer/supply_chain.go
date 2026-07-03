@@ -441,8 +441,7 @@ func parseYarnLock(data []byte) ([]Dependency, error) {
 			if next == "" {
 				break
 			}
-			if strings.HasPrefix(next, "version ") {
-				version := strings.Trim(next[len("version "):], "\"")
+			if version, ok := parseYarnVersionLine(next); ok {
 				specs := strings.Split(strings.TrimSuffix(line, ":"), ",")
 				for _, spec := range specs {
 					spec = strings.Trim(strings.TrimSpace(spec), "\"")
@@ -471,6 +470,19 @@ func parseYarnLock(data []byte) ([]Dependency, error) {
 	return deps, nil
 }
 
+func parseYarnVersionLine(line string) (string, bool) {
+	switch {
+	case strings.HasPrefix(line, "version "):
+		version := strings.TrimSpace(strings.Trim(line[len("version "):], "\""))
+		return version, version != ""
+	case strings.HasPrefix(line, "version:"):
+		version := strings.TrimSpace(strings.Trim(line[len("version:"):], "\""))
+		return version, version != ""
+	default:
+		return "", false
+	}
+}
+
 func yarnSpecPackageName(spec string) (string, bool) {
 	if fragmentIdx := strings.Index(spec, "#"); fragmentIdx >= 0 {
 		spec = spec[:fragmentIdx]
@@ -479,7 +491,11 @@ func yarnSpecPackageName(spec string) (string, bool) {
 		return yarnSpecPackageName(spec[patchIdx+len("@patch:"):])
 	}
 	if aliasIdx := strings.Index(spec, "@npm:"); aliasIdx >= 0 {
-		spec = spec[aliasIdx+len("@npm:"):]
+		after := spec[aliasIdx+len("@npm:"):]
+		if idx := strings.LastIndex(after, "@"); idx > 0 && idx < len(after)-1 {
+			return after[:idx], true
+		}
+		return spec[:aliasIdx], true
 	}
 	if encodedAliasIdx := strings.Index(spec, "@npm%3A"); encodedAliasIdx >= 0 {
 		return spec[:encodedAliasIdx], true

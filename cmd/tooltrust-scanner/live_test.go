@@ -279,6 +279,23 @@ func TestParseYarnLockfile_PatchProtocolUsesRealPackageName(t *testing.T) {
 	assert.Equal(t, "local_lockfile", deps[0].Source)
 }
 
+func TestParseYarnLockfile_BerryVersionSyntax(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yarn.lock")
+	require.NoError(t, os.WriteFile(path, []byte(`
+"axios@npm:^1.14.1":
+  version: 1.14.1
+  resolution: "axios@npm:1.14.1"
+`), 0o644))
+
+	deps, err := parseYarnLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "axios", deps[0].Name)
+	assert.Equal(t, "1.14.1", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+	assert.Equal(t, "local_lockfile", deps[0].Source)
+}
+
 func TestParseNodeLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "package-lock.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{

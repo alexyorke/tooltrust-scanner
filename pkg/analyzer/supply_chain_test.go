@@ -521,6 +521,20 @@ func TestParseYarnLock_PatchProtocolUsesRealPackageName(t *testing.T) {
 	assert.Equal(t, "npm", deps[0].Ecosystem)
 }
 
+func TestParseYarnLock_BerryVersionSyntax(t *testing.T) {
+	data := []byte(`
+"axios@npm:^1.14.1":
+  version: 1.14.1
+  resolution: "axios@npm:1.14.1"
+`)
+	deps, err := analyzer.ParseYarnLockForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "axios", deps[0].Name)
+	assert.Equal(t, "1.14.1", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+}
+
 // ---------------------------------------------------------------------------
 // Transitive / source-based severity tests (Change 1)
 // ---------------------------------------------------------------------------
