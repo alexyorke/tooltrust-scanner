@@ -98,6 +98,9 @@ func (s *Store) Save(ctx context.Context, r ScanRecord) error {
 	if err != nil {
 		return fmt.Errorf("storage: marshal findings: %w", err)
 	}
+	if validateErr := validateFindings(r.Findings); validateErr != nil {
+		return validateErr
+	}
 	if r.ScannedAt.IsZero() {
 		r.ScannedAt = time.Now().UTC()
 	}
@@ -209,6 +212,9 @@ func scanRow(s scanner) (ScanRecord, error) {
 	if err := json.Unmarshal([]byte(findingsJSON), &r.Findings); err != nil {
 		return ScanRecord{}, fmt.Errorf("storage: unmarshal findings: %w", err)
 	}
+	if err := validateFindings(r.Findings); err != nil {
+		return ScanRecord{}, err
+	}
 	return r, nil
 }
 
@@ -236,4 +242,22 @@ func isValidRiskScore(score int) bool {
 
 func gradeMatchesRiskScore(score int, grade model.Grade) bool {
 	return model.GradeFromScore(score) == grade
+}
+
+func validateFindings(findings []model.Issue) error {
+	for i := range findings {
+		if !isValidSeverity(findings[i].Severity) {
+			return fmt.Errorf("storage: invalid finding severity %q at index %d", findings[i].Severity, i)
+		}
+	}
+	return nil
+}
+
+func isValidSeverity(severity model.Severity) bool {
+	switch severity {
+	case model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityInfo:
+		return true
+	default:
+		return false
+	}
 }
