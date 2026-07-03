@@ -68,6 +68,25 @@ func TestCollectDependencies_WhitespaceSourceFallsBackToMetadata(t *testing.T) {
 	assert.Equal(t, "metadata", deps[0].Source)
 }
 
+func TestCollectDependencies_IgnoresWhitespaceRepoURL(t *testing.T) {
+	var called bool
+	prev := lockfileDepsFetcher
+	lockfileDepsFetcher = func(string) []Dependency {
+		called = true
+		return []Dependency{{Name: "axios", Version: "1.14.1", Ecosystem: "npm"}}
+	}
+	t.Cleanup(func() {
+		lockfileDepsFetcher = prev
+	})
+
+	deps, err := collectDependencies(toolWithMetadataForTest(map[string]any{
+		"repo_url": "   ",
+	}))
+	require.NoError(t, err)
+	assert.False(t, called)
+	assert.Empty(t, deps)
+}
+
 func toolWithMetadataForTest(meta map[string]any) model.UnifiedTool {
 	return model.UnifiedTool{
 		Name:     "test-tool",

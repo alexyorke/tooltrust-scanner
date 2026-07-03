@@ -725,6 +725,7 @@ func collectDependencies(tool model.UnifiedTool) ([]dependencyEvidence, error) {
 		return result, err
 	}
 	repoURL, ok := tool.Metadata["repo_url"].(string)
+	repoURL = strings.TrimSpace(repoURL)
 	if !ok || repoURL == "" {
 		return result, err
 	}
