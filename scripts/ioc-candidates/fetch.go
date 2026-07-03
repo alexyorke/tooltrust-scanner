@@ -533,6 +533,16 @@ func readExistingBlacklist(path string) ([]blacklistEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read existing blacklist: %w", err)
 	}
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse existing blacklist: %w", err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("parse existing blacklist: top-level JSON value must be an array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return nil, fmt.Errorf("parse existing blacklist: top-level JSON value must be an array")
+	}
 	var entries []blacklistEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("parse existing blacklist: %w", err)

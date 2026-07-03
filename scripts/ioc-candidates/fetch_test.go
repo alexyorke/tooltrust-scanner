@@ -198,6 +198,17 @@ func TestFetchCandidatesWithClient_FeedFailureIsWarning(t *testing.T) {
 	}
 }
 
+func TestReadExistingBlacklist_RejectsTopLevelObject(t *testing.T) {
+	dir := t.TempDir()
+	existingPath := filepath.Join(dir, "existing.json")
+	err := os.WriteFile(existingPath, []byte(`{}`), 0o600)
+	require.NoError(t, err)
+
+	_, err = readExistingBlacklist(existingPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse existing blacklist: top-level JSON value must be an array")
+}
+
 type httpClientStub struct{}
 
 func (h *httpClientStub) Do(*http.Request) (*http.Response, error) {
