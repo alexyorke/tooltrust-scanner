@@ -16,8 +16,11 @@ type FlexType string
 // UnmarshalJSON implements json.Unmarshaler for FlexType.
 func (ft *FlexType) UnmarshalJSON(b []byte) error {
 	b = []byte(strings.TrimSpace(string(b)))
-	if len(b) == 0 || string(b) == "null" {
+	if len(b) == 0 {
 		return nil
+	}
+	if string(b) == "null" {
+		return fmt.Errorf("FlexType: null is not a valid schema type")
 	}
 	if b[0] == '"' {
 		var s string

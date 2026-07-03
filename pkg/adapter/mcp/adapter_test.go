@@ -176,6 +176,25 @@ func TestAdapter_Parse_InvalidSchemaTypeReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "FlexType")
 }
 
+func TestAdapter_Parse_NullSchemaTypeReturnsError(t *testing.T) {
+	payload := []byte(`{
+		"tools": [{
+			"name": "broken_tool",
+			"description": "Tool with null schema type.",
+			"inputSchema": {
+				"type": null,
+				"properties": {
+					"path": {"type": "string"}
+				}
+			}
+		}]
+	}`)
+
+	_, err := mcp.NewAdapter().Parse(context.Background(), payload)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FlexType")
+}
+
 func TestAdapter_Parse_DescriptionFieldDoesNotInferExec(t *testing.T) {
 	payload := mustMarshal(mcp.ListToolsResponse{
 		Tools: []mcp.Tool{
