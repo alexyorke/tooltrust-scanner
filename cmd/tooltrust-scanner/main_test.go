@@ -229,6 +229,54 @@ func TestWriteOutput_JSONOmitsDependencyVisibilityFields(t *testing.T) {
 	assert.NotContains(t, string(data), "dependency_note")
 }
 
+func TestBuildRiskLine_UsesReadableASCIISeparators(t *testing.T) {
+	policies := []model.GatewayPolicy{
+		{Score: model.RiskScore{Grade: model.GradeA}},
+		{Score: model.RiskScore{Grade: model.GradeA}},
+		{Score: model.RiskScore{Grade: model.GradeC}},
+		{Score: model.RiskScore{Grade: model.GradeF}},
+	}
+
+	assert.Equal(t, "A x 2  C x 1  F x 1", buildRiskLine(policies))
+	assert.Equal(t, "-", buildRiskLine(nil))
+}
+
+func TestPrintScanPtree_UsesReadableASCIIOutput(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "ptree-*.txt")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = f.Close()
+	})
+
+	tool := model.UnifiedTool{
+		Name:        "read_file",
+		Permissions: []model.Permission{model.PermissionFS},
+	}
+	score := model.RiskScore{
+		Score: 25,
+		Grade: model.GradeC,
+		Issues: []model.Issue{{
+			RuleID:      "AS-001",
+			Severity:    model.SeverityCritical,
+			Description: "prompt injection",
+			Location:    "description",
+		}},
+	}
+	policy := model.GatewayPolicy{Action: model.ActionRequireApproval}
+
+	printScanPtree(f, tool, score, policy)
+	require.NoError(t, f.Close())
+
+	data, err := os.ReadFile(f.Name())
+	require.NoError(t, err)
+
+	out := string(data)
+	assert.Contains(t, out, "+- read_file")
+	assert.Contains(t, out, "|  `- Score: 25 -> Grade C -> REQUIRE_APPROVAL")
+	assert.NotContains(t, out, "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢")
+	assert.NotContains(t, out, "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢")
+}
+
 func TestRunScan_RejectsMCPConfigInput(t *testing.T) {
 	tmp := t.TempDir()
 	input := filepath.Join(tmp, ".mcp.json")
@@ -508,7 +556,7 @@ func TestFormatIssueLabel_HidesRedundantEvidenceForAllowGradeA(t *testing.T) {
 		Score:  model.RiskScore{Grade: model.GradeA},
 	}, true)
 
-	assert.Contains(t, label, "• [AS-002] INFO:")
+	assert.Contains(t, label, "* [AS-002] INFO:")
 	assert.NotContains(t, label, "Evidence:")
 	assert.NotContains(t, label, "Tool requests broad permissions")
 }
@@ -530,13 +578,13 @@ func TestFormatIssueLabel_HidesRedundantSingleEvidenceForFlaggedTools(t *testing
 		Score:  model.RiskScore{Grade: model.GradeC},
 	}, true)
 
-	assert.Contains(t, label, "• [AS-002] INFO:")
+	assert.Contains(t, label, "* [AS-002] INFO:")
 	assert.NotContains(t, label, "Evidence:")
 	assert.Contains(t, label, "Tool requests broad permissions")
 }
 
 func TestFormatIssueLabel_KeepsCompactEvidenceForNonRedundantFlaggedTools(t *testing.T) {
-	// LARGE_INPUT_SURFACE (AS-002, Low) is not redundant — the first evidence item
+	// LARGE_INPUT_SURFACE (AS-002, Low) is not redundant - the first evidence item
 	// (schema_property_count) is shown; additional items are compacted.
 	label := formatIssueLabel(model.Issue{
 		RuleID:      "AS-002",
@@ -553,7 +601,7 @@ func TestFormatIssueLabel_KeepsCompactEvidenceForNonRedundantFlaggedTools(t *tes
 	}, true)
 
 	assert.Contains(t, label, "Evidence: schema_property_count=15")
-	assert.Contains(t, label, "… 1 more evidence item(s)")
+	assert.Contains(t, label, "... 1 more evidence item(s)")
 	assert.NotContains(t, label, "schema_property_threshold=10")
 }
 
@@ -571,7 +619,7 @@ func TestFormatIssueLabel_HidesHintWhenAlreadyShownForRule(t *testing.T) {
 		Score:  model.RiskScore{Grade: model.GradeC},
 	}, false)
 
-	assert.Contains(t, label, "• [AS-002] INFO:")
+	assert.Contains(t, label, "* [AS-002] INFO:")
 	assert.NotContains(t, label, "Tool requests broad permissions")
 }
 
@@ -588,7 +636,7 @@ func TestFormatIssueLabel_ShowsHintForNPMLifecycleScripts(t *testing.T) {
 		Score:  model.RiskScore{Grade: model.GradeC},
 	}, true)
 
-	assert.Contains(t, label, "• [AS-015] MEDIUM:")
+	assert.Contains(t, label, "* [AS-015] MEDIUM:")
 	assert.Contains(t, label, "Review the install-time script before use")
 }
 

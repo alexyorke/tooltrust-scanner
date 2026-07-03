@@ -34,7 +34,7 @@ func newRootCmd() *cobra.Command {
 		Short: "Scan MCP servers for security risks before your AI agent trusts them",
 		Long: "ToolTrust Scanner checks MCP tool definitions for prompt injection, " +
 			"data exfiltration, privilege escalation, and supply-chain attacks. " +
-			"Each tool gets a trust grade (A–F) and a gateway policy (ALLOW / REQUIRE_APPROVAL / BLOCK).\n\n" +
+			"Each tool gets a trust grade (A-F) and a gateway policy (ALLOW / REQUIRE_APPROVAL / BLOCK).\n\n" +
 			"Quick start:\n" +
 			"  tooltrust-scanner scan --server \"npx -y @modelcontextprotocol/server-filesystem /tmp\"\n\n" +
 			"Learn more: https://github.com/AgentSafe-AI/tooltrust-scanner",
@@ -311,7 +311,7 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 		return writeTextOutputFile(opts.outputFile, report)
 	}
 
-	// Default: text mode — render with pterm.
+	// Default: text mode - render with pterm.
 	if err := printPtermUI(report); err != nil {
 		return err
 	}
@@ -357,10 +357,10 @@ func printPtermUI(report ScanReport) error {
 }
 
 func printPtermUITo(w io.Writer, report ScanReport) error {
-	// ── Emergency alert for AS-008 BLOCK findings ─────────────────────────────
+	// Emergency alert for AS-008 BLOCK findings.
 	printSupplyChainAlertTo(w, report.Policies)
 
-	// ── Build the tree ────────────────────────────────────────────────────────
+	// Build the tree.
 	var rootChildren []pterm.TreeNode
 
 	for i := range report.Policies {
@@ -368,11 +368,11 @@ func printPtermUITo(w io.Writer, report ScanReport) error {
 		// Tool header label, coloured by action.
 		toolLabel := formatToolLabel(policy)
 
-		// Children: one per finding, or a green ✅ Pass.
+		// Children: one per finding, or a green OK Pass.
 		var children []pterm.TreeNode
 		if len(policy.Score.Issues) == 0 {
 			children = append(children, pterm.TreeNode{
-				Text: pterm.FgGreen.Sprint("✅ Pass"),
+				Text: pterm.FgGreen.Sprint("OK Pass"),
 			})
 		} else {
 			if reason := summarizeToolReason(policy); reason != "" {
@@ -416,14 +416,14 @@ func printPtermUITo(w io.Writer, report ScanReport) error {
 		return fmt.Errorf("render tree: %w", err)
 	}
 
-	// ── Summary box ───────────────────────────────────────────────────────────
+	// Summary box.
 	s := report.Summary
 	riskLine := buildRiskLine(report.Policies)
 	summaryContent := fmt.Sprintf(
 		"Total Scanned    : %d\n"+
-			"  ✅ Allowed       : %d\n"+
-			"  ⚠️  Req Approval : %d\n"+
-			"  🚫 Blocked       : %d\n"+
+			"  OK Allowed       : %d\n"+
+			"  !! Req Approval : %d\n"+
+			"  XX Blocked       : %d\n"+
 			"Avg Risk Score   : %d (grade %s)\n"+
 			"Grade Breakdown  : %s\n"+
 			"Scanned At       : %s",
@@ -443,7 +443,7 @@ func printPtermUITo(w io.Writer, report ScanReport) error {
 	}
 	box.Println(summaryContent)
 
-	// ── Per-grade action guide ─────────────────────────────────────────────
+	// Per-grade action guide.
 	printGradeGuideTo(w, worstGrade(report.Policies))
 
 	return nil
@@ -511,13 +511,13 @@ func printSupplyChainAlert(policies []model.GatewayPolicy) {
 	red := pterm.NewStyle(pterm.FgRed)
 
 	pterm.Println()
-	redBold.Println("╔══════════════════════════════════════════════════════════════╗")
-	redBold.Println("║  🚨  SUPPLY CHAIN ATTACK DETECTED — IMMEDIATE ACTION NEEDED  ║")
-	redBold.Println("╚══════════════════════════════════════════════════════════════╝")
+	redBold.Println("============================================================")
+	redBold.Println("  SUPPLY CHAIN ATTACK DETECTED - IMMEDIATE ACTION NEEDED")
+	redBold.Println("============================================================")
 	pterm.Println()
 
 	for _, a := range alerts {
-		redBold.Printf("  ✗  %s\n", a.pkg)
+		redBold.Printf("  XX  %s\n", a.pkg)
 		red.Printf("     %s\n", a.desc)
 		pterm.Println()
 	}
@@ -526,10 +526,9 @@ func printSupplyChainAlert(policies []model.GatewayPolicy) {
 	red.Println("  1. Remove the package from your environment immediately.")
 	red.Println("  2. Rotate ALL credentials (SSH keys, AWS/GCP tokens, API keys, .env).")
 	red.Println("  3. Check for persistence: ~/.config/sysmon/ and systemd user services.")
-	red.Println("  4. Audit recent agent actions — your environment may be compromised.")
+	red.Println("  4. Audit recent agent actions - your environment may be compromised.")
 	pterm.Println()
 }
-
 func printSupplyChainAlertTo(w io.Writer, policies []model.GatewayPolicy) {
 	if w == nil {
 		printSupplyChainAlert(policies)
@@ -578,18 +577,18 @@ func printGradeGuide(grade model.Grade) {
 	guides := map[model.Grade]guide{
 		model.GradeA: {
 			title: "All tools passed",
-			icon:  "✅",
+			icon:  "OK",
 			steps: []string{
-				"No action required — all tools are within safe thresholds.",
+				"No action required - all tools are within safe thresholds.",
 				"Re-run after updates: tooltrust-scanner scan --server \"...\"",
 			},
 			color: pterm.FgGreen,
 		},
 		model.GradeB: {
 			title: "Low-risk findings detected",
-			icon:  "ℹ️ ",
+			icon:  "i",
 			steps: []string{
-				"1. Review the flagged tools above — Grade B is allowed but monitored.",
+				"1. Review the flagged tools above - Grade B is allowed but monitored.",
 				"2. Check whether the declared permissions match actual usage.",
 				"3. Re-scan after each upstream release to catch regressions.",
 				"4. Consider reporting findings to the tool author (see GitHub Issues).",
@@ -598,7 +597,7 @@ func printGradeGuide(grade model.Grade) {
 		},
 		model.GradeC: {
 			title: "Some tools need human approval",
-			icon:  "⚠️ ",
+			icon:  "!!",
 			steps: []string{
 				"1. Review every APPROVAL tool listed above.",
 				"2. In your MCP config set  approval_required: true  for those tools.",
@@ -609,8 +608,8 @@ func printGradeGuide(grade model.Grade) {
 			color: pterm.FgYellow,
 		},
 		model.GradeD: {
-			title: "High-risk tools — action required",
-			icon:  "🔴",
+			title: "High-risk tools - action required",
+			icon:  "!!",
 			steps: []string{
 				"1. Do NOT run APPROVAL or BLOCK tools unattended.",
 				"2. Remove any BLOCK tools from your MCP config immediately.",
@@ -622,12 +621,12 @@ func printGradeGuide(grade model.Grade) {
 			color: pterm.FgLightRed,
 		},
 		model.GradeF: {
-			title: "Critical risk — remove these tools",
-			icon:  "🚨",
+			title: "Critical risk - remove these tools",
+			icon:  "XX",
 			steps: []string{
 				"1. Remove ALL BLOCK tools from your agent config NOW.",
 				"2. Do not use these tools even with approval_required.",
-				"3. Audit your agent's recent actions — it may have already been compromised.",
+				"3. Audit your agent's recent actions - it may have already been compromised.",
 				"4. Report to the tool author and the ToolTrust Directory:",
 				"   https://github.com/AgentSafe-AI/tooltrust-directory/issues/new?template=SCAN_REQUEST.md",
 				"5. Find safer alternatives: https://github.com/AgentSafe-AI/tooltrust-directory",
@@ -712,7 +711,7 @@ func summarizeIssueReason(issue model.Issue) string {
 	switch issue.RuleID {
 	case "AS-002":
 		// New capability-surface summary: return the description as-is (it already
-		// contains "declared capabilities: …"). Legacy per-permission findings
+		// contains "declared capabilities: ..."). Legacy per-permission findings
 		// (Code=HIGH_RISK_PERMISSION) fall through to the evidence loop below.
 		if issue.Code == "CAPABILITY_SURFACE" {
 			return strings.TrimPrefix(issue.Description, "declared capabilities: ")
@@ -762,23 +761,23 @@ func formatToolLabel(policy model.GatewayPolicy) string {
 
 // ruleHint returns a short, specific fix hint for each rule ID.
 var ruleHint = map[string]string{
-	"AS-001": "→ Remove adversarial instructions from the tool description before registering it.",
-	"AS-002": "→ Tool requests broad permissions (exec/fs/network). Validate input parameters using Enums where possible, and restrict file system operations to explicit allowed directories.",
-	"AS-003": "→ Rename the tool or fix its permission declarations so name and capabilities match.",
-	"AS-004": "→ Upgrade or replace the vulnerable dependency. Enable Dependabot on the repo.",
-	"AS-005": "→ Narrow OAuth scopes. Remove admin/:write wildcards and sudo-style escalation.",
-	"AS-006": "→ This tool can execute arbitrary code. If not strictly needed, remove it. If required, you MUST set approval_required: true in your MCP client config to ensure human-in-the-loop confirmation.",
-	"AS-007": "→ Ask the tool author to add a description and input schema to this tool.",
-	"AS-008": "→ REMOVE THIS PACKAGE IMMEDIATELY. This version is confirmed malware/compromised. Rotate all credentials on affected machines.",
-	"AS-009": "→ Rename the tool to a unique name. Typosquatting suggests impersonation of a well-known MCP tool.",
-	"AS-010": "→ Never pass raw credentials as tool inputs. Use a secret manager instead.",
-	"AS-011": "→ Add explicit timeout and rate-limit config to the tool before use in production.",
-	"AS-013": "→ Use a unique namespace prefix per server (e.g. github__search_repos) to prevent tool name collisions.",
-	"AS-015": "→ Review the install-time script before use. Prefer a version without lifecycle scripts, or install with --ignore-scripts in CI/sandboxed environments.",
-	"AS-016": "→ Treat this package version as a likely compromise. Remove it, rotate exposed credentials, and inspect the dependency tree for the IOC package before reinstalling.",
-	"AS-017": "→ Review whether the tool description is instructing external data forwarding. If intentional, require approval and narrow the destination scope.",
-	"AS-018": "→ Run a sandboxed live scan when possible, or add a tools manifest so the embedded MCP implementation can be reviewed without executing the server.",
-	"AS-019": "→ Apply equivalent authentication middleware to every MCP HTTP route, and avoid fail-open allowlist defaults on alternate endpoints such as /mcp_message.",
+	"AS-001": "-> Remove adversarial instructions from the tool description before registering it.",
+	"AS-002": "-> Tool requests broad permissions (exec/fs/network). Validate input parameters using Enums where possible, and restrict file system operations to explicit allowed directories.",
+	"AS-003": "-> Rename the tool or fix its permission declarations so name and capabilities match.",
+	"AS-004": "-> Upgrade or replace the vulnerable dependency. Enable Dependabot on the repo.",
+	"AS-005": "-> Narrow OAuth scopes. Remove admin/:write wildcards and sudo-style escalation.",
+	"AS-006": "-> This tool can execute arbitrary code. If not strictly needed, remove it. If required, you MUST set approval_required: true in your MCP client config to ensure human-in-the-loop confirmation.",
+	"AS-007": "-> Ask the tool author to add a description and input schema to this tool.",
+	"AS-008": "-> REMOVE THIS PACKAGE IMMEDIATELY. This version is confirmed malware/compromised. Rotate all credentials on affected machines.",
+	"AS-009": "-> Rename the tool to a unique name. Typosquatting suggests impersonation of a well-known MCP tool.",
+	"AS-010": "-> Never pass raw credentials as tool inputs. Use a secret manager instead.",
+	"AS-011": "-> Add explicit timeout and rate-limit config to the tool before use in production.",
+	"AS-013": "-> Use a unique namespace prefix per server (e.g. github__search_repos) to prevent tool name collisions.",
+	"AS-015": "-> Review the install-time script before use. Prefer a version without lifecycle scripts, or install with --ignore-scripts in CI/sandboxed environments.",
+	"AS-016": "-> Treat this package version as a likely compromise. Remove it, rotate exposed credentials, and inspect the dependency tree for the IOC package before reinstalling.",
+	"AS-017": "-> Review whether the tool description is instructing external data forwarding. If intentional, require approval and narrow the destination scope.",
+	"AS-018": "-> Run a sandboxed live scan when possible, or add a tools manifest so the embedded MCP implementation can be reviewed without executing the server.",
+	"AS-019": "-> Apply equivalent authentication middleware to every MCP HTTP route, and avoid fail-open allowlist defaults on alternate endpoints such as /mcp_message.",
 }
 
 // formatIssueLabel returns a coloured finding line with optional evidence and fix hint.
@@ -787,7 +786,7 @@ func formatIssueLabel(issue model.Issue, policy model.GatewayPolicy, showHint bo
 		return ""
 	}
 
-	main := fmt.Sprintf("• [%s] %s: %s", issue.RuleID, issue.Severity, issue.Description)
+	main := fmt.Sprintf("* [%s] %s: %s", issue.RuleID, issue.Severity, issue.Description)
 	hint := ""
 	if showHint {
 		hint = ruleHint[issue.RuleID]
@@ -820,7 +819,7 @@ func issueEvidenceLines(issue model.Issue) []string {
 	for i, evidence := range issue.Evidence {
 		if i >= maxEvidence {
 			remaining := len(issue.Evidence) - maxEvidence
-			lines = append(lines, pterm.FgGray.Sprint(fmt.Sprintf("… %d more evidence item(s)", remaining)))
+			lines = append(lines, pterm.FgGray.Sprint(fmt.Sprintf("... %d more evidence item(s)", remaining)))
 			break
 		}
 		lines = append(lines, pterm.FgGray.Sprint(fmt.Sprintf("Evidence: %s=%s", evidence.Kind, evidence.Value)))
@@ -847,7 +846,7 @@ func isRedundantPermissionEvidence(issue model.Issue) bool {
 		return false
 	}
 	// New capability-surface summary: evidence lists raw permission names that are
-	// already spelled out in the human-readable description — always redundant.
+	// already spelled out in the human-readable description - always redundant.
 	if issue.Code == "CAPABILITY_SURFACE" {
 		return true
 	}
@@ -877,7 +876,7 @@ func joinIssueDetailLines(main string, groups ...[]string) string {
 	return strings.Join(lines, "\n")
 }
 
-// buildRiskLine builds a compact risk summary string e.g. "A×3  B×1  F×1".
+// buildRiskLine builds a compact risk summary string e.g. "A x 3  B x 1  F x 1".
 func buildRiskLine(policies []model.GatewayPolicy) string {
 	counts := map[model.Grade]int{}
 	for i := range policies {
@@ -888,11 +887,11 @@ func buildRiskLine(policies []model.GatewayPolicy) string {
 	var parts []string
 	for _, g := range grades {
 		if n := counts[g]; n > 0 {
-			parts = append(parts, fmt.Sprintf("%s×%d", g, n))
+			parts = append(parts, fmt.Sprintf("%s x %d", g, n))
 		}
 	}
 	if len(parts) == 0 {
-		return "—"
+		return "-"
 	}
 	return strings.Join(parts, "  ")
 }
@@ -913,8 +912,8 @@ func avgRiskScore(policies []model.GatewayPolicy) (int, model.Grade) {
 
 // printScanPtree writes a tree view of the scan process to w (stderr) during verbose scan.
 func printScanPtree(w *os.File, tool model.UnifiedTool, score model.RiskScore, policy model.GatewayPolicy) {
-	const tree, branch, last = "│  ", "├─ ", "└─ "
-	fmt.Fprintf(w, "\n┌─ %s\n", tool.Name) //nolint:errcheck // stderr write in verbose debug path
+	const tree, branch, last = "|  ", "|- ", "`- "
+	fmt.Fprintf(w, "\n+- %s\n", tool.Name) //nolint:errcheck // stderr write in verbose debug path
 	var lines []string
 	if len(tool.Permissions) > 0 {
 		lines = append(lines, fmt.Sprintf("Permissions: %v", tool.Permissions))
@@ -926,7 +925,7 @@ func printScanPtree(w *os.File, tool model.UnifiedTool, score model.RiskScore, p
 		wt := severityWeight[iss.Severity]
 		lines = append(lines, fmt.Sprintf("%s %s (+%d): %s [%s]", iss.RuleID, iss.Severity, wt, iss.Description, iss.Location))
 	}
-	lines = append(lines, fmt.Sprintf("Score: %d → Grade %s → %s", score.Score, score.Grade, policy.Action))
+	lines = append(lines, fmt.Sprintf("Score: %d -> Grade %s -> %s", score.Score, score.Grade, policy.Action))
 	for i, ln := range lines {
 		sep := branch
 		if i == len(lines)-1 {
@@ -934,7 +933,7 @@ func printScanPtree(w *os.File, tool model.UnifiedTool, score model.RiskScore, p
 		}
 		fmt.Fprintf(w, "%s%s%s\n", tree, sep, ln) //nolint:errcheck // stderr write in verbose debug path
 	}
-	fmt.Fprintf(w, "└─\n") //nolint:errcheck // stderr write in verbose debug path
+	fmt.Fprintf(w, "`-\n") //nolint:errcheck // stderr write in verbose debug path
 }
 
 func checkFailOn(failOn string, summary ScanSummary) error {
