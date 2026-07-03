@@ -246,8 +246,14 @@ func gradeMatchesRiskScore(score int, grade model.Grade) bool {
 
 func validateFindings(findings []model.Issue) error {
 	for i := range findings {
+		if strings.TrimSpace(findings[i].RuleID) == "" {
+			return fmt.Errorf("storage: missing finding rule_id at index %d", i)
+		}
 		if !isValidSeverity(findings[i].Severity) {
 			return fmt.Errorf("storage: invalid finding severity %q at index %d", findings[i].Severity, i)
+		}
+		if strings.TrimSpace(findings[i].Code) == "" {
+			return fmt.Errorf("storage: missing finding code at index %d", i)
 		}
 	}
 	return nil

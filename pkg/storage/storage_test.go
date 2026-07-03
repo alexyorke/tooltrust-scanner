@@ -155,6 +155,32 @@ func TestStore_Save_RejectsInvalidFindingSeverity(t *testing.T) {
 	assert.Contains(t, err.Error(), "storage: invalid finding severity")
 }
 
+func TestStore_Save_RejectsMissingFindingRuleID(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("missing-finding-rule-id")
+	rec.Findings = []model.Issue{
+		{Severity: model.SeverityCritical, Code: "TOOL_POISONING"},
+	}
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: missing finding rule_id")
+}
+
+func TestStore_Save_RejectsMissingFindingCode(t *testing.T) {
+	s := openTestStore(t)
+	rec := sampleRecord("missing-finding-code")
+	rec.Findings = []model.Issue{
+		{RuleID: "AS-001", Severity: model.SeverityCritical},
+	}
+
+	err := s.Save(context.Background(), rec)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: missing finding code")
+}
+
 func TestStore_Count(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -419,4 +445,68 @@ func TestStore_Get_RejectsInvalidFindingSeverity(t *testing.T) {
 	_, err = s.Get(context.Background(), "bad-finding-severity")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "storage: invalid finding severity")
+}
+
+func TestStore_Get_RejectsMissingFindingRuleID(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	findings := `[{"severity":"CRITICAL","code":"TOOL_POISONING"}]`
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"missing-finding-rule-id",
+		"run_shell",
+		string(model.ProtocolMCP),
+		55,
+		string(model.GradeD),
+		findings,
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "missing-finding-rule-id")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: missing finding rule_id")
+}
+
+func TestStore_Get_RejectsMissingFindingCode(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tooltrust.db")
+
+	s, err := storage.Open(dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	findings := `[{"rule_id":"AS-001","severity":"CRITICAL"}]`
+	_, err = rawDB.ExecContext(context.Background(), `
+		INSERT INTO scan_results
+			(id, tool_name, protocol, risk_score, grade, findings, scanned_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"missing-finding-code",
+		"run_shell",
+		string(model.ProtocolMCP),
+		55,
+		string(model.GradeD),
+		findings,
+		time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	_, err = s.Get(context.Background(), "missing-finding-code")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage: missing finding code")
 }
