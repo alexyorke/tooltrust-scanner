@@ -34,12 +34,20 @@ type blacklistIndex map[string][]blacklistEntry
 
 // buildBlacklistIndex parses the embedded JSON and returns a lookup index.
 func buildBlacklistIndex(data []byte) (blacklistIndex, error) {
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("blacklist: unmarshal: %w", err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("blacklist: top-level JSON value must be an array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return nil, fmt.Errorf("blacklist: top-level JSON value must be an array")
+	}
+
 	var entries []blacklistEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("blacklist: unmarshal: %w", err)
-	}
-	if entries == nil {
-		return nil, fmt.Errorf("blacklist: top-level JSON value must be an array")
 	}
 	idx := make(blacklistIndex, len(entries))
 	for i := range entries {

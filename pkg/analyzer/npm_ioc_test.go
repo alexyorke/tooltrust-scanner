@@ -282,3 +282,9 @@ func TestBuildNPMIOCIndex_RejectsTopLevelNull(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "npm_ioc: top-level JSON value must be an array")
 }
+
+func TestBuildNPMIOCIndex_RejectsTopLevelObject(t *testing.T) {
+	_, err := analyzer.BuildNPMIOCIndexForTest([]byte(`{}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "npm_ioc: top-level JSON value must be an array")
+}

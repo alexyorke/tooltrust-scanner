@@ -37,12 +37,20 @@ type npmIOCIndex struct {
 }
 
 func buildNPMIOCIndex(data []byte) (npmIOCIndex, error) {
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return npmIOCIndex{}, fmt.Errorf("npm_ioc: unmarshal: %w", err)
+	}
+	if topLevel == nil {
+		return npmIOCIndex{}, fmt.Errorf("npm_ioc: top-level JSON value must be an array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return npmIOCIndex{}, fmt.Errorf("npm_ioc: top-level JSON value must be an array")
+	}
+
 	var entries []npmIOCEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return npmIOCIndex{}, fmt.Errorf("npm_ioc: unmarshal: %w", err)
-	}
-	if entries == nil {
-		return npmIOCIndex{}, fmt.Errorf("npm_ioc: top-level JSON value must be an array")
 	}
 	idx := npmIOCIndex{
 		packageNames: make(map[string]npmIOCEntry, len(entries)),

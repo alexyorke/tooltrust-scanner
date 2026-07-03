@@ -34,6 +34,12 @@ func TestBlacklist_CustomJSON_RejectsTopLevelNull(t *testing.T) {
 	assert.Contains(t, err.Error(), "blacklist: top-level JSON value must be an array")
 }
 
+func TestBlacklist_CustomJSON_RejectsTopLevelObject(t *testing.T) {
+	_, err := analyzer.NewBlacklistCheckerWithDataForTest([]byte(`{}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blacklist: top-level JSON value must be an array")
+}
+
 func toolWithDep(name, version, ecosystem string) model.UnifiedTool {
 	return model.UnifiedTool{
 		Name: "test-tool",
