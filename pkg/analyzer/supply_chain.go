@@ -680,6 +680,9 @@ func extractDependencies(tool model.UnifiedTool) ([]Dependency, error) {
 	if err = json.Unmarshal(b, &deps); err != nil {
 		return nil, fmt.Errorf("supply_chain: unmarshal deps: %w", err)
 	}
+	if deps == nil && bytes.Equal(bytes.TrimSpace(b), []byte("null")) {
+		return nil, fmt.Errorf("supply_chain: dependencies metadata must be an array")
+	}
 	return deps, nil
 }
 
