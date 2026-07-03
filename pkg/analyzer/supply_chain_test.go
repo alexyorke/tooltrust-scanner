@@ -398,6 +398,18 @@ requests[socks]==2.31.0
 	assert.Equal(t, "2.31.0", names["requests"], "extras must be stripped from PyPI package names")
 }
 
+func TestParseRequirementsTxt_StripsHashPinsFromVersion(t *testing.T) {
+	data := []byte(`
+requests==2.31.0 --hash=sha256:deadbeef
+urllib3[socks]==2.2.1 --hash=sha256:cafebabe ; python_version >= "3.10"
+`)
+	deps, err := analyzer.ParseRequirementsTxtForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 2)
+	assert.Equal(t, analyzer.Dependency{Name: "requests", Version: "2.31.0", Ecosystem: "PyPI"}, deps[0])
+	assert.Equal(t, analyzer.Dependency{Name: "urllib3", Version: "2.2.1", Ecosystem: "PyPI"}, deps[1])
+}
+
 func TestParsePNPMLockYAML(t *testing.T) {
 	data := []byte(`
 lockfileVersion: '9.0'
@@ -479,6 +491,19 @@ func TestParseYarnLock_NPMAliasUsesRealPackageName(t *testing.T) {
 	require.Len(t, deps, 1)
 	assert.Equal(t, "string-width", deps[0].Name)
 	assert.Equal(t, "4.2.3", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+}
+
+func TestParseYarnLock_PatchProtocolUsesRealPackageName(t *testing.T) {
+	data := []byte(`
+"left-pad@patch:left-pad@npm%3A1.3.0#~builtin<compat/left-pad>":
+  version "1.3.0"
+`)
+	deps, err := analyzer.ParseYarnLockForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "left-pad", deps[0].Name)
+	assert.Equal(t, "1.3.0", deps[0].Version)
 	assert.Equal(t, "npm", deps[0].Ecosystem)
 }
 
