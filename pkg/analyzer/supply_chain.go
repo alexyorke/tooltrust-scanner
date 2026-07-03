@@ -693,9 +693,15 @@ func collectDependencies(tool model.UnifiedTool) ([]dependencyEvidence, error) {
 	result := make([]dependencyEvidence, 0, len(metaDeps))
 	if err == nil {
 		for _, dep := range metaDeps {
-			if strings.TrimSpace(dep.Name) == "" && strings.TrimSpace(dep.Version) == "" && strings.TrimSpace(dep.Ecosystem) == "" {
+			name := strings.TrimSpace(dep.Name)
+			version := strings.TrimSpace(dep.Version)
+			ecosystem := strings.TrimSpace(dep.Ecosystem)
+			if name == "" || version == "" || ecosystem == "" {
 				continue
 			}
+			dep.Name = name
+			dep.Version = version
+			dep.Ecosystem = ecosystem
 			k := strings.ToLower(dep.Ecosystem) + ":" + strings.ToLower(dep.Name) + "@" + normaliseVersion(dep.Version)
 			source := dep.Source
 			if source == "" {
