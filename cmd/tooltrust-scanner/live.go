@@ -723,8 +723,17 @@ func parseYarnLockfile(path string) ([]nodeDependency, error) {
 }
 
 func yarnLockSpecPackageName(spec string) (string, bool) {
+	if fragmentIdx := strings.Index(spec, "#"); fragmentIdx >= 0 {
+		spec = spec[:fragmentIdx]
+	}
+	if patchIdx := strings.Index(spec, "@patch:"); patchIdx >= 0 {
+		return yarnLockSpecPackageName(spec[patchIdx+len("@patch:"):])
+	}
 	if aliasIdx := strings.Index(spec, "@npm:"); aliasIdx >= 0 {
 		spec = spec[aliasIdx+len("@npm:"):]
+	}
+	if encodedAliasIdx := strings.Index(spec, "@npm%3A"); encodedAliasIdx >= 0 {
+		return spec[:encodedAliasIdx], true
 	}
 	idx := strings.LastIndex(spec, "@")
 	if idx <= 0 || idx == len(spec)-1 {
