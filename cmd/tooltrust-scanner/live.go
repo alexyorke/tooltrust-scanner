@@ -454,6 +454,10 @@ func appendNodeLockDependencyTree(name string, entry nodeLockEntry, seen map[str
 	if entry.Name != "" {
 		name = entry.Name
 	}
+	if aliasName, aliasVersion, ok := parseNPMAliasVersion(entry.Version); ok {
+		name = aliasName
+		entry.Version = aliasVersion
+	}
 	if name != "" && entry.Version != "" {
 		k := name + "@" + entry.Version
 		if !seen[k] {
@@ -468,6 +472,19 @@ func appendNodeLockDependencyTree(name string, entry nodeLockEntry, seen map[str
 	for childName, child := range nested {
 		appendNodeLockDependencyTree(childName, child, seen, deps)
 	}
+}
+
+func parseNPMAliasVersion(version string) (name, resolvedVersion string, ok bool) {
+	const prefix = "npm:"
+	if !strings.HasPrefix(version, prefix) {
+		return "", "", false
+	}
+	spec := strings.TrimPrefix(version, prefix)
+	idx := strings.LastIndex(spec, "@")
+	if idx <= 0 || idx == len(spec)-1 {
+		return "", "", false
+	}
+	return spec[:idx], spec[idx+1:], true
 }
 
 func detectLocalProjectRoot(args []string) string {

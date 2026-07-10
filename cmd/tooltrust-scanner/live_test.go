@@ -322,6 +322,27 @@ func TestParseNodeLockfile_NPMAliasUsesRealPackageName(t *testing.T) {
 	assert.Equal(t, "local_lockfile", deps[0].Source)
 }
 
+func TestParseNodeLockfile_V1NPMAliasUsesRealPackageName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "package-lock.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+  "name": "demo",
+  "lockfileVersion": 1,
+  "dependencies": {
+    "my-lodash": {
+      "version": "npm:lodash@4.17.21"
+    }
+  }
+}`), 0o644))
+
+	deps, err := parseNodeLockfile(path)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "lodash", deps[0].Name)
+	assert.Equal(t, "4.17.21", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+	assert.Equal(t, "local_lockfile", deps[0].Source)
+}
+
 func TestParseNodeLockfile_V1IncludesNestedDependencies(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "package-lock.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{

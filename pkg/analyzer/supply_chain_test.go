@@ -358,6 +358,24 @@ func TestParsePackageLockJSON_NPMAliasUsesRealPackageName(t *testing.T) {
 	assert.Equal(t, "npm", deps[0].Ecosystem)
 }
 
+func TestParsePackageLockJSON_V1NPMAliasUsesRealPackageName(t *testing.T) {
+	data := []byte(`{
+  "name": "demo",
+  "lockfileVersion": 1,
+  "dependencies": {
+    "my-lodash": {
+      "version": "npm:lodash@4.17.21"
+    }
+  }
+}`)
+	deps, err := analyzer.ParsePackageLockJSONForTest(data)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "lodash", deps[0].Name)
+	assert.Equal(t, "4.17.21", deps[0].Version)
+	assert.Equal(t, "npm", deps[0].Ecosystem)
+}
+
 func TestParsePackageLockJSON_V1IncludesNestedDependencies(t *testing.T) {
 	data := []byte(`{
   "name": "demo",

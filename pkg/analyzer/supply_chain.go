@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -287,6 +288,10 @@ func appendPackageLockDependencyTree(name string, entry packageLockEntry, seen m
 	if entry.Name != "" {
 		name = entry.Name
 	}
+	if aliasName, aliasVersion, ok := parseNPMAliasVersion(entry.Version); ok {
+		name = aliasName
+		entry.Version = aliasVersion
+	}
 	if name != "" && entry.Version != "" {
 		k := name + "@" + entry.Version
 		if !seen[k] {
@@ -301,6 +306,19 @@ func appendPackageLockDependencyTree(name string, entry packageLockEntry, seen m
 	for childName, child := range nested {
 		appendPackageLockDependencyTree(childName, child, seen, deps)
 	}
+}
+
+func parseNPMAliasVersion(version string) (name, resolvedVersion string, ok bool) {
+	const prefix = "npm:"
+	if !strings.HasPrefix(version, prefix) {
+		return "", "", false
+	}
+	spec := strings.TrimPrefix(version, prefix)
+	idx := strings.LastIndex(spec, "@")
+	if idx <= 0 || idx == len(spec)-1 {
+		return "", "", false
+	}
+	return spec[:idx], spec[idx+1:], true
 }
 
 func parseGoSum(data []byte) ([]Dependency, error) {
@@ -585,13 +603,29 @@ func fetchLockfileDeps(repoURL string) []Dependency {
 // rawGitHubURL converts a github.com URL to raw.githubusercontent.com for
 // the given branch and file path.  Returns ("", false) for non-GitHub URLs.
 func rawGitHubURL(repoURL, branch, filePath string) (string, bool) {
-	clean := strings.TrimSuffix(strings.TrimSpace(repoURL), ".git")
-	clean = strings.TrimPrefix(clean, "git+")
-	if !strings.Contains(clean, "github.com/") {
+	clean := strings.TrimPrefix(strings.TrimSpace(repoURL), "git+")
+	parsed, err := url.Parse(clean)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "https") ||
+		!strings.EqualFold(parsed.Hostname(), "github.com") || parsed.Port() != "" || parsed.User != nil {
 		return "", false
 	}
-	raw := strings.Replace(clean, "github.com/", "raw.githubusercontent.com/", 1)
-	return fmt.Sprintf("%s/%s/%s", raw, branch, filePath), true
+
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) != 2 {
+		return "", false
+	}
+	owner := parts[0]
+	repo := strings.TrimSuffix(parts[1], ".git")
+	if owner == "" || repo == "" {
+		return "", false
+	}
+
+	raw := &url.URL{
+		Scheme: "https",
+		Host:   "raw.githubusercontent.com",
+		Path:   "/" + strings.Join([]string{owner, repo, branch, strings.TrimPrefix(filePath, "/")}, "/"),
+	}
+	return raw.String(), true
 }
 
 // ── SupplyChainChecker ────────────────────────────────────────────────────────

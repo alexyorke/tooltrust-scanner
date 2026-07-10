@@ -87,6 +87,24 @@ func TestCollectDependencies_IgnoresWhitespaceRepoURL(t *testing.T) {
 	assert.Empty(t, deps)
 }
 
+func TestRawGitHubURL_RejectsLookalikeHost(t *testing.T) {
+	t.Parallel()
+
+	rawURL, ok := rawGitHubURL("https://notgithub.com/example/repo", "main", "go.sum")
+
+	assert.False(t, ok)
+	assert.Empty(t, rawURL)
+}
+
+func TestRawGitHubURL_NormalizesCloneURL(t *testing.T) {
+	t.Parallel()
+
+	rawURL, ok := rawGitHubURL("git+https://github.com/example/repo.git/", "main", "go.sum")
+
+	require.True(t, ok)
+	assert.Equal(t, "https://raw.githubusercontent.com/example/repo/main/go.sum", rawURL)
+}
+
 func toolWithMetadataForTest(meta map[string]any) model.UnifiedTool {
 	return model.UnifiedTool{
 		Name:     "test-tool",
