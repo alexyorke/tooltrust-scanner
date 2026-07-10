@@ -582,11 +582,11 @@ func fetchLockfileDeps(repoURL string) []Dependency {
 				}
 				continue // try next branch
 			}
-			data, err := io.ReadAll(io.LimitReader(resp.Body, lockfileFetchLimit))
+			data, err := io.ReadAll(io.LimitReader(resp.Body, lockfileFetchLimit+1))
 			if closeErr := resp.Body.Close(); closeErr != nil {
 				_ = closeErr
 			}
-			if err != nil {
+			if err != nil || len(data) > lockfileFetchLimit {
 				continue
 			}
 			deps, err := spec.parse(data)
