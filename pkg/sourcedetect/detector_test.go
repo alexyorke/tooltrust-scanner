@@ -36,6 +36,30 @@ func TestDetectEmbeddedMCP_PositiveFixtures(t *testing.T) {
 	}
 }
 
+func TestDetectEmbeddedMCP_UnsupportedFilesDoNotConsumeFileLimit(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.json"), []byte(`{"name":"metadata"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "z.go"), []byte(`package main
+
+import "github.com/modelcontextprotocol/go-sdk/mcp"
+
+func main() {
+	_ = mcp.NewServer(nil, nil)
+}
+`), 0o600))
+
+	got, err := DetectEmbeddedMCP(root, Options{
+		MaxFiles:              1,
+		MaxFileSizeBytes:      1 << 20,
+		MaxMatchesPerLanguage: 3,
+	})
+	require.NoError(t, err)
+	require.True(t, got.HasEmbeddedMCP)
+	assert.Equal(t, 1, got.Detection.FilesScanned)
+	require.Len(t, got.Detection.Matches, 1)
+	assert.Equal(t, "z.go", got.Detection.Matches[0].File)
+}
+
 func TestDetectEmbeddedMCP_CoOccurrenceRequired(t *testing.T) {
 	cases := []string{"go-import-only", "go-init-only"}
 	for _, fixture := range cases {

@@ -53,11 +53,14 @@ func walkSourceFiles(root string, opts Options, visit func(rel, abs string, d fs
 			return nil
 		}
 
-		if filesScanned >= opts.MaxFiles {
-			return fs.SkipAll
-		}
 		if shouldSkipFile(rel) {
 			return nil
+		}
+		if len(signatureForExt(strings.ToLower(filepath.Ext(rel)))) == 0 {
+			return nil
+		}
+		if filesScanned >= opts.MaxFiles {
+			return fs.SkipAll
 		}
 		info, infoErr := d.Info()
 		if infoErr != nil {
