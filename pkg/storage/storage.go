@@ -97,6 +97,9 @@ func (s *Store) Save(ctx context.Context, r ScanRecord) error {
 	if !gradeMatchesRiskScore(r.RiskScore, r.Grade) {
 		return fmt.Errorf("storage: grade %q does not match risk score %d", r.Grade, r.RiskScore)
 	}
+	if r.Findings == nil {
+		r.Findings = []model.Issue{}
+	}
 	findings, err := json.Marshal(r.Findings)
 	if err != nil {
 		return fmt.Errorf("storage: marshal findings: %w", err)

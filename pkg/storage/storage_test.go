@@ -62,6 +62,22 @@ func TestStore_Save_And_Get(t *testing.T) {
 	assert.Equal(t, "AS-001", got.Findings[0].RuleID)
 }
 
+func TestStore_Save_NilFindingsRoundTripsAsEmptyArray(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	rec := sampleRecord("clean-scan")
+	rec.RiskScore = 0
+	rec.Grade = model.GradeA
+	rec.Findings = nil
+
+	require.NoError(t, s.Save(ctx, rec))
+
+	got, err := s.Get(ctx, rec.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, got.Findings)
+	assert.Empty(t, got.Findings)
+}
+
 func TestStore_Get_NotFound(t *testing.T) {
 	s := openTestStore(t)
 	_, err := s.Get(context.Background(), "does-not-exist")
