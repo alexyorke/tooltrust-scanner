@@ -409,6 +409,24 @@ func TestBlacklist_CustomJSON_PyPISuffixPhaseOrdering(t *testing.T) {
 	assert.Empty(t, postRelease, "a post-release must sort after the corresponding RC")
 }
 
+func TestBlacklist_CustomJSON_PyPIEpochOrdering(t *testing.T) {
+	data := []byte(`[
+	  {"id":"TEST-007","component":"epoch-zero-bound","ecosystem":"PyPI",
+	   "affected_versions":["<= 1.1.0"],"severity":"HIGH",
+	   "reason":"Test","link":"https://example.com"},
+	  {"id":"TEST-008","component":"epoch-one-bound","ecosystem":"PyPI",
+	   "affected_versions":["<= 1!1.0"],"severity":"HIGH",
+	   "reason":"Test","link":"https://example.com"}
+	]`)
+	bc := newBlacklistFromJSON(t, data)
+
+	newEpoch, _ := bc.Check(toolWithDep("epoch-zero-bound", "1!1.0", "PyPI"))
+	assert.Empty(t, newEpoch, "an explicit epoch 1 version must sort after an implicit epoch 0 bound")
+
+	oldEpoch, _ := bc.Check(toolWithDep("epoch-one-bound", "999.0", "PyPI"))
+	assert.Len(t, oldEpoch, 1, "an implicit epoch 0 version must sort before any epoch 1 bound")
+}
+
 func TestBlacklist_Meta(t *testing.T) {
 	bc := analyzer.NewBlacklistChecker()
 	meta := bc.Meta()

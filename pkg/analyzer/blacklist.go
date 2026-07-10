@@ -116,8 +116,17 @@ func semverLE(version, bound string) bool {
 }
 
 func compareLooseVersion(a, b string) int {
-	at := normalizeLooseReleasePadding(splitVersionTokens(a))
-	bt := normalizeLooseReleasePadding(splitVersionTokens(b))
+	aEpoch, aRelease := splitLooseVersionEpoch(a)
+	bEpoch, bRelease := splitLooseVersionEpoch(b)
+	if aEpoch < bEpoch {
+		return -1
+	}
+	if aEpoch > bEpoch {
+		return 1
+	}
+
+	at := normalizeLooseReleasePadding(splitVersionTokens(aRelease))
+	bt := normalizeLooseReleasePadding(splitVersionTokens(bRelease))
 	for i := 0; i < len(at) && i < len(bt); i++ {
 		ai, aNum := atoiToken(at[i])
 		bi, bNum := atoiToken(bt[i])
@@ -170,6 +179,18 @@ func compareLooseVersion(a, b string) int {
 	default:
 		return 0
 	}
+}
+
+func splitLooseVersionEpoch(version string) (int, string) {
+	epochText, release, hasEpoch := strings.Cut(version, "!")
+	if !hasEpoch {
+		return 0, version
+	}
+	epoch, numeric := atoiToken(epochText)
+	if !numeric {
+		return 0, version
+	}
+	return epoch, release
 }
 
 func normalizeLooseReleasePadding(tokens []string) []string {
