@@ -58,7 +58,7 @@ the grade threshold.
   tooltrust-scanner gate --name my-server @some/package
   tooltrust-scanner gate --block-on D @some/package
   tooltrust-scanner gate --scope user @some/package`,
-		Args:               cobra.MinimumNArgs(1),
+		Args:               validateGateArgs,
 		DisableFlagParsing: false,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.packageName = args[0]
@@ -91,6 +91,24 @@ the grade threshold.
 	cmd.Flags().StringVar(&opts.rulesDir, "rules-dir", "", "custom YAML rules directory (pass-through to scanner)")
 
 	return cmd
+}
+
+func validateGateArgs(cmd *cobra.Command, args []string) error {
+	if err := cobra.MinimumNArgs(1)(cmd, args); err != nil {
+		return err
+	}
+
+	dashIdx := cmd.ArgsLenAtDash()
+	if dashIdx < 0 {
+		if len(args) > 1 {
+			return fmt.Errorf("unexpected argument %q: server arguments must follow --", args[1])
+		}
+		return nil
+	}
+	if dashIdx != 1 {
+		return fmt.Errorf("exactly one package must appear before --")
+	}
+	return nil
 }
 
 func runGate(ctx context.Context, opts gateOpts) error {

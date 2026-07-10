@@ -80,6 +80,33 @@ func TestBuildServerCommand_PreservesExtraArgWithSpaces(t *testing.T) {
 	}
 }
 
+func TestGateArgs_RejectsUnseparatedExtraArgs(t *testing.T) {
+	cmd := newGateCmd()
+	require.NoError(t, cmd.ParseFlags([]string{"some-package", "/tmp"}))
+
+	err := cmd.Args(cmd, cmd.Flags().Args())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--")
+}
+
+func TestGateArgs_RejectsMissingPackageBeforeSeparator(t *testing.T) {
+	cmd := newGateCmd()
+	require.NoError(t, cmd.ParseFlags([]string{"--", "some-package", "/tmp"}))
+
+	err := cmd.Args(cmd, cmd.Flags().Args())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "before --")
+}
+
+func TestGateArgs_AllowsExtraArgsAfterSeparator(t *testing.T) {
+	cmd := newGateCmd()
+	require.NoError(t, cmd.ParseFlags([]string{"some-package", "--", "/tmp"}))
+
+	assert.NoError(t, cmd.Args(cmd, cmd.Flags().Args()))
+}
+
 func TestGateDecision_GradeA_AutoProceed(t *testing.T) {
 	got := gateDecision(model.GradeA, model.GradeF, false)
 	if !got {
