@@ -391,6 +391,24 @@ func TestBlacklist_CustomJSON_PyPIPreReleaseRange(t *testing.T) {
 	assert.Empty(t, miss, "1.2.1 should be newer than 1.2")
 }
 
+func TestBlacklist_CustomJSON_PyPISuffixPhaseOrdering(t *testing.T) {
+	data := []byte(`[
+	  {"id":"TEST-005","component":"post-bound","ecosystem":"PyPI",
+	   "affected_versions":["<= 1.2.post1"],"severity":"HIGH",
+	   "reason":"Test","link":"https://example.com"},
+	  {"id":"TEST-006","component":"rc-bound","ecosystem":"PyPI",
+	   "affected_versions":["<= 1.2rc2"],"severity":"HIGH",
+	   "reason":"Test","link":"https://example.com"}
+	]`)
+	bc := newBlacklistFromJSON(t, data)
+
+	preRelease, _ := bc.Check(toolWithDep("post-bound", "1.2rc1", "PyPI"))
+	assert.Len(t, preRelease, 1, "an RC must sort before the corresponding post-release")
+
+	postRelease, _ := bc.Check(toolWithDep("rc-bound", "1.2.post1", "PyPI"))
+	assert.Empty(t, postRelease, "a post-release must sort after the corresponding RC")
+}
+
 func TestBlacklist_Meta(t *testing.T) {
 	bc := analyzer.NewBlacklistChecker()
 	meta := bc.Meta()

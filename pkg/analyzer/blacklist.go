@@ -135,6 +135,17 @@ func compareLooseVersion(a, b string) int {
 			}
 			return 1
 		default:
+			if aPhase, aKnown := looseVersionPhase(at[i]); aKnown {
+				if bPhase, bKnown := looseVersionPhase(bt[i]); bKnown {
+					if aPhase < bPhase {
+						return -1
+					}
+					if aPhase > bPhase {
+						return 1
+					}
+					continue
+				}
+			}
 			al := strings.ToLower(at[i])
 			bl := strings.ToLower(bt[i])
 			if al < bl {
@@ -192,10 +203,28 @@ func normalizeLooseReleasePadding(tokens []string) []string {
 	return normalized
 }
 
+const looseVersionFinalPhase = 4
+
+func looseVersionPhase(token string) (int, bool) {
+	switch strings.ToLower(token) {
+	case "dev":
+		return 0, true
+	case "a", "alpha":
+		return 1, true
+	case "b", "beta":
+		return 2, true
+	case "rc", "c", "pre", "preview":
+		return 3, true
+	case "post", "rev", "r":
+		return 5, true
+	default:
+		return 0, false
+	}
+}
+
 func hasPreReleaseToken(tokens []string) bool {
 	for _, token := range tokens {
-		switch strings.ToLower(token) {
-		case "a", "alpha", "b", "beta", "rc", "dev", "pre", "preview":
+		if phase, known := looseVersionPhase(token); known && phase < looseVersionFinalPhase {
 			return true
 		}
 	}
