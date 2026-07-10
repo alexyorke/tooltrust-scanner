@@ -368,6 +368,12 @@ func TestBlacklist_CustomJSON_PyPIPostReleaseRange(t *testing.T) {
 
 	miss, _ := bc.Check(toolWithDep("oldpkg", "1.2.post11", "PyPI"))
 	assert.Empty(t, miss, "1.2.post11 should be newer than 1.2.post10")
+
+	paddedHit, _ := bc.Check(toolWithDep("oldpkg", "1.2.0.post2", "PyPI"))
+	assert.Len(t, paddedHit, 1, "1.2.0.post2 should equal the 1.2 release prefix and remain affected")
+
+	paddedMiss, _ := bc.Check(toolWithDep("oldpkg", "1.2.0.post11", "PyPI"))
+	assert.Empty(t, paddedMiss, "1.2.0.post11 should be newer than 1.2.post10 after release-segment padding")
 }
 
 func TestBlacklist_CustomJSON_PyPIPreReleaseRange(t *testing.T) {

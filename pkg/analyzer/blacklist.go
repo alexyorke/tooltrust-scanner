@@ -116,8 +116,8 @@ func semverLE(version, bound string) bool {
 }
 
 func compareLooseVersion(a, b string) int {
-	at := splitVersionTokens(a)
-	bt := splitVersionTokens(b)
+	at := normalizeLooseReleasePadding(splitVersionTokens(a))
+	bt := normalizeLooseReleasePadding(splitVersionTokens(b))
 	for i := 0; i < len(at) && i < len(bt); i++ {
 		ai, aNum := atoiToken(at[i])
 		bi, bNum := atoiToken(bt[i])
@@ -159,6 +159,37 @@ func compareLooseVersion(a, b string) int {
 	default:
 		return 0
 	}
+}
+
+func normalizeLooseReleasePadding(tokens []string) []string {
+	if len(tokens) == 0 {
+		return tokens
+	}
+
+	releaseEnd := 0
+	for releaseEnd < len(tokens) {
+		if _, numeric := atoiToken(tokens[releaseEnd]); !numeric {
+			break
+		}
+		releaseEnd++
+	}
+
+	trimEnd := releaseEnd
+	for trimEnd > 1 {
+		value, numeric := atoiToken(tokens[trimEnd-1])
+		if !numeric || value != 0 {
+			break
+		}
+		trimEnd--
+	}
+	if trimEnd == releaseEnd {
+		return tokens
+	}
+
+	normalized := make([]string, 0, len(tokens)-(releaseEnd-trimEnd))
+	normalized = append(normalized, tokens[:trimEnd]...)
+	normalized = append(normalized, tokens[releaseEnd:]...)
+	return normalized
 }
 
 func hasPreReleaseToken(tokens []string) bool {
