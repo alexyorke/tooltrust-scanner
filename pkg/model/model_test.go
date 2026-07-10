@@ -67,6 +67,17 @@ func TestRiskScore_IsClean(t *testing.T) {
 	assert.False(t, dirty.IsClean())
 }
 
+func TestRiskScore_JSONUsesEmptyFindingsArray(t *testing.T) {
+	raw, err := json.Marshal(model.NewRiskScore(0, nil))
+	assert.NoError(t, err)
+
+	var payload map[string]any
+	assert.NoError(t, json.Unmarshal(raw, &payload))
+	findings, ok := payload["findings"].([]any)
+	assert.True(t, ok)
+	assert.Empty(t, findings)
+}
+
 // --- GatewayPolicy / Action ---
 
 func TestActionFromGrade(t *testing.T) {
