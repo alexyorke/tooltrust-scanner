@@ -50,6 +50,7 @@ func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the ToolTrust Scanner version",
+		Args:  cobra.NoArgs,
 		Run: func(_ *cobra.Command, _ []string) {
 			fmt.Println("tooltrust-scanner", version)
 		},
@@ -105,6 +106,7 @@ func newScanCmd() *cobra.Command {
   tooltrust-scanner scan --input tools.json --output json --file report.json
   tooltrust-scanner scan --input tools.json --fail-on block
   tooltrust-scanner scan --input tools.json --db scans.db`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runScan(cmd.Context(), scanOpts{
 				inputFile:  inputFile,

@@ -26,6 +26,7 @@ func newScanRepoCmd() *cobra.Command {
 		Example: `  tooltrust-scanner scan-repo --repo /path/to/repo
   tooltrust-scanner scan-repo --repo /path/to/repo --output json
   tooltrust-scanner scan-repo --repo /path/to/repo --output json --file embedded.json`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runScanRepo(cmd.Context(), opts)
 		},

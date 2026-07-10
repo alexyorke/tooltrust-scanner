@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pterm/pterm"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -77,6 +78,21 @@ func TestNewScanCmd_OutputFlagListsSupportedFormats(t *testing.T) {
 		assert.Contains(t, flag.Usage, "text")
 		assert.Contains(t, flag.Usage, "json")
 		assert.Contains(t, flag.Usage, "sarif")
+	}
+}
+
+func TestCommandsWithoutPositionalOperandsRejectArgs(t *testing.T) {
+	commands := map[string]func() *cobra.Command{
+		"version":   newVersionCmd,
+		"scan":      newScanCmd,
+		"scan-repo": newScanRepoCmd,
+	}
+
+	for name, newCommand := range commands {
+		t.Run(name, func(t *testing.T) {
+			err := newCommand().ValidateArgs([]string{"unexpected"})
+			require.Error(t, err)
+		})
 	}
 }
 
