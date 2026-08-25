@@ -5,6 +5,277 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.3.19] - 2026-06-20
+
+### Added
+- **AS-008 blacklist: 9 MCP/AI malicious npm packages** triaged from the
+  threat-intel review digests (#72–#75), all marked `BLOCK` / `CRITICAL`:
+  - **Claude typosquats**: `claude-cup` (`MAL-2026-5789`), `claude-jar`
+    (`MAL-2026-5893`), `free-claude` (`MAL-2026-6232`).
+  - **`@mastra/*` AI-framework compromise** (GitHub Advisory–confirmed malicious
+    versions): `@mastra/claude`, `@mastra/mcp`, `@mastra/mcp-docs-server`,
+    `@mastra/mcp-registry-registry`, `@mastra/voice-openai`,
+    `@mastra/voice-openai-realtime`.
+  - Triaged out as not MCP/AI-relevant (already covered by AS-004 real-time OSV):
+    `panrouter`, `panrouter-admin`, `base_parts_ai`.
+
+## [0.3.18] - 2026-06-16
+
+### Added
+- **AS-008 blacklist: `claudechor` (npm)** — OSV-confirmed malicious package
+  (`MAL-2026-5717`, reported by Amazon Inspector), a Claude typosquat targeting
+  the MCP/AI tooling ecosystem. Versions 1.0.1–1.0.5 marked `BLOCK` / `CRITICAL`.
+  Promoted from the threat-intel review digest; the unrelated `beamz` candidate
+  was triaged out as not MCP/AI-relevant (already covered by AS-004 real-time OSV).
+
+## [0.3.17] - 2026-06-15
+
+### Fixed
+- **AS-002 capability-disclosure collapse**: AS-002 now emits a single Info-level capability-disclosure
+  summary per tool (`declared capabilities: network access, filesystem access, …`) instead of one risk
+  finding per permission; it no longer contributes to the risk score. Having a permission is not a risk
+  in itself — it is inventory. Permission-vs-purpose mismatches remain scored by AS-003 (Scope Mismatch).
+- **AS-006 expression-input false positive**: `hasCodeExecutionCapability` no longer treats an
+  `expression` input property (used by safe math evaluators such as cyanheads-calculator-mcp and
+  ethanhenrickson-math-mcp) as code-execution corroboration. The new `isCodeExecPropName` helper
+  requires an exact match or genuine code-execution substring (`script`, `javascript`, `source_code`,
+  etc.) and deliberately excludes `"expression"` and bare `*_code` identifiers (`country_code`,
+  `status_code`, …). Critical AS-006 now requires a genuine code/script param or exec permission.
+
+---
+
+## [0.3.16] - 2026-06-15
+
+### Fixed
+- **AS-004 host-repo false positives**: `detectLocalProjectRoot` no longer seeds candidate
+  paths with `os.Getwd()`, so scanning a published package (`npx -y <pkg>`) no longer
+  picks up the scanner host project's own lockfiles (`go.sum`, `package-lock.json`, etc.)
+  and attributes their transitive CVEs to every scanned tool. Local project detection now
+  only triggers when the launch command explicitly references a local path or script.
+- **AS-004 local-lockfile severity bypass**: the `Dependency` struct now carries a `source`
+  field through JSON unmarshal. `collectDependencies` respects an explicit `source` value
+  instead of hardcoding `"metadata"`. `local_lockfile`-sourced non-malicious CVEs are now
+  downgraded to `Info` (`SUPPLY_CHAIN_CVE_TRANSITIVE`), consistent with repo-lockfile
+  transitives. `MAL-*` advisories remain `Critical` regardless of source.
+
+---
+
+## [0.3.15] - 2026-06-15
+
+Zero-false-positive tuning pass. Guiding principle: **accept false negatives, never
+produce false positives** — a finding that rests only on a heuristic (text keyword,
+transitive-dependency presence, secret-named parameter) must not inflate a tool's grade.
+Heuristic-only findings are kept for transparency at `INFO` (weight 0) and high-confidence
+findings keep their scoring severity. `MAL-*` malicious packages and the AS-008 blacklist
+are untouched.
+
+### Fixed
+- **Over-broad exec-permission inference (`pkg/adapter/mcp`)**: `inferPermissions`
+  matched the bare substring `"eval"` with `strings.Contains`, so read-only/analytic
+  tools (`lichess_cloud_eval`, `evaluate_position`, and even `document_retrieval` — which
+  literally contains `eval`) were assigned `PermissionExec`. That false exec both inflated
+  AS-002 and circularly corroborated AS-006, pinning legitimate tools at Critical/grade C.
+  Removed bare `"eval"` from the exec rule's keyword lists and added word-boundary regex
+  matching (`\beval\b`, `eval\(`) via a new `matchAny` field; genuine signals (command/
+  shell/script params, `evaluate_script`, `execute javascript`, standalone `eval`) are
+  preserved. Verified live: `lichess_cloud_eval` C/42→A/0 (ALLOW); `codex` stays D/65.
+  Regression fixture at `pkg/adapter/mcp/testdata/exec-cases.json`.
+- **AS-004 transitive-CVE over-attribution**: lockfile-sourced (transitive) non-malicious
+  CVEs were scored as if directly reachable, attributing e.g. a `golang.org/x/sys` CVE to
+  nearly every Go tool. Transitive non-`MAL-*` CVEs now emit `SUPPLY_CHAIN_CVE_TRANSITIVE`
+  at `INFO`; directly-declared CVEs keep their OSV severity; `MAL-*` stays Critical
+  regardless of source.
+- **AS-006 arbitrary-code over-flagging**: a name/description keyword match alone now emits
+  `POSSIBLE_ARBITRARY_CODE_EXECUTION` at `INFO`. `Critical`/`ARBITRARY_CODE_EXECUTION` now
+  requires corroboration — an exec permission or a `code`/`script`/`expression`/`eval`
+  input property.
+- **AS-010 secret-in-input**: accepting an `api_key`/`token` parameter is normal for API
+  proxy tools and is no longer evidence of leakage — `SECRET_IN_INPUT` downgraded from
+  `HIGH` to `INFO`. Explicit insecure-handling language ("log the api key", etc.) still
+  scores at `INSECURE_SECRET_HANDLING`/`MEDIUM`.
+
+### Changed
+- **Issue-level dedup before scoring (`pkg/analyzer`)**: exact-duplicate findings
+  (same rule, code, location, description) are collapsed so a repeated finding is counted
+  once. Distinct CVEs on the same package are preserved.
+
+## [0.3.14] - 2026-06-12
+
+### Added
+- **AS-008 blacklist: `openai-mcp` and `tiktoken-mcp` (PyPI)** — confirmed
+  malicious packages impersonating an official OpenAI MCP server
+  (`MAL-2026-5320`) and a tiktoken MCP tool (`MAL-2026-5326`), both
+  OSV-confirmed and reported by Kamil Mankowski. A developer who installs
+  these instead of the legitimate MCP integration is compromised. Marked
+  `BLOCK` / `CRITICAL`.
+
+### Changed
+- **IOC candidate pipeline rebuilt to read OSV `MAL-` records** instead of
+  guessing supply-chain compromise from CVE description keywords. The pipeline
+  now pulls confirmed malicious packages (OpenSSF malicious-packages, Amazon
+  Inspector, GitHub Advisory) from the per-ecosystem OSV feed and opens a
+  review-only daily digest PR. This is CI/threat-intel tooling and does not
+  change scanner runtime behavior.
+- **Removed loose IOC compromise signals** that fired on ordinary
+  web-security CVEs, eliminating a large source of false-positive candidates.
+
+## [0.3.13] - 2026-05-29
+
+### Added
+- **AS-008 blacklist: `@cap-js/db-service`, `@cap-js/postgres`,
+  `@cap-js/sqlite` (npm)** — confirmed npm supply-chain compromise
+  (`CVE-2026-46421`): malicious `@cap-js` package versions were published as
+  part of a coordinated compromise across the three packages. Marked
+  `BLOCK` / `CRITICAL`.
+
+## [0.3.12] - 2026-04-22
+
+### Fixed
+- **AS-001 false positive on `gitignore` / `mcpignore` rules**: the
+  `(ignore|disregard|bypass) ... rules` regex matched the substring
+  "ignore" inside `gitignore` because it lacked a word boundary, flagging
+  legitimate codebase-indexing tools (e.g.
+  `cornelcroi/context-lens`, `itseasy21/mcp-codebase-index`,
+  `lex-tools/codebase-context-dumper`) whose descriptions say
+  "respects .gitignore rules". Added a leading `\b` anchor.
+- **AS-001 false positive on defensive security tools**: the
+  single-keyword `jailbreak` rule fired on legitimate anti-injection /
+  prompt-scanning tools (`shrike-security/shrike-mcp` `scan_prompt`,
+  `web3signals/agent-seo` `anti_injection_scan`,
+  `shentia/...` `prompt_injection_scan`,
+  `joergmichno/clawguard` `scan_text`). The rule is now suppressed when
+  the tool description contains defensive framing (`detect`, `scan`,
+  `block`, `prevent`, `filter`, `guard`, `quarantine`, etc.) around the
+  word; offensive contexts (`perform jailbreak`, `<INST>jailbreak</INST>`)
+  still trigger.
+
+---
+
+## [0.3.11] - 2026-05-16
+
+### Added
+- **Unauthenticated MCP route exposure detection**: added `AS-019` source
+  detection for embedded MCP HTTP servers that expose the same handler through
+  authenticated and unauthenticated routes, with stronger severity when
+  fail-open allowlist behavior or alternate MCP endpoints are present.
+
+### Changed
+- Clarified README and rule catalog wording so tool-definition checks
+  (`AS-001`-`AS-017`, excluding `AS-012`) are distinguished from source-scan
+  signals (`AS-018` and `AS-019`).
+
+## [0.3.10] - 2026-05-16
+
+### Added
+- **Mini Shai-Hulud / TanStack supply-chain coverage**: added offline AS-008
+  blocklist entries for CVE-2026-45321 across the affected TanStack npm package
+  versions, plus confirmed OpenSearch npm, Mistral AI PyPI, and Guardrails AI
+  PyPI compromised releases.
+- **NPM IOC detection**: added AS-016 indicators for `@tanstack/setup`,
+  Mini Shai-Hulud infrastructure domains, second-stage payload URLs, and
+  TanStack runner script names.
+
+## [0.3.9] - 2026-04-25
+
+### Added
+- **Embedded MCP source detection**: added `scan-repo` plus `AS-018` to detect
+  embedded MCP servers directly from source code when no manifest is available.
+  Phase 1 covers Go, Python, and TypeScript with same-file import/init
+  co-occurrence checks, `.tooltrust-ignore` support, and bounded file scanning.
+- **IOC candidate pipeline scaffold**: added a daily OSV-backed workflow and
+  local fetcher under `scripts/ioc-candidates/` to generate review PRs for
+  likely blacklist additions instead of relying on hand-edited updates.
+
+### Fixed
+- **Go embedded MCP detection**: source detection now recognizes
+  `github.com/mark3labs/mcp-go` plus `server.NewMCPServer(...)`, allowing
+  repos such as `nginx-ui` to surface as embedded MCP instead of being silently
+  missed.
+
+## [0.3.8] - 2026-04-07
+
+### Fixed
+- **AS-006 false positives (round 3)**: removed bare `"javascript"` from
+  `descriptionConfirmsExecution` escape hatch — search tools whose descriptions
+  mention JavaScript as a topic no longer override safe-name gating. Added
+  execution-context variants (`"javascript code"`, `"run javascript"`, etc.)
+  and a regex for `"accepts/runs/executes javascript code"`.
+- **AS-003 false positives**: cloud API and CLI wrapper tools (`get_aws_*`,
+  `list_kubernetes_*`, `search_github_*`, etc.) with `exec` permission no
+  longer trigger scope mismatch findings. Generic read tools like `read_file`
+  with `exec` still fire correctly.
+
+---
+
+## [0.3.7] - 2026-04-07
+
+### Fixed
+- **AS-006 false positives (round 2)**: fixed remaining FPs on
+  `speclock_policy_evaluate`, `brave_web_search_code_mode`,
+  `code_mode_transform`, and `analyze_code_security` when description
+  contains non-execution "execute".
+  - Added `code_mode` and `policy_evaluate` to safe-name substrings.
+  - Safe prefix/substring checks now gate the regex phase (step 3), not
+    only the suffix phase (step 2).
+  - Removed bare `"execute"` from `descriptionConfirmsExecution` — kept
+    specific variants (`execute code`, `execute script`, `execute javascript`).
+
+---
+
+## [0.3.6] - 2026-04-04
+
+### Fixed
+- **AS-006 false positives**: tools with names like `evaluate_guardrail`,
+  `analyze_code_security`, `resolve-library-id`, `code_context`, and
+  `code_snippet` are no longer falsely flagged as arbitrary code execution.
+  Added safe-name prefixes, safe-name substrings, description-confirms-execution
+  gating, and description negation checks. The `code snippet` keyword is now
+  gated behind execution verbs (`run`/`execute`/`eval`).
+
+### Changed
+- **AS-001 split**: data exfiltration findings are now reported under a separate
+  sub-rule for clearer triage.
+
+---
+
+## [0.3.4] - 2026-04-02
+
+### Added
+- **Finding evidence**: findings can now carry compact static evidence, including
+  matched permission values, prompt-injection description matches, arbitrary-code
+  name/description patterns, and compromised package/version blacklist hits.
+- **Behavior context**: scanner policies now summarize what a tool appears able
+  to do, including `reads_env`, `reads_files`, `writes_files`,
+  `executes_commands`, and `uses_network`.
+- **Destination context**: scanner policies now classify where a tool may send
+  data, including dynamic URL inputs, email recipients, webhook/callback/SMTP
+  destinations, and hardcoded API, webhook, email-recipient, or domain targets.
+- **Evidence roadmap**: added an implementation roadmap for evidence, behavior,
+  and confirmed-malicious classification in `docs/EVIDENCE_ROADMAP.md`.
+
+### Changed
+- **CLI output readability**: `scan` output now emphasizes the per-tool decision
+  first, adds a short `Why approval`/`Why blocked` summary for flagged tools,
+  removes raw score noise from tool headers, and suppresses repeated hints from
+  the same rule within a single tool.
+- **Evidence rendering**: CLI and MCP text output now show only compact,
+  non-redundant evidence so scans stay readable while still explaining why a
+  finding matched.
+- **Behavior/destination propagation**: gateway policy JSON now exposes behavior,
+  destination, and dependency-visibility context for downstream consumers such
+  as ToolTrust Directory.
+
+### Fixed
+- **CLI noise for clean tools**: `ALLOW` / grade-A tools no longer show
+  low-signal dependency visibility noise or duplicate evidence/hint lines.
+- **Destination false positives**: destination classification now avoids
+  mistaking code-like strings such as `process.env` for real outbound targets.
+- **Developer docs consistency**: `DEVELOPER.md`, `CONTRIBUTING.md`, and related
+  docs were cleaned up so architecture, contribution flow, and rule references
+  point to the current code paths.
+
+---
+
 ## [0.2.3] - 2026-03-25
 
 ### Fixed

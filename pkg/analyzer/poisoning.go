@@ -8,17 +8,10 @@ import (
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
-// patternRule pairs an injection-detection regex with the severity it emits
-// and a flag marking it as a low-confidence "data-movement" rule.
-//
-// Low-confidence rules (skipForDataMovement=true) are skipped when the
-// tool's name clearly belongs to a data-movement domain (email, messaging,
-// forwarding) AND the name contains no external-destination signal.  They
-// also emit Medium instead of Critical to reflect reduced certainty.
+// patternRule pairs an injection-detection regex with the severity it emits.
 type patternRule struct {
-	pattern             *regexp.Regexp
-	severity            model.Severity
-	skipForDataMovement bool
+	pattern  *regexp.Regexp
+	severity model.Severity
 }
 
 // legitimateDataMovementTools lists tool-name keywords that indicate sending
@@ -35,48 +28,76 @@ var suspiciousNameTerms = []string{
 	"external", "remote", "http", "url", "attacker", "exfil",
 }
 
-// injectionRules is the ordered list of AS-001 detection rules, split into:
-//   - High-confidence: explicit injection markers — always Critical.
-//   - Low-confidence: data-exfiltration patterns — Medium severity, skipped
-//     for tools whose names imply legitimate data movement.
+// jailbreakPattern is the single-keyword "jailbreak" rule. It is the only
+// AS-001 pattern broad enough that a defensive security tool ("scan input
+// for jailbreak attempts", "block jailbreak prompts") trips it without
+// any malicious intent. We special-case it in Check(): when the
+// description shows defensive framing around the word, we suppress the
+// finding. The variable is shared between the rules table and the gating
+// logic via pointer identity.
+var jailbreakPattern = regexp.MustCompile(`(?i)jailbreak`)
+
+// injectionRules is the ordered list of AS-001 detection rules.
+// AS-001 is reserved for explicit prompt/instruction override patterns.
+//
+// The leading `\b` on the (ignore|disregard|bypass) rule prevents
+// false-positive matches against the substring "ignore" inside
+// `gitignore`, `mcpignore`, etc. — common in legitimate
+// codebase-indexing tool descriptions that say things like
+// "respects .gitignore rules".
 var injectionRules = []patternRule{
 	// ── High-confidence: explicit injection markers ──────────────────────────
 	{
-		regexp.MustCompile(`(?i)(ignore|disregard|bypass)\s+(?:\w+\s+){0,3}(instructions?|prompts?|context|rules?|guidelines?|restrictions?|filters?)`),
-		model.SeverityCritical, false,
+		regexp.MustCompile(`(?i)\b(ignore|disregard|bypass)\s+(?:\w+\s+){0,3}(instructions?|prompts?|context|rules?|guidelines?|restrictions?|filters?)`),
+		model.SeverityCritical,
 	},
-	{regexp.MustCompile(`(?im)^\s*system\s*:`), model.SeverityCritical, false},
-	{regexp.MustCompile(`(?i)<\s*INST\s*>`), model.SeverityCritical, false},
-	{regexp.MustCompile(`(?i)\[INST\]`), model.SeverityCritical, false},
+	{regexp.MustCompile(`(?im)^\s*system\s*:`), model.SeverityCritical},
+	{regexp.MustCompile(`(?i)<\s*INST\s*>`), model.SeverityCritical},
+	{regexp.MustCompile(`(?i)\[INST\]`), model.SeverityCritical},
 	{
 		regexp.MustCompile(`(?i)act\s+as\s+(an?\s+)?(admin|root|superuser|privileged)`),
-		model.SeverityCritical, false,
+		model.SeverityCritical,
 	},
 	{
 		regexp.MustCompile(`(?i)forget\s+(your|all|previous)\s+(instructions?|context|rules?|training)`),
-		model.SeverityCritical, false,
+		model.SeverityCritical,
 	},
 	{
 		regexp.MustCompile(`(?i)you\s+(are\s+now|must\s+now|will\s+now)\s+(act|behave|operate)`),
-		model.SeverityCritical, false,
+		model.SeverityCritical,
 	},
-	{regexp.MustCompile(`(?i)exfiltrate\s+(?:\w+\s+){0,2}(?:data|info|credentials?|secrets?|content|results?)`), model.SeverityCritical, false},
-	{regexp.MustCompile(`(?i)(developer|unrestricted)\s+mode`), model.SeverityCritical, false},
-	{regexp.MustCompile(`(?i)full\s+system\s+access`), model.SeverityCritical, false},
-	{regexp.MustCompile(`(?i)jailbreak`), model.SeverityCritical, false},
+	{regexp.MustCompile(`(?i)exfiltrate\s+(?:\w+\s+){0,2}(?:data|info|credentials?|secrets?|content|results?)`), model.SeverityCritical},
+	{regexp.MustCompile(`(?i)(developer|unrestricted)\s+mode`), model.SeverityCritical},
+	{regexp.MustCompile(`(?i)full\s+system\s+access`), model.SeverityCritical},
+	{jailbreakPattern, model.SeverityCritical},
+}
 
-	// ── Low-confidence: data-exfiltration patterns ───────────────────────────
-	// Require an explicit external-destination indicator so they don't fire on
-	// everyday "send X to Y" API documentation language.  Downgraded to Medium
-	// and skipped for tools whose names imply safe data movement.
-	{
-		regexp.MustCompile(`(?i)send.*(history|data|conversation).*to.*(http|url)`),
-		model.SeverityMedium, true,
-	},
-	{
-		regexp.MustCompile(`(?i)(?:transmit|send|forward|post|upload|pipe).{0,80}(?:data|info|content).{0,80}\bto\s+(?:https?://|external\s+\w+|remote\s+\w+|attacker|base64)`),
-		model.SeverityMedium, true,
-	},
+// defensiveJailbreakContexts are substrings whose presence (anywhere in the
+// description) indicates the tool is describing detection / prevention of
+// jailbreaks rather than performing one. Match is case-insensitive on a
+// lowercased description. Entries are stems so that inflected forms
+// (identify/identifies, detect/detection/detected) all match.
+var defensiveJailbreakContexts = []string{
+	"detect", "scan", "block", "prevent", "filter",
+	"guard", "identif", "flag ", "report",
+	"monitor", "audit", "protect", "defense", "defensive",
+	"mitigat", "quarantin", "sanitiz",
+	"anti-jailbreak", "anti jailbreak",
+	"jailbreak attempt", "jailbreak detection", "jailbreak vector",
+	"for jailbreak", "against jailbreak",
+}
+
+// describesDefensiveJailbreakUse returns true when the description appears
+// to be discussing jailbreak detection or prevention rather than performing
+// a jailbreak. Used to suppress the lone-keyword `jailbreak` rule for
+// security tools such as `scan_prompt`, `anti_injection_scan`, etc.
+func describesDefensiveJailbreakUse(descLower string) bool {
+	for _, ctx := range defensiveJailbreakContexts {
+		if strings.Contains(descLower, ctx) {
+			return true
+		}
+	}
+	return false
 }
 
 type PoisoningChecker struct {
@@ -103,14 +124,16 @@ func (c *PoisoningChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 		return nil, nil
 	}
 
-	skipDataMovement := isDataMovementTool(tool.Name)
+	descLower := strings.ToLower(desc)
+	defensiveJailbreak := describesDefensiveJailbreakUse(descLower)
 
 	var issues []model.Issue
 	for _, rule := range injectionRules {
-		if skipDataMovement && rule.skipForDataMovement {
+		if rule.pattern == jailbreakPattern && defensiveJailbreak {
 			continue
 		}
 		if rule.pattern.MatchString(desc) {
+			matched := rule.pattern.FindString(desc)
 			issues = append(issues, model.Issue{
 				RuleID:      "AS-001",
 				ToolName:    tool.Name,
@@ -118,6 +141,10 @@ func (c *PoisoningChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 				Code:        "TOOL_POISONING",
 				Description: "possible prompt injection detected in tool description: pattern matched: " + rule.pattern.String(),
 				Location:    "description",
+				Evidence: []model.Evidence{
+					{Kind: "description_pattern", Value: rule.pattern.String()},
+					{Kind: "description_match", Value: matched},
+				},
 			})
 			// One finding per tool is sufficient for a poisoning verdict.
 			break
@@ -133,6 +160,9 @@ func (c *PoisoningChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 				Code:        "TOOL_POISONING",
 				Description: "semantic AI analysis detected deep prompt injection in tool description",
 				Location:    "description",
+				Evidence: []model.Evidence{
+					{Kind: "deep_scan", Value: "semantic prompt injection signal in description"},
+				},
 			})
 		}
 	}

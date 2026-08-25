@@ -33,8 +33,12 @@ func TestHandleScanJSON_ValidInput(t *testing.T) {
 	assert.Contains(t, text, "Scan Summary:")
 	assert.Contains(t, text, "Tool Grades:")
 	assert.Contains(t, text, "Findings by Severity:")
-	assert.Contains(t, text, "MEDIUM×1")
-	assert.Contains(t, text, "1 total")
+	// AS-002 now emits a single Info CAPABILITY_SURFACE summary (weight 0).
+	// read_file with a "path" property infers FS permission → one AS-002 Info.
+	// AS-014 also emits one Info (no dependency metadata on this JSON-only tool).
+	// Both are Info (weight 0) → score 0 → Grade A.
+	assert.Contains(t, text, "INFO×2")
+	assert.Contains(t, text, "2 total")
 	assert.NotContains(t, text, "Flagged Tools:")
 	assert.Contains(t, text, "All tools are ✅ GRADE A and allowed.")
 	assert.Contains(t, text, "1 tools")
@@ -96,6 +100,88 @@ func TestHandleScanJSON_EmptyToolsList(t *testing.T) {
 	assert.Contains(t, text, "Tool Grades: None")
 	assert.Contains(t, text, "Findings by Severity: None (0 total)")
 	assert.Contains(t, text, "All tools are ✅ GRADE A")
+}
+
+func TestRenderTextReport_IncludesEvidenceForFlaggedTools(t *testing.T) {
+	result := &ScanResult{
+		Summary: ScanSummary{
+			Total:    1,
+			Allowed:  0,
+			Approval: 1,
+			Blocked:  0,
+		},
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName: "send_env",
+				Action:   model.ActionRequireApproval,
+				Score: model.RiskScore{
+					Grade: model.GradeC,
+					Issues: []model.Issue{
+						{
+							RuleID:      "AS-002",
+							Severity:    model.SeverityHigh,
+							Description: "tool declares network permission",
+							Evidence: []model.Evidence{
+								{Kind: "permission", Value: "network"},
+								{Kind: "schema_property_count", Value: "12"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	text := renderTextReport(result)
+	assert.Contains(t, text, "Flagged Tools:")
+	assert.Contains(t, text, "Evidence: permission=network")
+	assert.Contains(t, text, "Evidence: … 1 more item(s)")
+	assert.NotContains(t, text, "schema_property_count=12")
+}
+
+func TestRenderTextReport_IncludesBehaviorAndDestinationContext(t *testing.T) {
+	result := &ScanResult{
+		Summary: ScanSummary{
+			Total:    1,
+			Allowed:  0,
+			Approval: 1,
+			Blocked:  0,
+		},
+		Policies: []model.GatewayPolicy{
+			{
+				ToolName:     "send_email",
+				Action:       model.ActionRequireApproval,
+				Behavior:     []string{"reads_env", "uses_network"},
+				Destinations: []string{"dynamic email recipient (bcc)", "hardcoded domain: api.postmarkapp.com"},
+				Score:        model.RiskScore{Grade: model.GradeC},
+			},
+		},
+	}
+
+	text := renderTextReport(result)
+	assert.Contains(t, text, "Behavior: reads_env, uses_network")
+	assert.Contains(t, text, "Destination: dynamic email recipient (bcc); hardcoded domain: api.postmarkapp.com")
+}
+
+func TestProcessToolsRaw_PopulatesBehaviorAndDestinationContext(t *testing.T) {
+	tools := []model.UnifiedTool{
+		{
+			Name:        "fetch_url",
+			Description: "Fetch a remote resource over HTTPS.",
+			Permissions: []model.Permission{model.PermissionNetwork},
+			InputSchema: jsonschema.Schema{
+				Properties: map[string]jsonschema.Property{
+					"url": {Type: "string"},
+				},
+			},
+		},
+	}
+
+	result, err := processToolsRaw(context.Background(), tools)
+	require.NoError(t, err)
+	require.Len(t, result.Policies, 1)
+	assert.Equal(t, []string{"uses_network"}, result.Policies[0].Behavior)
+	assert.Equal(t, []string{"dynamic URL input (url)"}, result.Policies[0].Destinations)
 }
 
 // ── tooltrust_scan_server tests ─────────────────────────────────────────────
@@ -163,7 +249,7 @@ func TestHandleListRules_ReturnsAllRules(t *testing.T) {
 	var rules []map[string]string
 	text := result.Content[0].(mcplib.TextContent).Text
 	require.NoError(t, json.Unmarshal([]byte(text), &rules))
-	assert.Len(t, rules, 12, "should return all 12 built-in rules")
+	assert.Len(t, rules, 16, "should return all 16 built-in rules")
 
 	// Verify expected rule IDs.
 	ids := make(map[string]bool)
@@ -172,7 +258,7 @@ func TestHandleListRules_ReturnsAllRules(t *testing.T) {
 		assert.NotEmpty(t, r["title"], "rule %s should have a title", r["id"])
 		assert.NotEmpty(t, r["description"], "rule %s should have a description", r["id"])
 	}
-	expectedIDs := []string{"AS-001", "AS-002", "AS-003", "AS-004", "AS-005", "AS-006", "AS-007", "AS-008", "AS-009", "AS-010", "AS-011", "AS-013"}
+	expectedIDs := []string{"AS-001", "AS-002", "AS-003", "AS-004", "AS-005", "AS-006", "AS-007", "AS-008", "AS-009", "AS-010", "AS-011", "AS-013", "AS-014", "AS-015", "AS-016", "AS-017"}
 	for _, id := range expectedIDs {
 		assert.True(t, ids[id], "missing rule %s", id)
 	}

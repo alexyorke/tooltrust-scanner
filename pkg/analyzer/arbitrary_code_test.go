@@ -4,7 +4,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/AgentSafe-AI/tooltrust-scanner/internal/jsonschema"
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
@@ -20,7 +22,11 @@ func TestArbitraryCodeChecker_EvaluateScriptInName(t *testing.T) {
 	eng_56f048, _ := NewEngine(false, "")
 	report := eng_56f048.Scan(tool)
 	assert.True(t, report.HasFinding("AS-006"), "evaluate_script in name must trigger AS-006")
-	assert.GreaterOrEqual(t, report.RiskScore, 25, "must score >= 25 (CRITICAL) to prevent A/S grade")
+	// No exec permission or code/script/eval input property: finding is Info (score 0).
+	require.Len(t, report.Findings, 1)
+	assert.Equal(t, "POSSIBLE_ARBITRARY_CODE_EXECUTION", report.Findings[0].Code)
+	assert.Equal(t, "tool_name_keyword", report.Findings[0].Evidence[0].Kind)
+	assert.Equal(t, "evaluate_script", report.Findings[0].Evidence[0].Value)
 }
 
 func TestArbitraryCodeChecker_ExecuteJavascriptInDescription(t *testing.T) {
@@ -85,7 +91,8 @@ func TestArbitraryCodeChecker_Retrieval_NoFalsePositive(t *testing.T) {
 }
 
 func TestArbitraryCodeChecker_GradeCOrWorse(t *testing.T) {
-	// chrome-devtools-mcp style: evaluate_script should get at least Grade C.
+	// Without exec permission or code/script/eval input, the finding is Info (score 0)
+	// so the tool gets Grade A. The finding is still emitted for visibility.
 	tool := model.UnifiedTool{
 		Name:        "evaluate_script",
 		Description: "Evaluates JavaScript expression in the browser.",
@@ -93,8 +100,8 @@ func TestArbitraryCodeChecker_GradeCOrWorse(t *testing.T) {
 	eng_dd96c3, _ := NewEngine(false, "")
 	report := eng_dd96c3.Scan(tool)
 	assert.True(t, report.HasFinding("AS-006"))
-	assert.Contains(t, []model.Grade{model.GradeC, model.GradeD, model.GradeF}, report.Grade,
-		"evaluate_script must not get A or B; got %s", report.Grade)
+	assert.Equal(t, "POSSIBLE_ARBITRARY_CODE_EXECUTION", report.Findings[0].Code,
+		"no exec perm or code/eval input: must be POSSIBLE_ARBITRARY_CODE_EXECUTION")
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +110,7 @@ func TestArbitraryCodeChecker_GradeCOrWorse(t *testing.T) {
 
 func TestArbitraryCodeChecker_ChromeEvaluate_NameSuffix(t *testing.T) {
 	// chrome_evaluate, cdp_evaluate — real tool names from chrome-devtools-mcp.
+	// Without exec permission or code/script/eval input, finding is Info (score 0).
 	for _, name := range []string{"chrome_evaluate", "cdp_evaluate", "devtools_evaluate"} {
 		tool := model.UnifiedTool{
 			Name:        name,
@@ -112,8 +120,8 @@ func TestArbitraryCodeChecker_ChromeEvaluate_NameSuffix(t *testing.T) {
 		report := eng_f9a951.Scan(tool)
 		assert.True(t, report.HasFinding("AS-006"),
 			"%q: _evaluate name suffix must trigger AS-006", name)
-		assert.GreaterOrEqual(t, report.RiskScore, 25,
-			"%q: must score >= 25 to prevent A/B grade", name)
+		assert.Equal(t, "POSSIBLE_ARBITRARY_CODE_EXECUTION", report.Findings[0].Code,
+			"%q: no exec perm/code param → must be POSSIBLE_ARBITRARY_CODE_EXECUTION", name)
 	}
 }
 
@@ -254,6 +262,44 @@ func TestArbitraryCodeChecker_RunCodeSnippet_FalseNegative(t *testing.T) {
 		"'run code snippet' must trigger AS-006")
 }
 
+func TestArbitraryCodeChecker_JavascriptInSearchDescription_NoFP(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		desc string
+	}{
+		{"brave_web_search_code_mode", "Search the web for javascript and code topics with optimized results."},
+		{"brave_local_search_code_mode", "Local search with javascript and code mode enabled."},
+		{"search_code_mode", "Search code repositories for javascript frameworks."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := model.UnifiedTool{Name: tc.name, Description: tc.desc}
+			eng, _ := NewEngine(false, "")
+			report := eng.Scan(tool)
+			assert.False(t, report.HasFinding("AS-006"),
+				"%s must NOT trigger AS-006 when description mentions javascript as search topic", tc.name)
+		})
+	}
+}
+
+func TestArbitraryCodeChecker_JavascriptExecution_StillTriggers(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		desc string
+	}{
+		{"run_tool", "Execute javascript code in the browser context."},
+		{"browser_exec", "Run javascript in a sandboxed iframe."},
+		{"js_runner", "Accepts javascript code and executes it."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := model.UnifiedTool{Name: tc.name, Description: tc.desc}
+			eng, _ := NewEngine(false, "")
+			report := eng.Scan(tool)
+			assert.True(t, report.HasFinding("AS-006"),
+				"%s must still trigger AS-006 for real javascript execution", tc.name)
+		})
+	}
+}
+
 func TestArbitraryCodeChecker_RunCode_Keyword(t *testing.T) {
 	tool := model.UnifiedTool{
 		Name:        "execute",
@@ -290,7 +336,10 @@ func TestArbitraryCodeChecker_PythonExecute_NameSuffix(t *testing.T) {
 }
 
 func TestArbitraryCodeChecker_PuppeteerEvaluate_NameSuffix(t *testing.T) {
-	// puppeteer_evaluate — name ends with _evaluate.
+	// puppeteer_evaluate — name ends with _evaluate, description contains page.evaluate().
+	// The description triggers the pattern match which also sets confirmed via
+	// hasCodeExecutionCapability. Without exec perm or code/eval input prop the
+	// finding is Info, so grade is A.
 	tool := model.UnifiedTool{
 		Name:        "puppeteer_evaluate",
 		Description: "Runs page.evaluate() to execute JavaScript in browser context.",
@@ -298,6 +347,321 @@ func TestArbitraryCodeChecker_PuppeteerEvaluate_NameSuffix(t *testing.T) {
 	eng_728c55, _ := NewEngine(false, "")
 	report := eng_728c55.Scan(tool)
 	assert.True(t, report.HasFinding("AS-006"))
-	assert.Contains(t, []model.Grade{model.GradeC, model.GradeD, model.GradeF}, report.Grade,
-		"puppeteer_evaluate must not get A or B; got %s", report.Grade)
+	assert.Equal(t, "POSSIBLE_ARBITRARY_CODE_EXECUTION", report.Findings[0].Code,
+		"no exec perm/code param → must be POSSIBLE_ARBITRARY_CODE_EXECUTION")
+}
+
+func TestArbitraryCodeChecker_EvaluateGuardrail_NoFalsePositive(t *testing.T) {
+	cases := []struct {
+		name string
+		desc string
+	}{
+		{"evaluate_guardrail", "Evaluates a guardrail policy."},
+		{"evaluate_action", "Evaluates whether an action is permitted."},
+		{"evaluate_contract", "Evaluates contract terms."},
+	}
+	for _, tc := range cases {
+		tool := model.UnifiedTool{Name: tc.name, Description: tc.desc}
+		eng, _ := NewEngine(false, "")
+		report := eng.Scan(tool)
+		assert.False(t, report.HasFinding("AS-006"),
+			"false positive: %q must NOT trigger AS-006", tc.name)
+	}
+}
+
+func TestArbitraryCodeChecker_EvaluateGuardrail_DescriptionConfirmsExecution(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "evaluate_guardrail",
+		Description: "Evaluates a script in the browser context using page.evaluate.",
+	}
+	eng, _ := NewEngine(false, "")
+	report := eng.Scan(tool)
+	assert.True(t, report.HasFinding("AS-006"),
+		"safe-prefix names must still trigger when description confirms execution")
+}
+
+func TestArbitraryCodeChecker_AnalyzeCode_NoFalsePositive(t *testing.T) {
+	cases := []struct {
+		name string
+		desc string
+	}{
+		{"analyze_code_security", "Analyzes code for security vulnerabilities."},
+		{"analyze_codebase", "AST parsing analysis of the codebase."},
+	}
+	for _, tc := range cases {
+		tool := model.UnifiedTool{Name: tc.name, Description: tc.desc}
+		eng, _ := NewEngine(false, "")
+		report := eng.Scan(tool)
+		assert.False(t, report.HasFinding("AS-006"),
+			"false positive: %q must NOT trigger AS-006", tc.name)
+	}
+}
+
+func TestArbitraryCodeChecker_ResolveLibraryId_NoFalsePositive(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "resolve-library-id",
+		Description: "Resolves a library identifier to its metadata.",
+	}
+	eng, _ := NewEngine(false, "")
+	report := eng.Scan(tool)
+	assert.False(t, report.HasFinding("AS-006"),
+		"resolve-library-id must NOT trigger AS-006")
+}
+
+func TestArbitraryCodeChecker_CodeContext_NoFalsePositive(t *testing.T) {
+	cases := []struct {
+		name string
+		desc string
+	}{
+		{"get_code_context_exa", "Returns code context from search results."},
+		{"microsoft_code_sample_search", "Searches for code samples in Microsoft docs."},
+	}
+	for _, tc := range cases {
+		tool := model.UnifiedTool{Name: tc.name, Description: tc.desc}
+		eng, _ := NewEngine(false, "")
+		report := eng.Scan(tool)
+		assert.False(t, report.HasFinding("AS-006"),
+			"false positive: %q must NOT trigger AS-006", tc.name)
+	}
+}
+
+func TestArbitraryCodeChecker_PlanCreate_NoFalsePositive(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "plan_create",
+		Description: "Creates execution plans, does not execute code.",
+	}
+	eng, _ := NewEngine(false, "")
+	report := eng.Scan(tool)
+	assert.False(t, report.HasFinding("AS-006"),
+		"plan_create must NOT trigger AS-006")
+}
+
+func TestArbitraryCodeChecker_GetComponentSnippet_NoFalsePositive(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "get_component_snippet",
+		Description: "Returns code snippets for UI components.",
+	}
+	eng, _ := NewEngine(false, "")
+	report := eng.Scan(tool)
+	assert.False(t, report.HasFinding("AS-006"),
+		"get_component_snippet must NOT trigger AS-006")
+}
+
+func TestArbitraryCodeChecker_SpecLockPolicyEvaluate_NoFalsePositive(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "speclock_policy_evaluate",
+		Description: "Evaluate a speclock policy against the current project state.",
+	}
+	eng, _ := NewEngine(false, "")
+	report := eng.Scan(tool)
+	assert.False(t, report.HasFinding("AS-006"),
+		"speclock_policy_evaluate must NOT trigger AS-006 — policy evaluation, not code execution")
+}
+
+func TestArbitraryCodeChecker_CodeMode_NoFalsePositive(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		desc string
+	}{
+		{"brave_web_search_code_mode", "Search the web using Brave with code-optimized results."},
+		{"brave_local_search_code_mode", "Search local results using Brave in code mode."},
+		{"code_mode_transform", "Transform search results into code-friendly format."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := model.UnifiedTool{Name: tc.name, Description: tc.desc}
+			eng, _ := NewEngine(false, "")
+			report := eng.Scan(tool)
+			assert.False(t, report.HasFinding("AS-006"),
+				"%s must NOT trigger AS-006 — code_mode is a search mode, not execution", tc.name)
+		})
+	}
+}
+
+func TestArbitraryCodeChecker_SafePrefixGatesRegex(t *testing.T) {
+	// analyze_code_security with a description containing "execute" should NOT
+	// trigger AS-006 because the safe prefix analyze_code gates the regex phase.
+	tool := model.UnifiedTool{
+		Name:        "analyze_code_security",
+		Description: "Analyze repository code and execute static analysis scans for vulnerabilities.",
+	}
+	eng, _ := NewEngine(false, "")
+	report := eng.Scan(tool)
+	assert.False(t, report.HasFinding("AS-006"),
+		"analyze_code_security must NOT trigger AS-006 even when description says 'execute'")
+}
+
+func TestArbitraryCodeChecker_SafePrefixOverriddenByRealExecution(t *testing.T) {
+	// If description genuinely confirms code execution, safe prefix should NOT suppress.
+	tool := model.UnifiedTool{
+		Name:        "analyze_code_eval",
+		Description: "Analyze code by running eval() on JavaScript expressions.",
+	}
+	eng, _ := NewEngine(false, "")
+	report := eng.Scan(tool)
+	assert.True(t, report.HasFinding("AS-006"),
+		"analyze_code with eval() in description must still trigger AS-006")
+}
+
+// ---------------------------------------------------------------------------
+// Capability-gate tests (Change 3)
+// ---------------------------------------------------------------------------
+
+func TestArbitraryCodeChecker_NameOnly_NoCap_PossibleCode(t *testing.T) {
+	// Tool named "codex" matches nothing in our keyword/suffix/pattern lists — no finding.
+	// Use a name that does match but has no capability signals.
+	tool := model.UnifiedTool{
+		Name:        "run_code",
+		Description: "Run code in the sandbox.",
+	}
+	checker := NewArbitraryCodeChecker()
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "POSSIBLE_ARBITRARY_CODE_EXECUTION", issues[0].Code,
+		"name/description match only → POSSIBLE_ARBITRARY_CODE_EXECUTION (Info)")
+	assert.Equal(t, model.SeverityInfo, issues[0].Severity)
+}
+
+func TestArbitraryCodeChecker_ExecPermission_ConfirmedCritical(t *testing.T) {
+	// PermissionExec corroborates the name/description match → Critical.
+	tool := model.UnifiedTool{
+		Name:        "run_code",
+		Description: "Run code in the sandbox.",
+		Permissions: []model.Permission{model.PermissionExec},
+	}
+	checker := NewArbitraryCodeChecker()
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "ARBITRARY_CODE_EXECUTION", issues[0].Code,
+		"exec permission present → ARBITRARY_CODE_EXECUTION (Critical)")
+	assert.Equal(t, model.SeverityCritical, issues[0].Severity)
+}
+
+func TestArbitraryCodeChecker_ScriptInputProp_ConfirmedCritical(t *testing.T) {
+	// Input property named "script" corroborates the match → Critical.
+	tool := model.UnifiedTool{
+		Name:        "run_code",
+		Description: "Run code in the sandbox.",
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"script": {Type: "string"},
+			},
+		},
+	}
+	checker := NewArbitraryCodeChecker()
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "ARBITRARY_CODE_EXECUTION", issues[0].Code,
+		"'script' input property → ARBITRARY_CODE_EXECUTION (Critical)")
+	assert.Equal(t, model.SeverityCritical, issues[0].Severity)
+}
+
+// ---------------------------------------------------------------------------
+// Regression tests: AS-006 expression-input FP fix (Change 2)
+// ---------------------------------------------------------------------------
+
+func TestArbitraryCodeChecker_ExpressionInput_NotConfirmed(t *testing.T) {
+	// cyanheads-calculator-mcp / ethanhenrickson-math-mcp: tool names that match
+	// an AS-006 keyword ("evaluate script", etc.) via name/description but whose
+	// only input property is "expression" (a math expression, not code).
+	// Before Change 2, hasCodeExecutionCapability returned true for "expression"
+	// (substring match on "expression"), promoting the finding to Critical.
+	// After Change 2, "expression" is deliberately excluded from isCodeExecPropName
+	// so the finding remains Info/POSSIBLE_ARBITRARY_CODE_EXECUTION.
+	for _, tc := range []struct {
+		name string
+		desc string
+	}{
+		{"calculate", "Evaluates a mathematical expression and returns the result."},
+		{"evaluate", "Evaluates a math expression using safe arithmetic rules."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := model.UnifiedTool{
+				Name:        tc.name,
+				Description: tc.desc,
+				InputSchema: jsonschema.Schema{
+					Properties: map[string]jsonschema.Property{
+						"expression": {Type: "string"},
+					},
+				},
+			}
+			checker := NewArbitraryCodeChecker()
+			issues, err := checker.Check(tool)
+			require.NoError(t, err)
+			// May or may not fire depending on whether name/desc matches a keyword;
+			// if it fires, it must NOT be Critical.
+			for _, iss := range issues {
+				assert.NotEqual(t, model.SeverityCritical, iss.Severity,
+					"%s: 'expression' input must not promote AS-006 to Critical", tc.name)
+				assert.Equal(t, "POSSIBLE_ARBITRARY_CODE_EXECUTION", iss.Code,
+					"%s: 'expression' input must leave finding as POSSIBLE (Info)", tc.name)
+			}
+		})
+	}
+}
+
+func TestArbitraryCodeChecker_ExpressionInput_MathEvaluator_NoFP(t *testing.T) {
+	// Regression: safe math evaluator with name matching keyword and only an
+	// "expression" param must NOT become Critical.
+	// Name "evaluate_script" matches keyword → fires, but "expression" input
+	// must not confirm capability → stays Info.
+	tool := model.UnifiedTool{
+		Name:        "evaluate_script",
+		Description: "Evaluates a mathematical expression.",
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"expression": {Type: "string"},
+			},
+		},
+	}
+	checker := NewArbitraryCodeChecker()
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "POSSIBLE_ARBITRARY_CODE_EXECUTION", issues[0].Code,
+		"'expression' input must not confirm capability — must stay POSSIBLE (Info)")
+	assert.Equal(t, model.SeverityInfo, issues[0].Severity)
+}
+
+func TestArbitraryCodeChecker_CodeInput_ConfirmedCritical(t *testing.T) {
+	// A tool with a bare "code" input prop (exact match) IS confirmed → Critical.
+	tool := model.UnifiedTool{
+		Name:        "run_code",
+		Description: "Run code in the sandbox.",
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"code": {Type: "string"},
+			},
+		},
+	}
+	checker := NewArbitraryCodeChecker()
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "ARBITRARY_CODE_EXECUTION", issues[0].Code,
+		"bare 'code' input → ARBITRARY_CODE_EXECUTION (Critical)")
+	assert.Equal(t, model.SeverityCritical, issues[0].Severity)
+}
+
+func TestArbitraryCodeChecker_StatusCodeInput_NotConfirmed(t *testing.T) {
+	// "status_code" is a bare *_code identifier — NOT code execution.
+	// It must not promote an AS-006 finding to Critical.
+	tool := model.UnifiedTool{
+		Name:        "run_code",
+		Description: "Run code in the sandbox.",
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"status_code": {Type: "integer"},
+			},
+		},
+	}
+	checker := NewArbitraryCodeChecker()
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "POSSIBLE_ARBITRARY_CODE_EXECUTION", issues[0].Code,
+		"'status_code' input must not confirm capability — must stay POSSIBLE (Info)")
+	assert.Equal(t, model.SeverityInfo, issues[0].Severity)
 }

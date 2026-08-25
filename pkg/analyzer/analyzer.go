@@ -46,6 +46,7 @@ func NewScanner(enableDeepScan bool, rulesDir string) (*Scanner, error) {
 	checkers := []checker{
 		NewBlacklistChecker(),               // AS-008 (offline blacklist, runs first)
 		NewPoisoningChecker(enableDeepScan), // AS-001
+		NewDataExfilDescriptionChecker(),    // AS-017
 		NewPermissionChecker(),              // AS-002
 		NewScopeChecker(),                   // AS-003
 		NewSupplyChainChecker(),             // AS-004
@@ -55,6 +56,9 @@ func NewScanner(enableDeepScan bool, rulesDir string) (*Scanner, error) {
 		NewTyposquattingChecker(),           // AS-009
 		NewSecretHandlingChecker(),          // AS-010
 		NewDoSResilienceChecker(),           // AS-011
+		NewDependencyInventoryChecker(),     // AS-014
+		NewNPMLifecycleScriptChecker(),      // AS-015
+		NewNPMIOCChecker(),                  // AS-016
 		NewShadowingChecker(),               // AS-013
 	}
 
@@ -99,9 +103,28 @@ func (s *Scanner) Scan(ctx context.Context, tool model.UnifiedTool) (model.RiskS
 		allIssues = append(allIssues, issues...)
 	}
 
+	allIssues = dedupeIssues(allIssues)
+
 	for _, issue := range allIssues {
 		totalScore += severityWeight[issue.Severity]
 	}
 
 	return model.NewRiskScore(totalScore, allIssues), nil
+}
+
+// dedupeIssues removes exact-duplicate findings so a repeated issue is counted
+// once in the risk score.  The key includes Description so distinct CVEs on the
+// same package are preserved.
+func dedupeIssues(issues []model.Issue) []model.Issue {
+	seen := make(map[string]bool, len(issues))
+	out := make([]model.Issue, 0, len(issues))
+	for _, is := range issues {
+		key := is.RuleID + "|" + is.Code + "|" + is.Location + "|" + is.Description
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, is)
+	}
+	return out
 }

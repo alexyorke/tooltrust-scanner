@@ -26,7 +26,6 @@ var arbitraryCodeKeywords = []string{
 	"arbitrary command",
 	"python code",
 	"runs user-provided",
-	"code snippet",
 }
 
 // arbitraryCodePatterns are compiled regexes for natural language variants
@@ -48,6 +47,10 @@ var arbitraryCodePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)inject\w*\s+\w*\s*(script|code)`),
 	// accepts / runs ... python code
 	regexp.MustCompile(`(?i)(accepts|runs|executes?).*python\s+code`),
+	// accepts / runs / executes ... javascript code
+	regexp.MustCompile(`(?i)(accepts|runs|executes?).*(javascript|js)\s+code`),
+	// "run/execute/eval ... code snippet" — but not "returns code snippet"
+	regexp.MustCompile(`(?i)(run|execut\w*|eval\w*)\s+.*code\s+snippet`),
 	// page.evaluate() / frame.evaluate() / window.eval — common in CDP/Puppeteer
 	regexp.MustCompile(`(?i)(page|frame|window|document)\.(eval|evaluate)\b`),
 	// hidden shell command in backticks: `curl ... | bash`, `wget`, `sh`
@@ -68,6 +71,40 @@ var arbitraryCodeNameSuffixes = []string{
 	"_runscript",
 }
 
+// arbitraryCodeSafeNamePrefixes are tool-name prefixes where evaluate/execute/analyze
+// mean "assess" or "inspect", not code execution. When a tool name starts with one
+// of these AND the description doesn't independently confirm code execution, skip.
+var arbitraryCodeSafeNamePrefixes = []string{
+	"evaluate_guardrail",
+	"evaluate_action",
+	"evaluate_contract",
+	"evaluate_policy",
+	"evaluate_compliance",
+	"evaluate_rule",
+	"evaluate_condition",
+	"evaluate_risk",
+	"analyze_code",
+	"analyze_codebase",
+	"resolve_library",
+	"resolve-library",
+}
+
+// arbitraryCodeSafeNameSubstrings are substrings in tool names that indicate
+// the tool works with code artifacts (samples, context, snippets) rather than
+// executing code.
+var arbitraryCodeSafeNameSubstrings = []string{
+	"code_context",
+	"code_sample",
+	"code_search",
+	"code_quality",
+	"code_review",
+	"code_snippet",
+	"code_completion",
+	"code_mode",
+	"component_snippet",
+	"policy_evaluate",
+}
+
 // ArbitraryCodeChecker detects tools that can execute arbitrary script or
 // code (e.g. evaluate_script, execute JavaScript, browser injection).
 // These are AS-006 with CRITICAL severity — equivalent risk to exec.
@@ -84,6 +121,45 @@ func (c *ArbitraryCodeChecker) Meta() RuleMeta {
 // NewArbitraryCodeChecker returns a new ArbitraryCodeChecker.
 func NewArbitraryCodeChecker() *ArbitraryCodeChecker { return &ArbitraryCodeChecker{} }
 
+// descriptionConfirmsExecution checks whether the description independently
+// contains strong signals of actual code/script execution (not just analysis).
+func descriptionConfirmsExecution(desc string) bool {
+	executionSignals := []string{
+		"eval(", "eval (", "run script",
+		"run code", "execute code", "execute script",
+		"execute javascript", "execute js",
+		"run javascript", "run js code",
+		"javascript eval", "javascript execution",
+		"javascript code", "js injection",
+		"arbitrary code", "arbitrary script",
+		"browser context",
+		"page.evaluate", "frame.evaluate",
+	}
+	for _, sig := range executionSignals {
+		if strings.Contains(desc, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+func descriptionNegatesKeyword(desc, kw string) bool {
+	negatedForms := []string{
+		"does not " + kw,
+		"do not " + kw,
+		"doesn't " + kw,
+		"don't " + kw,
+		"not " + kw,
+		"without " + kw,
+	}
+	for _, negated := range negatedForms {
+		if strings.Contains(desc, negated) {
+			return true
+		}
+	}
+	return false
+}
+
 // Check produces an AS-006 finding when name or description signals
 // arbitrary code/script execution capability.
 func (c *ArbitraryCodeChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {
@@ -98,36 +174,146 @@ func (c *ArbitraryCodeChecker) Check(tool model.UnifiedTool) ([]model.Issue, err
 			strings.Contains(nameLower, kwSnake) ||
 			strings.Contains(nameLower, strings.ReplaceAll(kw, " ", ""))
 		descMatch := strings.Contains(descLower, kw)
+		if !nameMatch && descMatch && descriptionNegatesKeyword(descLower, kw) {
+			descMatch = false
+		}
 		if nameMatch || descMatch {
-			return emitArbitraryCodeFinding(tool.Name), nil
+			evidence := []model.Evidence{}
+			if nameMatch {
+				evidence = append(evidence, model.Evidence{Kind: "tool_name_keyword", Value: kw})
+			}
+			if descMatch {
+				evidence = append(evidence, model.Evidence{Kind: "description_keyword", Value: kw})
+			}
+			return emitArbitraryCodeFinding(tool.Name, evidence, hasCodeExecutionCapability(tool)), nil
+		}
+	}
+
+	// 1.5. Skip tools whose names indicate code artifact handling (samples,
+	// context, snippets) rather than code execution.  This runs AFTER keyword
+	// matching so that names like run_code_snippet still fire on the "run code"
+	// keyword before being considered safe.
+	for _, safe := range arbitraryCodeSafeNameSubstrings {
+		if strings.Contains(nameLower, safe) && !descriptionConfirmsExecution(descLower) {
+			return nil, nil
 		}
 	}
 
 	// 2. Name-suffix patterns (e.g. chrome_evaluate, cdp_eval).
+	// Only match when the suffix appears at the end of the name, not when it
+	// appears in a leading segment such as evaluate_guardrail.
 	for _, suffix := range arbitraryCodeNameSuffixes {
-		if strings.HasSuffix(nameLower, suffix) || strings.Contains(nameLower, suffix) {
-			return emitArbitraryCodeFinding(tool.Name), nil
+		if strings.HasSuffix(nameLower, suffix) {
+			isSafe := false
+			for _, prefix := range arbitraryCodeSafeNamePrefixes {
+				if strings.HasPrefix(nameLower, prefix) {
+					isSafe = true
+					break
+				}
+			}
+			if isSafe && !descriptionConfirmsExecution(descLower) {
+				continue
+			}
+			return emitArbitraryCodeFinding(tool.Name, []model.Evidence{
+				{Kind: "tool_name_suffix", Value: suffix},
+			}, hasCodeExecutionCapability(tool)), nil
 		}
 	}
 
 	// 3. Regex patterns for natural language variants in description or name.
+	// Apply the same safe-prefix / safe-substring gating as step 2 so that
+	// tools like analyze_code_security or brave_web_search_code_mode are not
+	// falsely flagged when the description happens to contain "execute" in a
+	// non-code-execution context.
 	combined := nameLower + " " + descLower
 	for _, re := range arbitraryCodePatterns {
-		if re.MatchString(combined) {
-			return emitArbitraryCodeFinding(tool.Name), nil
+		if !re.MatchString(combined) {
+			continue
 		}
+		isSafe := false
+		for _, prefix := range arbitraryCodeSafeNamePrefixes {
+			if strings.HasPrefix(nameLower, prefix) {
+				isSafe = true
+				break
+			}
+		}
+		if !isSafe {
+			for _, safe := range arbitraryCodeSafeNameSubstrings {
+				if strings.Contains(nameLower, safe) {
+					isSafe = true
+					break
+				}
+			}
+		}
+		if isSafe && !descriptionConfirmsExecution(descLower) {
+			continue
+		}
+		matched := re.FindString(combined)
+		return emitArbitraryCodeFinding(tool.Name, []model.Evidence{
+			{Kind: "pattern", Value: re.String()},
+			{Kind: "match", Value: matched},
+		}, hasCodeExecutionCapability(tool)), nil
 	}
 
 	return nil, nil
 }
 
-func emitArbitraryCodeFinding(toolName string) []model.Issue {
+// hasCodeExecutionCapability reports an independent signal that the tool can
+// actually execute code/scripts (not just mention it in name/description).
+func hasCodeExecutionCapability(tool model.UnifiedTool) bool {
+	if tool.HasPermission(model.PermissionExec) {
+		return true
+	}
+	for propName := range tool.InputSchema.Properties {
+		if isCodeExecPropName(strings.ToLower(propName)) {
+			return true
+		}
+	}
+	return false
+}
+
+// isCodeExecPropName reports whether an input property name denotes a
+// block of code/script to execute. Deliberately excludes "expression" (math
+// expressions) and bare "*_code" identifiers (country_code, status_code, …).
+func isCodeExecPropName(p string) bool {
+	switch p {
+	case "code", "script", "source", "eval", "command", "cmd", "shell", "snippet":
+		return true
+	}
+	for _, h := range []string{"script", "javascript", "sourcecode", "source_code",
+		"code_snippet", "code_to_run", "shellcode", "python_code", "js_code"} {
+		if strings.Contains(p, h) {
+			return true
+		}
+	}
+	return false
+}
+
+// emitArbitraryCodeFinding emits an AS-006 finding.
+// When confirmed is true (exec permission OR a genuine code/script input
+// property detected by isCodeExecPropName), the finding is
+// Critical/ARBITRARY_CODE_EXECUTION and contributes to the risk score.
+// When false (name/description heuristic only), it is
+// Info/POSSIBLE_ARBITRARY_CODE_EXECUTION so it does not inflate the grade.
+func emitArbitraryCodeFinding(toolName string, evidence []model.Evidence, confirmed bool) []model.Issue {
+	if confirmed {
+		return []model.Issue{{
+			RuleID:      "AS-006",
+			ToolName:    toolName,
+			Severity:    model.SeverityCritical,
+			Code:        "ARBITRARY_CODE_EXECUTION",
+			Description: "tool name or description implies arbitrary script/code execution (evaluate_script, execute javascript, etc.)",
+			Location:    "name,description",
+			Evidence:    evidence,
+		}}
+	}
 	return []model.Issue{{
 		RuleID:      "AS-006",
 		ToolName:    toolName,
-		Severity:    model.SeverityCritical,
-		Code:        "ARBITRARY_CODE_EXECUTION",
-		Description: "tool name or description implies arbitrary script/code execution (evaluate_script, execute javascript, etc.)",
+		Severity:    model.SeverityInfo,
+		Code:        "POSSIBLE_ARBITRARY_CODE_EXECUTION",
+		Description: "tool name or description implies arbitrary script/code execution — capability unconfirmed (no exec permission or code/script/eval input property found)",
 		Location:    "name,description",
+		Evidence:    evidence,
 	}}
 }

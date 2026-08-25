@@ -1,0 +1,158 @@
+# IOC Pipeline
+
+ToolTrust now supports a small, curated IOC feed for supply-chain detection.
+
+This document defines how threat-intel findings move from blog posts or advisories
+into scanner-enforced data files such as:
+
+- `pkg/analyzer/data/blacklist.json`
+- `pkg/analyzer/data/npm_iocs.json`
+
+## Goals
+
+- Keep IOC updates data-driven instead of editing Go logic for every incident
+- Separate low-confidence candidate intel from scanner-enforced detections
+- Require human review before promoting new blocking or critical rules
+
+## Current Data Files
+
+### `pkg/analyzer/data/blacklist.json`
+
+Use for:
+
+- confirmed malicious versions
+- confirmed compromised releases
+- known-bad version ranges with strong public attribution
+
+These entries typically map to `AS-008`.
+
+### `pkg/analyzer/data/npm_iocs.json`
+
+Use for:
+
+- malicious IOC package names
+- known dropper/helper package names
+- metadata-level indicators that can be detected without tarball scanning
+
+These entries currently map to `AS-016`.
+
+Supported npm IOC types currently include:
+- `package_name`
+- `dependency_name`
+- `script_pattern`
+- `domain`
+- `url`
+
+## Candidate Flow
+
+1. Threat-intel monitor opens an issue for a new incident or blog post.
+2. The daily OSV `MAL-` monitor opens a review-only digest PR under `.github/ioc-candidates/review/`.
+   - These are **OSV `MAL-` records** — confirmed malicious packages from OpenSSF malicious-packages,
+     Amazon Inspector, GitHub Advisory, and similar sources — not ordinary CVEs.
+   - Ordinary CVEs are covered by AS-004 real-time OSV lookup and must not flow through this path.
+   - An **MCP/AI relevance filter** is applied before emitting candidates: only packages whose name
+     or description contains MCP/AI-tooling domain markers are included (`mcp`, `openai`,
+     `anthropic`, `claude`, `langchain`, `tiktoken`, `ollama`, etc.). Unrelated malicious packages
+     — crypto typosquats (`solana-core-4`, `bittensor-burn`, …), banking malware, etc. — are
+     intentionally excluded. Those packages are genuinely malicious but outside ToolTrust's MCP
+     scope; AS-004 real-time OSV lookup already covers them for any scan that queries OSV.
+3. Maintainer reviews the digest PR and picks high-value entries to promote.
+4. Candidate is classified:
+   - `promote_to: blacklist` — for confirmed malicious versions worth adding to AS-008
+   - `promote_to: npm_iocs` — for suspicious package name indicators
+   - `promote_to: watch_only` — when attribution is weak or AS-004 coverage is sufficient
+5. Maintainer adds the reviewed entry to the scanner data file.
+6. Tests are updated to cover the new signal.
+7. A scanner release/tag is cut so ToolTrust Directory can consume the update.
+
+The daily OSV monitor is intentionally not an automatic promotion path. It
+should not modify `pkg/analyzer/data/blacklist.json` or
+`pkg/analyzer/data/npm_iocs.json` directly.
+
+Division of responsibility:
+- **Ordinary CVEs** (RCE, SSRF, IDOR, hardcoded secrets, etc.) → AS-004 real-time OSV lookup
+- **Confirmed malicious packages** (`MAL-` records) → this pipeline collects + human promotes → AS-008
+
+## Promotion Helper
+
+ToolTrust includes a small helper for the most common promotion path:
+
+```bash
+go run ./cmd/tooltrust-ioc-promote .github/ioc-candidates.example.json
+```
+
+Current behavior:
+
+- validates basic candidate structure
+- promotes `promote_to: npm_iocs` entries into `pkg/analyzer/data/npm_iocs.json`
+- promotes `promote_to: blacklist` entries into `pkg/analyzer/data/blacklist.json` when version and action fields are present
+- skips unsupported candidate types rather than guessing
+
+This keeps the first promotion path simple and deterministic. Promotion into
+`blacklist.json` remains intentionally stricter than IOC promotion: confirmed
+versions, action, severity, and a stable blacklist identifier are required.
+
+## Candidate Schema
+
+Candidate IOC files should validate against:
+
+- `.github/ioc-candidates.schema.json`
+
+Recommended fields:
+
+- `ecosystem`
+- `ioc_type`
+- `value`
+- `confidence`
+- `reason`
+- `source`
+- `first_seen`
+- `suggested_action`
+- `promote_to`
+
+Example candidate entry:
+
+```json
+{
+  "ecosystem": "npm",
+  "ioc_type": "package_name",
+  "value": "plain-crypto-js",
+  "confidence": "high",
+  "reason": "Observed in the malicious axios npm publish on March 31, 2026.",
+  "source": "https://example.com/incident-writeup",
+  "first_seen": "2026-03-31",
+  "suggested_action": "flag",
+  "promote_to": "npm_iocs"
+}
+```
+
+## Promotion Rules
+
+Promote to `blacklist.json` when:
+
+- a specific version or version range is confirmed malicious
+- public attribution is strong enough to justify blocking
+- the action should be immediate and deterministic
+
+Promote to `npm_iocs.json` when:
+
+- the IOC is a suspicious package or metadata indicator
+- it can appear across multiple compromised publishes
+- it is useful even when the final malicious version is not yet blacklisted
+
+Keep as `watch_only` when:
+
+- attribution is weak
+- only one unverified report exists
+- the signal is too noisy for scanner enforcement
+- the advisory is a normal CVE/RCE/IDOR/sandbox escape/hardcoded secret without
+  evidence of malicious or compromised package publication
+
+## What This Does Not Cover Yet
+
+- full tarball signature scanning
+- JS source-code fingerprinting
+- fuzzy matching over obfuscated payloads
+- automatic promotion from issue feed to blocking rules
+
+Those should come later, after the candidate data flow is stable.

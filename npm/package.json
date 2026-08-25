@@ -1,7 +1,7 @@
 {
   "name": "tooltrust-mcp",
-  "version": "1.0.7",
-  "description": "70% of MCP servers have security issues. ToolTrust scans tool definitions for prompt injection, data exfiltration, and privilege escalation — then grades each tool A–F. Add to your .mcp.json and let your AI agent audit its own tools.",
+  "version": "1.1.12",
+  "description": "MCP server that scans other MCP servers for prompt injection, data exfiltration, and privilege escalation. Add to your .mcp.json and let your AI agent audit its own tools.",
   "keywords": [
     "mcp",
     "security",
@@ -13,11 +13,13 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/AgentSafe-AI/tooltrust-scanner"
+    "url": "git+https://github.com/AgentSafe-AI/tooltrust-scanner.git"
   },
   "homepage": "https://www.tooltrust.dev/",
   "license": "MIT",
   "bin": {
     "tooltrust-mcp": "bin/run.js"
-  }
+  },
+  "mcpName": "io.github.AgentSafe-AI/tooltrust-scanner",
+  "tooltrustBinaryVersion": "v0.3.17"
 }

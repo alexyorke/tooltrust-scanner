@@ -224,6 +224,35 @@ func TestSupplyChainChecker_NoSeverityScore_DefaultsToHigh(t *testing.T) {
 		"missing CVSS score should default to HIGH (conservative)")
 }
 
+func TestSupplyChainChecker_RepoURLLockfileDependency_IncludesEvidenceSource(t *testing.T) {
+	prev := analyzer.LockfileDepsFetcherForTest()
+	analyzer.SetLockfileDepsFetcherForTest(func(string) []analyzer.Dependency {
+		return []analyzer.Dependency{
+			{Name: "axios", Version: "1.14.1", Ecosystem: "npm"},
+		}
+	})
+	t.Cleanup(func() {
+		analyzer.SetLockfileDepsFetcherForTest(prev)
+	})
+
+	checker := analyzer.NewSupplyChainCheckerWithMock([]analyzer.MockVuln{
+		{ID: "MAL-2026-0001", Summary: "Known malicious package", CVSSScore: "9.8"},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "repo_tool",
+		Metadata: map[string]any{
+			"repo_url": "https://github.com/example/repo",
+		},
+	}
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "dependency_source", issues[0].Evidence[3].Kind)
+	assert.Equal(t, "lockfile", issues[0].Evidence[3].Value)
+	assert.Equal(t, "MALICIOUS_PACKAGE", issues[0].Code)
+}
+
 // ---------------------------------------------------------------------------
 // Lockfile parser unit tests
 // ---------------------------------------------------------------------------
@@ -285,4 +314,224 @@ Flask==2.3.1 ; python_requires >= "3.8"
 	}
 	assert.Equal(t, "4.2.0", names["django"])
 	assert.Equal(t, "2.3.1", names["Flask"])
+}
+
+func TestParsePNPMLockYAML(t *testing.T) {
+	data := []byte(`
+lockfileVersion: '9.0'
+packages:
+  /axios@1.14.1:
+    resolution: {integrity: sha512-abc}
+  /@scope/sdk@2.3.4(axios@1.14.1):
+    resolution: {integrity: sha512-def}
+`)
+	deps, err := analyzer.ParsePNPMLockYAMLForTest(data)
+	require.NoError(t, err)
+	assert.Len(t, deps, 2)
+
+	names := make(map[string]string)
+	for _, d := range deps {
+		names[d.Name] = d.Version
+		assert.Equal(t, "npm", d.Ecosystem)
+	}
+	assert.Equal(t, "1.14.1", names["axios"])
+	assert.Equal(t, "2.3.4", names["@scope/sdk"])
+}
+
+func TestParseYarnLock(t *testing.T) {
+	data := []byte(`
+"axios@^1.14.1":
+  version "1.14.1"
+  resolved "https://registry.yarnpkg.com/axios/-/axios-1.14.1.tgz"
+
+"@scope/sdk@^2.3.4", "@scope/sdk@~2.3.4":
+  version "2.3.4"
+`)
+	deps, err := analyzer.ParseYarnLockForTest(data)
+	require.NoError(t, err)
+	assert.Len(t, deps, 2)
+
+	names := make(map[string]string)
+	for _, d := range deps {
+		names[d.Name] = d.Version
+		assert.Equal(t, "npm", d.Ecosystem)
+	}
+	assert.Equal(t, "1.14.1", names["axios"])
+	assert.Equal(t, "2.3.4", names["@scope/sdk"])
+}
+
+// ---------------------------------------------------------------------------
+// Transitive / source-based severity tests (Change 1)
+// ---------------------------------------------------------------------------
+
+func TestSupplyChainChecker_LockfileCVE_Info(t *testing.T) {
+	// Lockfile-sourced CVE must be downgraded to Info with code
+	// SUPPLY_CHAIN_CVE_TRANSITIVE and a note about unconfirmed reachability.
+	prev := analyzer.LockfileDepsFetcherForTest()
+	analyzer.SetLockfileDepsFetcherForTest(func(string) []analyzer.Dependency {
+		return []analyzer.Dependency{
+			{Name: "lodash", Version: "4.17.15", Ecosystem: "npm"},
+		}
+	})
+	t.Cleanup(func() { analyzer.SetLockfileDepsFetcherForTest(prev) })
+
+	checker := analyzer.NewSupplyChainCheckerWithMock([]analyzer.MockVuln{
+		{ID: "CVE-2026-5024", Summary: "Prototype pollution", CVSSScore: "9.8"},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name:     "go_tool",
+		Metadata: map[string]any{"repo_url": "https://github.com/example/repo"},
+	}
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "SUPPLY_CHAIN_CVE_TRANSITIVE", issues[0].Code,
+		"lockfile CVE must use SUPPLY_CHAIN_CVE_TRANSITIVE code")
+	assert.Equal(t, model.SeverityInfo, issues[0].Severity,
+		"lockfile CVE must be Info to avoid inflating score")
+	assert.Contains(t, issues[0].Description, "transitive dependency",
+		"description must note transitive dependency")
+}
+
+func TestSupplyChainChecker_LockfileMAL_Critical(t *testing.T) {
+	// MAL-* from lockfile must stay Critical — malware anywhere in the tree is a
+	// true positive regardless of source.
+	prev := analyzer.LockfileDepsFetcherForTest()
+	analyzer.SetLockfileDepsFetcherForTest(func(string) []analyzer.Dependency {
+		return []analyzer.Dependency{
+			{Name: "evil-pkg", Version: "1.0.0", Ecosystem: "npm"},
+		}
+	})
+	t.Cleanup(func() { analyzer.SetLockfileDepsFetcherForTest(prev) })
+
+	checker := analyzer.NewSupplyChainCheckerWithMock([]analyzer.MockVuln{
+		{ID: "MAL-2026-9999", Summary: "Credential stealer", CVSSScore: "7.0"},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name:     "repo_tool",
+		Metadata: map[string]any{"repo_url": "https://github.com/example/repo"},
+	}
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "MALICIOUS_PACKAGE", issues[0].Code,
+		"MAL-* from lockfile must still be MALICIOUS_PACKAGE")
+	assert.Equal(t, model.SeverityCritical, issues[0].Severity,
+		"MAL-* from lockfile must stay Critical")
+}
+
+func TestSupplyChainChecker_MetadataCVE_KeepsSeverity(t *testing.T) {
+	// Metadata-sourced CVE keeps OSV-derived severity (Critical for CVSS 9.8).
+	checker := analyzer.NewSupplyChainCheckerWithMock([]analyzer.MockVuln{
+		{ID: "CVE-2024-1111", Summary: "RCE", CVSSScore: "9.8"},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "meta_tool",
+		Metadata: map[string]any{
+			"dependencies": []any{
+				map[string]any{"name": "vuln-pkg", "version": "2.0.0", "ecosystem": "npm"},
+			},
+		},
+	}
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "SUPPLY_CHAIN_CVE", issues[0].Code,
+		"metadata CVE must use SUPPLY_CHAIN_CVE code")
+	assert.Equal(t, model.SeverityCritical, issues[0].Severity,
+		"metadata CVE must keep OSV-derived severity")
+}
+
+// ---------------------------------------------------------------------------
+// local_lockfile source tests (Change B — AS-004 FP fix 0.3.16)
+// ---------------------------------------------------------------------------
+
+func TestSupplyChainChecker_LocalLockfileCVE_Info(t *testing.T) {
+	// A metadata dep carrying source:"local_lockfile" with a non-MAL CVE must be
+	// downgraded to Info (SUPPLY_CHAIN_CVE_TRANSITIVE), not scored at OSV severity.
+	// Before 0.3.16 this produced High/SUPPLY_CHAIN_CVE because the source field was
+	// dropped at unmarshal and collectDependencies hardcoded source="metadata".
+	checker := analyzer.NewSupplyChainCheckerWithMock([]analyzer.MockVuln{
+		{ID: "CVE-2026-5024", Summary: "Memory corruption", CVSSScore: "9.8"},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "go_tool",
+		Metadata: map[string]any{
+			"dependencies": []any{
+				map[string]any{
+					"name":      "golang.org/x/sys",
+					"version":   "v0.28.0",
+					"ecosystem": "Go",
+					"source":    "local_lockfile",
+				},
+			},
+		},
+	}
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "SUPPLY_CHAIN_CVE_TRANSITIVE", issues[0].Code,
+		"local_lockfile CVE must use SUPPLY_CHAIN_CVE_TRANSITIVE code (not SUPPLY_CHAIN_CVE)")
+	assert.Equal(t, model.SeverityInfo, issues[0].Severity,
+		"local_lockfile CVE must be downgraded to Info (was High before 0.3.16 fix)")
+	assert.Contains(t, issues[0].Description, "transitive dependency",
+		"description must note unconfirmed reachability")
+}
+
+func TestSupplyChainChecker_LocalLockfileMAL_Critical(t *testing.T) {
+	// MAL-* from a local_lockfile dep must stay Critical — malicious packages are
+	// always true positives regardless of source.
+	checker := analyzer.NewSupplyChainCheckerWithMock([]analyzer.MockVuln{
+		{ID: "MAL-2026-9999", Summary: "Credential stealer", CVSSScore: "7.0"},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "infected_tool",
+		Metadata: map[string]any{
+			"dependencies": []any{
+				map[string]any{
+					"name":      "evil-pkg",
+					"version":   "1.0.0",
+					"ecosystem": "npm",
+					"source":    "local_lockfile",
+				},
+			},
+		},
+	}
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "MALICIOUS_PACKAGE", issues[0].Code,
+		"MAL-* from local_lockfile must still produce MALICIOUS_PACKAGE code")
+	assert.Equal(t, model.SeverityCritical, issues[0].Severity,
+		"MAL-* from local_lockfile must remain Critical")
+}
+
+func TestSupplyChainChecker_EmptySource_UnchangedBehavior(t *testing.T) {
+	// A metadata dep with no source field keeps OSV-derived severity (High for CVSS
+	// 7.5). This is a regression guard: the empty-source path must behave as before.
+	checker := analyzer.NewSupplyChainCheckerWithMock([]analyzer.MockVuln{
+		{ID: "CVE-2024-0001", Summary: "Privilege escalation", CVSSScore: "7.5"},
+	}, nil)
+
+	tool := model.UnifiedTool{
+		Name: "normal_tool",
+		Metadata: map[string]any{
+			"dependencies": []any{
+				// No "source" key — simulates deps declared before 0.3.16.
+				map[string]any{"name": "express", "version": "4.18.0", "ecosystem": "npm"},
+			},
+		},
+	}
+	issues, err := checker.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "SUPPLY_CHAIN_CVE", issues[0].Code,
+		"dep with no source must default to metadata treatment (SUPPLY_CHAIN_CVE)")
+	assert.Equal(t, model.SeverityHigh, issues[0].Severity,
+		"dep with no source must keep OSV-derived severity (unchanged behavior)")
 }

@@ -1,0 +1,100 @@
+name: IOC Candidate Monitor
+
+on:
+  schedule:
+    - cron: "15 10 * * *"
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Published-within window (for example 24h or 720h)"
+        required: false
+        default: "24h"
+      ecosystems:
+        description: "Comma-separated OSV ecosystems"
+        required: false
+        default: "npm,PyPI,Go"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate-candidates:
+    name: Generate OSV MAL- review candidates
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Fetch IOC candidates
+        run: |
+          SINCE="${{ github.event.inputs.since || '24h' }}"
+          ECOSYSTEMS="${{ github.event.inputs.ecosystems || 'npm,PyPI,Go' }}"
+          go run ./scripts/ioc-candidates \
+            -since "$SINCE" \
+            -ecosystems "$ECOSYSTEMS" \
+            -out /tmp/candidates.json \
+            -existing pkg/analyzer/data/blacklist.json
+
+      - name: Count candidates
+        id: candidate_count
+        run: |
+          count="$(jq 'length' /tmp/candidates.json)"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare review artifact
+        if: steps.candidate_count.outputs.count != '0'
+        run: |
+          mkdir -p .github/ioc-candidates/review
+          cp /tmp/candidates.json ".github/ioc-candidates/review/osv-${{ github.run_id }}.json"
+
+      - name: Create pull request
+        if: steps.candidate_count.outputs.count != '0'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.TOOLTRUST_BOT_TOKEN || github.token }}
+          branch: ioc-candidates/${{ github.run_id }}
+          title: "threat-intel: ${{ steps.candidate_count.outputs.count }} MCP/AI-relevant OSV-confirmed malicious package(s) for review"
+          commit-message: "threat-intel: add ${{ steps.candidate_count.outputs.count }} MCP/AI-relevant OSV-confirmed malicious package(s) for review"
+          body: |
+            **MCP/AI-relevant** OSV-confirmed malicious packages from ecosystem feeds for the last 24 hours.
+
+            These entries are **OSV `MAL-` records** — confirmed malicious packages sourced from
+            OpenSSF malicious-packages, Amazon Inspector, GitHub Advisory, and similar reporters.
+            They are **not** ordinary CVEs.
+
+            A **MCP/AI relevance filter** has been applied: only packages whose name or description
+            contains MCP/AI-tooling domain markers (`mcp`, `openai`, `anthropic`, `claude`,
+            `langchain`, `tiktoken`, `ollama`, etc.) are included here. Unrelated malicious packages
+            (crypto typosquats, banking malware, etc.) are excluded — they are already covered by
+            AS-004 real-time OSV lookup and do not belong in the AS-008 MCP-focused blacklist.
+
+            This is a **review-only** PR. It intentionally does not modify:
+
+            - `pkg/analyzer/data/blacklist.json`
+            - `pkg/analyzer/data/npm_iocs.json`
+
+            Review each entry:
+            - Confirm the package is genuinely MCP/AI-tooling related.
+            - Check the affected version range: is it exact and narrow enough?
+            - Is this package high-value enough to add to the AS-008 offline blacklist, or is
+              AS-004 (real-time OSV lookup) sufficient coverage?
+            - Review the `notes` field for source attribution (e.g. amazon-inspector, ossf-package-analysis).
+
+            To promote a confirmed entry into AS-008:
+
+            ```bash
+            go run ./cmd/tooltrust-ioc-promote <reviewed-candidate-json>
+            ```
+
+            Close this PR after triage unless it is intentionally converted into a curated data update.
+          labels: |
+            ioc
+            automated
+          add-paths: |
+            .github/ioc-candidates/review/*.json

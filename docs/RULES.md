@@ -1,9 +1,7 @@
 # Security Rules
 
-ToolTrust Scanner checks every MCP tool against **12 built-in rules** (AS-001 through AS-011 and AS-013).
-Each rule fires independently; a tool can trigger multiple rules.
-
-**Note:** AS-012 (Tool Drift) is described below as **planned**—it is **not** executed by the engine yet (`pkg/analyzer` has no AS-012 checker).
+ToolTrust Scanner currently ships **18** active built-in rules: **16** tool-definition rules and **2** source-scan rules for embedded MCP implementations.
+Each rule fires independently; a tool or repository can trigger multiple rules.
 
 ---
 
@@ -13,7 +11,7 @@ Each rule fires independently; a tool can trigger multiple rules.
 
 Detects malicious instructions hidden in tool names or descriptions that attempt to hijack the agent's reasoning, override system prompts, or redirect behavior toward attacker-controlled goals.
 
-Common patterns: `ignore previous instructions`, `system:`, `exfiltrate data to`, role-override language, base64-encoded payloads.
+Common patterns: `ignore previous instructions`, `system:`, role-override language, and base64-encoded payloads intended to override the agent's instructions.
 
 ---
 
@@ -73,7 +71,7 @@ Tools with no description or no input schema give the agent no basis for safe us
 
 Checks an offline bundled blacklist of packages confirmed to have been compromised in supply chain attacks. No network required — zero latency.
 
-Current blacklist: LiteLLM 1.82.7/1.82.8 (TeamPCP `.pth` backdoor), Trivy v0.69.4–v0.69.6 (CI pipeline compromise), Langflow < 1.9.0 (unauthenticated RCE).
+Current blacklist: LiteLLM 1.82.7/1.82.8 (TeamPCP `.pth` backdoor), Trivy v0.69.4–v0.69.6 (CI pipeline compromise), Langflow < 1.9.0 (unauthenticated RCE), Axios 1.14.1/0.30.4 (malicious npm publish), Bitwarden CLI 2026.4.0, compromised `@cap-js/*` releases, and Mini Shai-Hulud/TanStack-related compromised npm/PyPI package versions.
 
 ---
 
@@ -101,16 +99,6 @@ Tools that perform network or execution operations without declaring rate-limit,
 
 ---
 
-## 🔄 AS-012 — Tool Drift (planned, not implemented)
-
-**Severity:** Medium (proposed)
-
-**Status:** Not shipped. The scanner does not emit AS-012 findings today. This section documents the intended future rule for supply-chain and compliance workflows (detecting definition changes between scans).
-
-When implemented, it would flag tools whose definitions change between scans—new parameters, modified descriptions, or expanded permissions—so teams can require human review (drift as a governance signal).
-
----
-
 ## 👥 AS-013 — Tool Shadowing
 
 **Severity:** High / Medium
@@ -118,3 +106,59 @@ When implemented, it would flag tools whose definitions change between scans—n
 Detects tools whose names are exact normalized duplicates of other tools in the same server — a sign that a malicious tool is attempting to shadow or override a legitimate one.
 
 Near-duplicate detection (edit distance 1) was removed in v0.1.15 after a 13/13 false-positive rate on legitimate tool families. Only exact normalized duplicates fire this rule.
+
+---
+
+## ℹ️ AS-014 — Dependency Inventory Unavailable
+
+**Severity:** Info
+
+Flags MCP tools that do not expose `metadata.dependencies` and do not provide a `repo_url`, which limits ToolTrust's ability to perform meaningful supply-chain analysis.
+
+---
+
+## ⚠️ AS-015 — Suspicious NPM Lifecycle Script
+
+**Severity:** Medium / High
+
+Flags npm dependency versions that publish install-time lifecycle scripts such as `preinstall`, `install`, `postinstall`, or `prepare`. Severity rises when the script contains remote-fetch or inline-execution patterns.
+
+---
+
+## 🚨 AS-016 — Suspicious NPM IOC Dependency
+
+**Severity:** Critical
+
+Flags npm dependency versions whose published registry metadata or install-time scripts reference known malicious IOC package names, domains, URLs, or script patterns, such as `plain-crypto-js`, `@tanstack/setup`, Mini Shai-Hulud infrastructure, or reviewed shell-fetch indicators. This is narrower than full tarball signature scanning, but it can still catch compromised releases when an IOC appears in dependency metadata.
+
+---
+
+## ⚠️ AS-017 — Suspicious Data Exfiltration Description
+
+**Severity:** Medium
+
+Flags tool descriptions that explicitly suggest forwarding user data, content, or conversation history to external endpoints such as remote hosts, external servers, attacker-controlled URLs, or base64-encoded sinks. This is intentionally separate from AS-001 so prompt-injection findings stay focused on instruction override language.
+
+---
+
+## ℹ️ AS-018 — Embedded MCP Server Detected
+
+**Severity:** Info
+
+Flags repositories where MCP SDK imports and server initialization are present in source code, but the scanner could not enumerate tool definitions from a manifest or live handshake.
+
+This is a presence signal, not a clean bill of health. It tells you the repo likely exposes MCP functionality, but more review is needed to understand tools, auth, and scope.
+
+---
+
+## 🚨 AS-019 — Unauthenticated MCP Route Exposure
+
+**Severity:** High / Critical
+
+Flags embedded MCP HTTP servers where one route reaches the MCP handler without the authentication middleware applied on another route serving the same handler.
+
+The initial implementation focuses on Go/Gin-style route registrations and raises severity when it sees strong exploitability signals such as:
+
+- an unauthenticated alternate MCP route like `/mcp_message`
+- fail-open IP allowlist logic
+- the same handler used by both authenticated and unauthenticated MCP endpoints

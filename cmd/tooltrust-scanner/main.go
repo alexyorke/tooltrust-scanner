@@ -40,6 +40,7 @@ func newRootCmd() *cobra.Command {
 	}
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newScanCmd())
+	root.AddCommand(newScanRepoCmd())
 	root.AddCommand(newGateCmd())
 	return root
 }
@@ -220,6 +221,8 @@ func runScan(ctx context.Context, opts scanOpts) error {
 		if evalErr != nil {
 			return fmt.Errorf("gateway evaluation failed for tool %q: %w", tools[i].Name, evalErr)
 		}
+		policy.Behavior, policy.Destinations = analyzer.SummarizeToolContext(tools[i])
+		policy.DependencyVisibility, policy.DependencyNote = dependencyVisibilityForTool(tools[i])
 		policies = append(policies, policy)
 
 		if opts.verbose {
@@ -297,21 +300,58 @@ func printPtermUI(report ScanReport) error {
 	// ── Build the tree ────────────────────────────────────────────────────────
 	var rootChildren []pterm.TreeNode
 
-	for _, policy := range report.Policies {
+	for i := range report.Policies {
+		policy := report.Policies[i]
 		// Tool header label, coloured by action.
 		toolLabel := formatToolLabel(policy)
 
 		// Children: one per finding, or a green ✅ Pass.
 		var children []pterm.TreeNode
 		if len(policy.Score.Issues) == 0 {
+			if line, note := dependencyVisibilityLines(policy); line != "" {
+				children = append(children, pterm.TreeNode{
+					Text: pterm.FgGray.Sprint(line),
+				})
+				if note != "" {
+					children = append(children, pterm.TreeNode{
+						Text: pterm.FgGray.Sprint(note),
+					})
+				}
+			}
 			children = append(children, pterm.TreeNode{
 				Text: pterm.FgGreen.Sprint("✅ Pass"),
 			})
 		} else {
-			for _, issue := range policy.Score.Issues {
+			if reason := summarizeToolReason(policy); reason != "" {
 				children = append(children, pterm.TreeNode{
-					Text: formatIssueLabel(issue),
+					Text: pterm.FgGray.Sprint(toolReasonLabel(policy) + reason),
 				})
+			}
+			for _, line := range toolContextLines(policy) {
+				children = append(children, pterm.TreeNode{
+					Text: pterm.FgGray.Sprint(line),
+				})
+			}
+			if line, note := dependencyVisibilityLines(policy); line != "" {
+				children = append(children, pterm.TreeNode{
+					Text: pterm.FgGray.Sprint(line),
+				})
+				if note != "" {
+					children = append(children, pterm.TreeNode{
+						Text: pterm.FgGray.Sprint(note),
+					})
+				}
+			}
+			shownHints := map[string]bool{}
+			for _, issue := range policy.Score.Issues {
+				label := formatIssueLabel(issue, policy, !shownHints[issue.RuleID])
+				if label == "" {
+					continue
+				}
+				children = append(children, pterm.TreeNode{
+					Text: label,
+				})
+				shownHints[issue.RuleID] = true
 			}
 		}
 
@@ -365,6 +405,31 @@ func printStarPrompt() {
 	pterm.Info.Println("If ToolTrust helped, star us: github.com/AgentSafe-AI/tooltrust-scanner")
 }
 
+func dependencyVisibilityLines(policy model.GatewayPolicy) (line, note string) {
+	if policy.DependencyVisibility == "" {
+		return "", ""
+	}
+	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA && policy.DependencyVisibility == "No dependency data" {
+		return "", ""
+	}
+	return "Dependency visibility: " + policy.DependencyVisibility, policy.DependencyNote
+}
+
+func toolContextLines(policy model.GatewayPolicy) []string {
+	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA {
+		return nil
+	}
+
+	var lines []string
+	if len(policy.Behavior) > 0 {
+		lines = append(lines, "Behavior: "+strings.Join(policy.Behavior, ", "))
+	}
+	if len(policy.Destinations) > 0 {
+		lines = append(lines, "Destination: "+strings.Join(policy.Destinations, "; "))
+	}
+	return lines
+}
+
 // printSupplyChainAlert scans all findings for AS-008 BLOCK issues and prints a
 // high-visibility ANSI red emergency banner when confirmed malware is detected.
 // This runs BEFORE the main scan tree to ensure it is never scrolled past.
@@ -375,7 +440,8 @@ func printSupplyChainAlert(policies []model.GatewayPolicy) {
 	}
 	var alerts []alert
 
-	for _, policy := range policies {
+	for i := range policies {
+		policy := policies[i]
 		for _, issue := range policy.Score.Issues {
 			if issue.RuleID == "AS-008" && issue.Code == "SUPPLY_CHAIN_BLOCK" {
 				alerts = append(alerts, alert{pkg: issue.Location, desc: issue.Description})
@@ -419,7 +485,8 @@ func worstGrade(policies []model.GatewayPolicy) model.Grade {
 		model.GradeF: 4,
 	}
 	worst := model.GradeA
-	for _, p := range policies {
+	for i := range policies {
+		p := policies[i]
 		if order[p.Score.Grade] > order[worst] {
 			worst = p.Score.Grade
 		}
@@ -519,6 +586,153 @@ func printGradeGuide(grade model.Grade) {
 		Println(pterm.NewStyle(g.color).Sprint(content))
 }
 
+func summarizeToolReason(policy model.GatewayPolicy) string {
+	if policy.Action == model.ActionAllow {
+		return ""
+	}
+
+	parts := make([]string, 0, 3)
+	seen := map[string]bool{}
+	for _, issue := range policy.Score.Issues {
+		part := summarizeIssueReason(issue)
+		if part == "" || seen[part] {
+			continue
+		}
+		seen[part] = true
+		parts = append(parts, part)
+		if len(parts) == 3 {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " + ")
+}
+
+func toolReasonLabel(policy model.GatewayPolicy) string {
+	switch policy.Action {
+	case model.ActionRequireApproval:
+		return "Why approval: "
+	case model.ActionBlock:
+		return "Why blocked: "
+	default:
+		return "Why flagged: "
+	}
+}
+
+func summarizeIssueReason(issue model.Issue) string {
+	switch issue.RuleID {
+	case "AS-002":
+		// New capability-surface summary: return the description as-is (it already
+		// contains "declared capabilities: …"). Legacy per-permission findings
+		// (Code=HIGH_RISK_PERMISSION) fall through to the evidence loop below.
+		if issue.Code == "CAPABILITY_SURFACE" {
+			return strings.TrimPrefix(issue.Description, "declared capabilities: ")
+		}
+		for _, evidence := range issue.Evidence {
+			if evidence.Kind == "permission" {
+				return evidence.Value + " permission"
+			}
+		}
+	case "AS-011":
+		return "missing rate-limit/timeout"
+	case "AS-001":
+		return "prompt-injection wording"
+	case "AS-006":
+		return "code execution signal"
+	case "AS-008":
+		return "known compromised package"
+	case "AS-014":
+		return ""
+	}
+
+	desc := strings.TrimSpace(issue.Description)
+	if desc == "" {
+		return ""
+	}
+	return desc
+}
+
+func dependencyVisibilityForTool(tool model.UnifiedTool) (visibility, note string) {
+	if tool.Metadata == nil {
+		return "No dependency data", "No metadata.dependencies or repo_url were exposed by this MCP server."
+	}
+
+	sources := dependencySourcesFromMetadata(tool.Metadata)
+	if len(sources) == 0 {
+		note = metadataString(tool.Metadata, "dependency_visibility_note")
+		if note == "" {
+			note = "No metadata.dependencies or repo_url were exposed by this MCP server."
+		}
+		return "No dependency data", note
+	}
+	return formatDependencyVisibility(sources), visibilityNote(tool.Metadata, sources)
+}
+
+func dependencySourcesFromMetadata(meta map[string]any) []string {
+	seen := map[string]bool{}
+	var sources []string
+
+	if raw, ok := meta["dependencies"]; ok {
+		b, err := json.Marshal(raw)
+		if err == nil {
+			var deps []struct {
+				Source string `json:"source"`
+			}
+			if err := json.Unmarshal(b, &deps); err == nil {
+				for _, dep := range deps {
+					source := dep.Source
+					if source == "" {
+						source = "metadata"
+					}
+					if !seen[source] {
+						seen[source] = true
+						sources = append(sources, source)
+					}
+				}
+			}
+		}
+	}
+
+	if repoURL, ok := meta["repo_url"].(string); ok && strings.TrimSpace(repoURL) != "" {
+		if !seen["repo_url"] {
+			sources = append(sources, "repo_url")
+		}
+	}
+
+	return sources
+}
+
+func visibilityNote(meta map[string]any, sources []string) string {
+	if note := metadataString(meta, "dependency_visibility_note"); note != "" {
+		return note
+	}
+	if len(sources) == 1 && sources[0] == "repo_url" {
+		return "repo_url is available, so ToolTrust can try to inspect remote lockfiles for dependency evidence."
+	}
+	return ""
+}
+
+func formatDependencyVisibility(sources []string) string {
+	labels := make([]string, 0, len(sources))
+	for _, source := range sources {
+		switch source {
+		case "metadata":
+			labels = append(labels, "Declared by MCP metadata")
+		case "local_lockfile":
+			labels = append(labels, "Verified from local lockfile")
+		case "lockfile":
+			labels = append(labels, "Verified from remote lockfile")
+		case "repo_url":
+			labels = append(labels, "Repo URL available")
+		default:
+			labels = append(labels, source)
+		}
+	}
+	return strings.Join(labels, " + ")
+}
+
 // formatToolLabel returns a coloured "Tool: <name>  [ACTION]" label.
 func formatToolLabel(policy model.GatewayPolicy) string {
 	name := fmt.Sprintf("Tool: %s", policy.ToolName)
@@ -531,8 +745,11 @@ func formatToolLabel(policy model.GatewayPolicy) string {
 	case model.ActionBlock:
 		badge = pterm.FgRed.Sprint("[BLOCK]")
 	}
-	scoreStr := fmt.Sprintf("score=%d grade=%s", policy.Score.Score, policy.Score.Grade)
-	return fmt.Sprintf("%s  %s  %s", pterm.Bold.Sprint(name), badge, pterm.FgGray.Sprint(scoreStr))
+	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA {
+		return fmt.Sprintf("%s  %s", pterm.Bold.Sprint(name), badge)
+	}
+	gradeStr := fmt.Sprintf("grade=%s", policy.Score.Grade)
+	return fmt.Sprintf("%s  %s  %s", pterm.Bold.Sprint(name), badge, pterm.FgGray.Sprint(gradeStr))
 }
 
 // ruleHint returns a short, specific fix hint for each rule ID.
@@ -549,43 +766,114 @@ var ruleHint = map[string]string{
 	"AS-010": "→ Never pass raw credentials as tool inputs. Use a secret manager instead.",
 	"AS-011": "→ Add explicit timeout and rate-limit config to the tool before use in production.",
 	"AS-013": "→ Use a unique namespace prefix per server (e.g. github__search_repos) to prevent tool name collisions.",
+	"AS-015": "→ Review the install-time script before use. Prefer a version without lifecycle scripts, or install with --ignore-scripts in CI/sandboxed environments.",
+	"AS-016": "→ Treat this package version as a likely compromise. Remove it, rotate exposed credentials, and inspect the dependency tree for the IOC package before reinstalling.",
+	"AS-017": "→ Review whether the tool description is instructing external data forwarding. If intentional, require approval and narrow the destination scope.",
+	"AS-018": "→ Run a sandboxed live scan when possible, or add a tools manifest so the embedded MCP implementation can be reviewed without executing the server.",
+	"AS-019": "→ Apply equivalent authentication middleware to every MCP HTTP route, and avoid fail-open allowlist defaults on alternate endpoints such as /mcp_message.",
 }
 
-// formatIssueLabel returns a coloured finding line with an actionable fix hint.
-func formatIssueLabel(issue model.Issue) string {
-	wt := severityWeight[issue.Severity]
-	main := fmt.Sprintf("[%s] %s (+%d): %s", issue.RuleID, issue.Severity, wt, issue.Description)
-	hint := ruleHint[issue.RuleID]
+// formatIssueLabel returns a coloured finding line with optional evidence and fix hint.
+func formatIssueLabel(issue model.Issue, policy model.GatewayPolicy, showHint bool) string {
+	if issue.RuleID == "AS-014" && policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA {
+		return ""
+	}
 
-	var coloredMain, coloredHint string
-	switch issue.Severity {
-	case model.SeverityCritical:
-		coloredMain = "🚨 " + pterm.FgRed.Sprint(main)
-		coloredHint = pterm.FgRed.Sprint(hint)
-	case model.SeverityHigh:
-		coloredMain = "🔴 " + pterm.FgLightRed.Sprint(main)
-		coloredHint = pterm.FgLightRed.Sprint(hint)
-	case model.SeverityMedium:
-		coloredMain = "⚠️  " + pterm.FgYellow.Sprint(main)
-		coloredHint = pterm.FgYellow.Sprint(hint)
-	case model.SeverityLow:
-		coloredMain = "🔵 " + pterm.FgBlue.Sprint(main)
-		coloredHint = pterm.FgBlue.Sprint(hint)
-	default:
-		coloredMain = "ℹ️  " + pterm.FgGray.Sprint(main)
-		coloredHint = pterm.FgGray.Sprint(hint)
+	main := fmt.Sprintf("• [%s] %s: %s", issue.RuleID, issue.Severity, issue.Description)
+	hint := ""
+	if showHint {
+		hint = ruleHint[issue.RuleID]
+	}
+	mainLine := pterm.Sprint(main)
+	hintLine := pterm.FgGray.Sprint(hint)
+
+	evidenceLines := []string(nil)
+	if shouldShowIssueEvidence(issue, policy) {
+		evidenceLines = issueEvidenceLines(issue)
+	}
+	if shouldSuppressIssueDetail(issue, policy) {
+		evidenceLines = nil
+		hint = ""
 	}
 
 	if hint == "" {
-		return coloredMain
+		return joinIssueDetailLines(mainLine, evidenceLines)
 	}
-	return coloredMain + "\n       " + coloredHint
+	return joinIssueDetailLines(mainLine, evidenceLines, []string{hintLine})
+}
+
+func issueEvidenceLines(issue model.Issue) []string {
+	if len(issue.Evidence) == 0 {
+		return nil
+	}
+
+	maxEvidence := 1
+	lines := make([]string, 0, maxEvidence+1)
+	for i, evidence := range issue.Evidence {
+		if i >= maxEvidence {
+			remaining := len(issue.Evidence) - maxEvidence
+			lines = append(lines, pterm.FgGray.Sprint(fmt.Sprintf("… %d more evidence item(s)", remaining)))
+			break
+		}
+		lines = append(lines, pterm.FgGray.Sprint(fmt.Sprintf("Evidence: %s=%s", evidence.Kind, evidence.Value)))
+	}
+	return lines
+}
+
+func shouldSuppressIssueDetail(issue model.Issue, policy model.GatewayPolicy) bool {
+	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA {
+		return true
+	}
+	return false
+}
+
+func shouldShowIssueEvidence(issue model.Issue, policy model.GatewayPolicy) bool {
+	if policy.Action != model.ActionAllow || policy.Score.Grade != model.GradeA {
+		return !isRedundantPermissionEvidence(issue)
+	}
+	return false
+}
+
+func isRedundantPermissionEvidence(issue model.Issue) bool {
+	if issue.RuleID != "AS-002" {
+		return false
+	}
+	// New capability-surface summary: evidence lists raw permission names that are
+	// already spelled out in the human-readable description — always redundant.
+	if issue.Code == "CAPABILITY_SURFACE" {
+		return true
+	}
+	// Legacy single-permission evidence (Code=HIGH_RISK_PERMISSION).
+	if len(issue.Evidence) != 1 {
+		return false
+	}
+	evidence := issue.Evidence[0]
+	if evidence.Kind != "permission" {
+		return false
+	}
+	switch evidence.Value {
+	case "fs", "network", "db", "exec":
+		return strings.Contains(issue.Description, evidence.Value+" permission")
+	default:
+		return false
+	}
+}
+
+func joinIssueDetailLines(main string, groups ...[]string) string {
+	lines := []string{main}
+	for _, group := range groups {
+		for _, line := range group {
+			lines = append(lines, "       "+line)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // buildRiskLine builds a compact risk summary string e.g. "A×3  B×1  F×1".
 func buildRiskLine(policies []model.GatewayPolicy) string {
 	counts := map[model.Grade]int{}
-	for _, p := range policies {
+	for i := range policies {
+		p := policies[i]
 		counts[p.Score.Grade]++
 	}
 	grades := []model.Grade{model.GradeA, model.GradeB, model.GradeC, model.GradeD, model.GradeF}
@@ -607,11 +895,19 @@ func avgRiskScore(policies []model.GatewayPolicy) (int, model.Grade) {
 		return 0, model.GradeA
 	}
 	total := 0
-	for _, p := range policies {
+	for i := range policies {
+		p := policies[i]
 		total += p.Score.Score
 	}
 	avg := total / len(policies)
 	return avg, model.GradeFromScore(avg)
+}
+
+func metadataString(meta map[string]any, key string) string {
+	if value, ok := meta[key].(string); ok {
+		return value
+	}
+	return ""
 }
 
 // printScanPtree writes a tree view of the scan process to w (stderr) during verbose scan.
@@ -674,7 +970,8 @@ func persistResults(ctx context.Context, dbPath string, tools []model.UnifiedToo
 		}
 	}()
 
-	for i, policy := range policies {
+	for i := range policies {
+		policy := policies[i]
 		rec := storage.ScanRecord{
 			ID:        fmt.Sprintf("%s-%d", tools[i].Name, time.Now().UnixNano()),
 			ToolName:  policy.ToolName,

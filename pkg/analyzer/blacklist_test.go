@@ -10,6 +10,15 @@ import (
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
+func withLockfileDepsForTest(t *testing.T, deps []analyzer.Dependency) {
+	t.Helper()
+	prev := analyzer.LockfileDepsFetcherForTest()
+	analyzer.SetLockfileDepsFetcherForTest(func(string) []analyzer.Dependency { return deps })
+	t.Cleanup(func() {
+		analyzer.SetLockfileDepsFetcherForTest(prev)
+	})
+}
+
 // newBlacklistFromJSON is a test helper that loads a BlacklistChecker from
 // arbitrary JSON data without touching the embedded blacklist.json.
 func newBlacklistFromJSON(t *testing.T, data []byte) *analyzer.BlacklistChecker {
@@ -46,6 +55,13 @@ func TestBlacklist_LiteLLM_ExactVersion_Hit(t *testing.T) {
 	assert.Contains(t, issues[0].Description, "litellm@1.82.8")
 	assert.Contains(t, issues[0].Description, "SNYK-PYTHON-LITELLM-15762713")
 	assert.Contains(t, issues[0].Description, "[BLOCK]")
+	require.Len(t, issues[0].Evidence, 6)
+	assert.Equal(t, "package", issues[0].Evidence[0].Kind)
+	assert.Equal(t, "litellm", issues[0].Evidence[0].Value)
+	assert.Equal(t, "version", issues[0].Evidence[1].Kind)
+	assert.Equal(t, "1.82.8", issues[0].Evidence[1].Value)
+	assert.Equal(t, "dependency_source", issues[0].Evidence[3].Kind)
+	assert.Equal(t, "metadata", issues[0].Evidence[3].Value)
 }
 
 func TestBlacklist_LiteLLM_OtherAffectedVersion_Hit(t *testing.T) {
@@ -59,7 +75,7 @@ func TestBlacklist_LiteLLM_OtherAffectedVersion_Hit(t *testing.T) {
 
 func TestBlacklist_LiteLLM_SafeVersion_NoFinding(t *testing.T) {
 	bc := analyzer.NewBlacklistChecker()
-	tool := toolWithDep("litellm", "1.83.0", "PyPI")
+	tool := toolWithDep("litellm", "1.83.1", "PyPI")
 	issues, err := bc.Check(tool)
 	require.NoError(t, err)
 	assert.Empty(t, issues)
@@ -72,6 +88,86 @@ func TestBlacklist_LiteLLM_WrongEcosystem_NoFinding(t *testing.T) {
 	issues, err := bc.Check(tool)
 	require.NoError(t, err)
 	assert.Empty(t, issues)
+}
+
+func TestBlacklist_Axios_CompromisedVersions_Hit(t *testing.T) {
+	bc := analyzer.NewBlacklistChecker()
+	for _, ver := range []string{"1.14.1", "0.30.4"} {
+		tool := toolWithDep("axios", ver, "npm")
+		issues, err := bc.Check(tool)
+		require.NoError(t, err, "version %s", ver)
+		require.Len(t, issues, 1, "version %s should be blocked", ver)
+		assert.Equal(t, "SUPPLY_CHAIN_BLOCK", issues[0].Code)
+		assert.Equal(t, model.SeverityCritical, issues[0].Severity)
+		assert.Contains(t, issues[0].Description, "AXIOS-NPM-COMPROMISE-2026-03-31")
+		assert.Contains(t, issues[0].Description, "plain-crypto-js")
+	}
+}
+
+func TestBlacklist_Axios_SafeVersion_NoFinding(t *testing.T) {
+	bc := analyzer.NewBlacklistChecker()
+	tool := toolWithDep("axios", "1.14.0", "npm")
+	issues, err := bc.Check(tool)
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+}
+
+func TestBlacklist_TanStackMiniShaiHulud_Hit(t *testing.T) {
+	bc := analyzer.NewBlacklistChecker()
+	tool := toolWithDep("@tanstack/react-router", "1.169.8", "npm")
+	issues, err := bc.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "SUPPLY_CHAIN_BLOCK", issues[0].Code)
+	assert.Equal(t, model.SeverityCritical, issues[0].Severity)
+	assert.Contains(t, issues[0].Description, "CVE-2026-45321")
+	assert.Contains(t, issues[0].Description, "Mini Shai-Hulud")
+	assert.Contains(t, issues[0].Description, "@tanstack/react-router@1.169.8")
+}
+
+func TestBlacklist_TanStackPatchedVersion_NoFinding(t *testing.T) {
+	bc := analyzer.NewBlacklistChecker()
+	tool := toolWithDep("@tanstack/react-router", "1.169.9", "npm")
+	issues, err := bc.Check(tool)
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+}
+
+func TestBlacklist_MiniShaiHuludPyPI_Hit(t *testing.T) {
+	bc := analyzer.NewBlacklistChecker()
+	for _, tc := range []struct {
+		name    string
+		version string
+	}{
+		{name: "mistralai", version: "2.4.6"},
+		{name: "guardrails-ai", version: "0.10.1"},
+	} {
+		tool := toolWithDep(tc.name, tc.version, "PyPI")
+		issues, err := bc.Check(tool)
+		require.NoError(t, err, "%s", tc.name)
+		require.Len(t, issues, 1, "%s should be blocked", tc.name)
+		assert.Equal(t, "SUPPLY_CHAIN_BLOCK", issues[0].Code)
+		assert.Contains(t, issues[0].Description, "MINI-SHAI-HULUD-2026-05-11")
+	}
+}
+
+func TestBlacklist_RepoURLLockfileDependency_Hit(t *testing.T) {
+	withLockfileDepsForTest(t, []analyzer.Dependency{
+		{Name: "axios", Version: "1.14.1", Ecosystem: "npm"},
+	})
+
+	bc := analyzer.NewBlacklistChecker()
+	tool := model.UnifiedTool{
+		Name: "repo-backed-tool",
+		Metadata: map[string]any{
+			"repo_url": "https://github.com/example/repo",
+		},
+	}
+	issues, err := bc.Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "lockfile", issues[0].Evidence[3].Value)
+	assert.Contains(t, issues[0].Description, "axios@1.14.1")
 }
 
 // ---------------------------------------------------------------------------

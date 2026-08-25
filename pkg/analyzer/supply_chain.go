@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
@@ -34,6 +36,12 @@ type Dependency struct {
 	Name      string `json:"name"`
 	Version   string `json:"version"`
 	Ecosystem string `json:"ecosystem"` // e.g. "npm", "Go", "PyPI"
+	Source    string `json:"source,omitempty"`
+}
+
+type dependencyEvidence struct {
+	Dependency
+	Source string
 }
 
 type osvQueryBody struct {
@@ -191,9 +199,13 @@ var lockfileSpecs = []struct {
 	parse func([]byte) ([]Dependency, error)
 }{
 	{"package-lock.json", parsePackageLockJSON},
+	{"pnpm-lock.yaml", parsePNPMLockYAML},
+	{"yarn.lock", parseYarnLock},
 	{"go.sum", parseGoSum},
 	{"requirements.txt", parseRequirementsTxt},
 }
+
+var lockfileDepsFetcher = fetchLockfileDeps
 
 type packageLockJSON struct {
 	Packages     map[string]packageLockEntry `json:"packages"`     // npm v2/v3
@@ -297,6 +309,100 @@ func parseRequirementsTxt(data []byte) ([]Dependency, error) {
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("parse requirements.txt: %w", err)
 	}
+	return deps, nil
+}
+
+type pnpmLockfile struct {
+	Packages map[string]any `yaml:"packages"`
+}
+
+func parsePNPMLockYAML(data []byte) ([]Dependency, error) {
+	var lock pnpmLockfile
+	if err := yaml.Unmarshal(data, &lock); err != nil {
+		return nil, fmt.Errorf("parse pnpm-lock.yaml: %w", err)
+	}
+
+	seen := make(map[string]bool)
+	var deps []Dependency
+	for key := range lock.Packages {
+		name, version, ok := parsePNPMPackageKey(key)
+		if !ok {
+			continue
+		}
+		k := name + "@" + version
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		deps = append(deps, Dependency{Name: name, Version: version, Ecosystem: "npm"})
+	}
+	return deps, nil
+}
+
+func parsePNPMPackageKey(key string) (name, version string, ok bool) {
+	trimmed := strings.TrimSpace(strings.TrimPrefix(key, "/"))
+	trimmed = strings.Trim(trimmed, "'\"")
+	if trimmed == "" {
+		return "", "", false
+	}
+	if idx := strings.Index(trimmed, "("); idx >= 0 {
+		trimmed = trimmed[:idx]
+	}
+	trimmed = strings.TrimSuffix(trimmed, ":")
+	idx := strings.LastIndex(trimmed, "@")
+	if idx <= 0 || idx == len(trimmed)-1 {
+		return "", "", false
+	}
+	return trimmed[:idx], trimmed[idx+1:], true
+}
+
+func parseYarnLock(data []byte) ([]Dependency, error) {
+	lines := strings.Split(string(data), "\n")
+	seen := make(map[string]bool)
+	var deps []Dependency
+
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || strings.HasPrefix(line, "#") || !strings.HasSuffix(line, ":") {
+			continue
+		}
+		if strings.Contains(line, " version ") {
+			continue
+		}
+
+		for j := i + 1; j < len(lines); j++ {
+			next := strings.TrimSpace(lines[j])
+			if next == "" {
+				break
+			}
+			if strings.HasPrefix(next, "version ") {
+				version := strings.Trim(next[len("version "):], "\"")
+				specs := strings.Split(strings.TrimSuffix(line, ":"), ",")
+				for _, spec := range specs {
+					spec = strings.Trim(strings.TrimSpace(spec), "\"")
+					if spec == "" {
+						continue
+					}
+					idx := strings.LastIndex(spec, "@")
+					if idx <= 0 || idx == len(spec)-1 {
+						continue
+					}
+					name := spec[:idx]
+					k := name + "@" + version
+					if seen[k] {
+						continue
+					}
+					seen[k] = true
+					deps = append(deps, Dependency{Name: name, Version: version, Ecosystem: "npm"})
+				}
+				break
+			}
+			if !strings.HasPrefix(lines[j], " ") && !strings.HasPrefix(lines[j], "\t") {
+				break
+			}
+		}
+	}
+
 	return deps, nil
 }
 
@@ -409,18 +515,10 @@ func newSupplyChainCheckerWithClient(c osvClient) *SupplyChainChecker {
 
 // Check queries OSV for all known dependencies and emits AS-004 findings.
 func (c *SupplyChainChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {
-	metaDeps, err := extractDependencies(tool)
+	deps, err := collectDependencies(tool)
 	if err != nil {
 		return nil, nil
 	}
-
-	// Enrich with lockfile deps when a GitHub repo URL is provided.
-	var lockfileDeps []Dependency
-	if repoURL, ok := tool.Metadata["repo_url"].(string); ok && repoURL != "" {
-		lockfileDeps = fetchLockfileDeps(repoURL)
-	}
-
-	deps := mergeDependencies(metaDeps, lockfileDeps)
 	if len(deps) == 0 {
 		return nil, nil
 	}
@@ -441,7 +539,7 @@ func (c *SupplyChainChecker) Check(tool model.UnifiedTool) ([]model.Issue, error
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			vulns, qErr := c.client.Query(ctx, dep)
+			vulns, qErr := c.client.Query(ctx, dep.Dependency)
 			if qErr != nil {
 				ch <- nil
 				return
@@ -466,21 +564,46 @@ func (c *SupplyChainChecker) Check(tool model.UnifiedTool) ([]model.Issue, error
 	return allIssues, nil
 }
 
-// buildSupplyChainIssue constructs a single AS-004 finding.
-//   - MAL-* advisories get Critical severity and code MALICIOUS_PACKAGE.
-//   - Fix version from OSV is appended when available.
-func buildSupplyChainIssue(v osvVuln, dep Dependency, toolName string) model.Issue {
-	sev := osvSeverityToModel(v)
-	code := "SUPPLY_CHAIN_CVE"
+// isTransitiveSource reports whether a dependency was discovered from a lockfile
+// (repo or local) rather than declared in tool metadata. Transitive deps have
+// unconfirmed reachability, so their non-malicious CVEs must not score.
+func isTransitiveSource(source string) bool {
+	return source == "lockfile" || source == "local_lockfile"
+}
 
-	if strings.HasPrefix(v.ID, "MAL-") {
+// buildSupplyChainIssue constructs a single AS-004 finding.
+//   - MAL-* advisories get Critical severity and code MALICIOUS_PACKAGE regardless
+//     of dep.Source — malware anywhere in the dependency tree is a true positive.
+//   - Lockfile-sourced (transitive) non-MAL CVEs are downgraded to Info with code
+//     SUPPLY_CHAIN_CVE_TRANSITIVE; reachability is unconfirmed so they must not
+//     contribute to the risk score.
+//   - Metadata-sourced (tool-declared) non-MAL CVEs keep their OSV-derived severity
+//     and code SUPPLY_CHAIN_CVE.
+//   - Fix version from OSV is appended when available.
+func buildSupplyChainIssue(v osvVuln, dep dependencyEvidence, toolName string) model.Issue {
+	isMalicious := strings.HasPrefix(v.ID, "MAL-")
+
+	var sev model.Severity
+	var code string
+
+	switch {
+	case isMalicious:
 		sev = model.SeverityCritical
 		code = "MALICIOUS_PACKAGE"
+	case isTransitiveSource(dep.Source):
+		sev = model.SeverityInfo
+		code = "SUPPLY_CHAIN_CVE_TRANSITIVE"
+	default:
+		sev = osvSeverityToModel(v)
+		code = "SUPPLY_CHAIN_CVE"
 	}
 
 	desc := fmt.Sprintf("%s in %s@%s: %s", v.ID, dep.Name, dep.Version, v.Summary)
 	if fix := extractFixVersion(v); fix != "" {
 		desc += fmt.Sprintf(" (upgrade to %s)", fix)
+	}
+	if isTransitiveSource(dep.Source) && !isMalicious {
+		desc += " (transitive dependency — reachability unconfirmed)"
 	}
 
 	return model.Issue{
@@ -490,6 +613,12 @@ func buildSupplyChainIssue(v osvVuln, dep Dependency, toolName string) model.Iss
 		Code:        code,
 		Description: desc,
 		Location:    fmt.Sprintf("dependency:%s", dep.Name),
+		Evidence: []model.Evidence{
+			{Kind: "package", Value: dep.Name},
+			{Kind: "version", Value: dep.Version},
+			{Kind: "ecosystem", Value: dep.Ecosystem},
+			{Kind: "dependency_source", Value: dep.Source},
+		},
 	}
 }
 
@@ -523,6 +652,52 @@ func extractDependencies(tool model.UnifiedTool) ([]Dependency, error) {
 		return nil, fmt.Errorf("supply_chain: unmarshal deps: %w", err)
 	}
 	return deps, nil
+}
+
+func collectDependencies(tool model.UnifiedTool) ([]dependencyEvidence, error) {
+	metaDeps, err := extractDependencies(tool)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]bool, len(metaDeps))
+	result := make([]dependencyEvidence, 0, len(metaDeps))
+	for _, dep := range metaDeps {
+		k := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		source := dep.Source
+		if source == "" {
+			source = "metadata"
+		}
+		result = append(result, dependencyEvidence{
+			Dependency: dep,
+			Source:     source,
+		})
+	}
+
+	if tool.Metadata == nil {
+		return result, nil
+	}
+	repoURL, ok := tool.Metadata["repo_url"].(string)
+	if !ok || repoURL == "" {
+		return result, nil
+	}
+
+	for _, dep := range lockfileDepsFetcher(repoURL) {
+		k := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		result = append(result, dependencyEvidence{
+			Dependency: dep,
+			Source:     "lockfile",
+		})
+	}
+	return result, nil
 }
 
 // ── Severity helpers ──────────────────────────────────────────────────────────

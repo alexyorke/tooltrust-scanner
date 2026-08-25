@@ -608,7 +608,8 @@ func renderTextReport(result *ScanResult) string {
 	var lines []string
 
 	severityCounts := map[model.Severity]int{}
-	for _, p := range result.Policies {
+	for i := range result.Policies {
+		p := result.Policies[i]
 		for _, issue := range p.Score.Issues {
 			severityCounts[issue.Severity]++
 		}
@@ -621,7 +622,8 @@ func renderTextReport(result *ScanResult) string {
 		}
 	}
 	counts := map[model.Grade]int{}
-	for _, p := range result.Policies {
+	for i := range result.Policies {
+		p := result.Policies[i]
 		counts[p.Score.Grade]++
 	}
 	grades := []model.Grade{model.GradeA, model.GradeB, model.GradeC, model.GradeD, model.GradeF}
@@ -645,7 +647,8 @@ func renderTextReport(result *ScanResult) string {
 	)
 
 	flaggedCount := 0
-	for _, p := range result.Policies {
+	for i := range result.Policies {
+		p := result.Policies[i]
 		if p.Action == model.ActionAllow {
 			continue
 		}
@@ -665,9 +668,18 @@ func renderTextReport(result *ScanResult) string {
 		}
 		lines = append(lines, fmt.Sprintf("• %s  %s GRADE %s  %s",
 			p.ToolName, gradeEmoji(p.Score.Grade), p.Score.Grade, actionLabel))
+		if len(p.Behavior) > 0 {
+			lines = append(lines, fmt.Sprintf("  Behavior: %s", strings.Join(p.Behavior, ", ")))
+		}
+		if len(p.Destinations) > 0 {
+			lines = append(lines, fmt.Sprintf("  Destination: %s", strings.Join(p.Destinations, "; ")))
+		}
 		for _, issue := range p.Score.Issues {
 			lines = append(lines, fmt.Sprintf("  [%s] %s: %s",
 				issue.RuleID, issue.Severity, humanizeIssue(issue)))
+			for _, detail := range renderIssueEvidence(issue) {
+				lines = append(lines, "    "+detail)
+			}
 		}
 		if actionNow, saferConfig := recommendationForPolicy(p); actionNow != "" || saferConfig != "" {
 			if actionNow != "" {
@@ -708,6 +720,24 @@ func humanizeIssue(issue model.Issue) string {
 	default:
 		return issue.Description
 	}
+}
+
+func renderIssueEvidence(issue model.Issue) []string {
+	if len(issue.Evidence) == 0 {
+		return nil
+	}
+
+	maxEvidence := 1
+	details := make([]string, 0, maxEvidence+1)
+	for i, evidence := range issue.Evidence {
+		if i >= maxEvidence {
+			remaining := len(issue.Evidence) - maxEvidence
+			details = append(details, fmt.Sprintf("Evidence: … %d more item(s)", remaining))
+			break
+		}
+		details = append(details, fmt.Sprintf("Evidence: %s=%s", evidence.Kind, evidence.Value))
+	}
+	return details
 }
 
 func recommendationForPolicy(policy model.GatewayPolicy) (actionNow, saferConfig string) {
@@ -779,6 +809,7 @@ func processToolsRaw(ctx context.Context, tools []model.UnifiedTool) (*ScanResul
 		if evalErr != nil {
 			return nil, fmt.Errorf("policy evaluation failed for tool %q: %v", tools[i].Name, evalErr)
 		}
+		policy.Behavior, policy.Destinations = analyzer.SummarizeToolContext(tools[i])
 		policies = append(policies, policy)
 
 		switch policy.Action {
