@@ -36,6 +36,74 @@ func TestSecretChecker_ApiKeyParam_Finding(t *testing.T) {
 	assert.Equal(t, model.SeverityInfo, issues[0].Severity) // downgraded: accepting a secret param is informational, not High
 }
 
+func TestSecretChecker_NestedApiKeyParam_Finding(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name: "api_caller",
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"credentials": {
+					Type: "object",
+					Properties: map[string]jsonschema.Property{
+						"api_key": {Type: "string"},
+					},
+				},
+			},
+		},
+	}
+
+	issues, err := analyzer.NewSecretHandlingChecker().Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "SECRET_IN_INPUT", issues[0].Code)
+	assert.Contains(t, issues[0].Location, "credentials.api_key")
+}
+
+func TestSecretChecker_ArrayNestedApiKeyParam_Finding(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name: "api_caller",
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"credentials": {
+					Type: "array",
+					Items: &jsonschema.Property{
+						Type: "object",
+						Properties: map[string]jsonschema.Property{
+							"api_key": {Type: "string"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	issues, err := analyzer.NewSecretHandlingChecker().Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "SECRET_IN_INPUT", issues[0].Code)
+	assert.Contains(t, issues[0].Location, "credentials[].api_key")
+}
+
+func TestSecretChecker_RootArrayApiKeyParam_Finding(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name: "api_caller",
+		InputSchema: jsonschema.Schema{
+			Type: "array",
+			Items: &jsonschema.Property{
+				Type: "object",
+				Properties: map[string]jsonschema.Property{
+					"api_key": {Type: "string"},
+				},
+			},
+		},
+	}
+
+	issues, err := analyzer.NewSecretHandlingChecker().Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "SECRET_IN_INPUT", issues[0].Code)
+	assert.Contains(t, issues[0].Location, "[].api_key")
+}
+
 func TestSecretChecker_PasswordParam_Finding(t *testing.T) {
 	tool := model.UnifiedTool{
 		Name: "login_tool",
@@ -95,6 +163,25 @@ func TestSecretChecker_InsecureDescription(t *testing.T) {
 	assert.Equal(t, model.SeverityMedium, issues[0].Severity)
 }
 
+func TestSecretChecker_InsecureDescriptionVariant(t *testing.T) {
+	for _, desc := range []string{
+		"This tool stores the password in plaintext.",
+		"This tool logs the api key for debugging.",
+	} {
+		t.Run(desc, func(t *testing.T) {
+			tool := model.UnifiedTool{
+				Name:        "debug_tool",
+				Description: desc,
+			}
+			issues, err := analyzer.NewSecretHandlingChecker().Check(tool)
+			require.NoError(t, err)
+			require.NotEmpty(t, issues)
+			assert.Equal(t, "INSECURE_SECRET_HANDLING", issues[0].Code)
+			assert.Equal(t, model.SeverityMedium, issues[0].Severity)
+		})
+	}
+}
+
 func TestSecretChecker_PassSubstringFalsePositives_NoFinding(t *testing.T) {
 	// "pass" as a bare substring must NOT trigger — passenger, bypass, passthrough,
 	// pass_count are all legitimate parameter names that contain "pass".
@@ -115,7 +202,20 @@ func TestSecretChecker_PassSubstringFalsePositives_NoFinding(t *testing.T) {
 
 func TestSecretChecker_PaginationTokens_NoFalsePositive(t *testing.T) {
 	// pageToken, next_token, cursor are pagination cursors, not credentials.
-	for _, propName := range []string{"pageToken", "page_token", "next_token", "nextToken", "cursor", "next_cursor", "continuation_token", "sync_token"} {
+	for _, propName := range []string{
+		"pageToken",
+		"page-token",
+		"page_token",
+		"next_token",
+		"nextToken",
+		"nextPageToken",
+		"cursor",
+		"next_cursor",
+		"continuation_token",
+		"continuationToken",
+		"sync_token",
+		"syncToken",
+	} {
 		tool := model.UnifiedTool{
 			Name: "list_items",
 			InputSchema: jsonschema.Schema{
@@ -127,6 +227,32 @@ func TestSecretChecker_PaginationTokens_NoFalsePositive(t *testing.T) {
 		issues, err := analyzer.NewSecretHandlingChecker().Check(tool)
 		require.NoError(t, err)
 		assert.Empty(t, issues, "param %q must not trigger AS-010 (pagination cursor, not secret)", propName)
+	}
+}
+
+func TestSecretChecker_ModelTokenFields_NoFalsePositive(t *testing.T) {
+	for _, propName := range []string{
+		"max_tokens",
+		"maxTokens",
+		"input_tokens",
+		"output_tokens",
+		"token_count",
+		"tokenizer",
+		"tokenize_text",
+		"tokenizer_config",
+		"tokenization_options",
+	} {
+		tool := model.UnifiedTool{
+			Name: "completion_tool",
+			InputSchema: jsonschema.Schema{
+				Properties: map[string]jsonschema.Property{
+					propName: {Type: "integer"},
+				},
+			},
+		}
+		issues, err := analyzer.NewSecretHandlingChecker().Check(tool)
+		require.NoError(t, err)
+		assert.Empty(t, issues, "param %q must not trigger AS-010 (model token field, not secret)", propName)
 	}
 }
 

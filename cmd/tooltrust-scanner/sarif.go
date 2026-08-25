@@ -3,12 +3,38 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 
 	"github.com/owenrumney/go-sarif/v2/sarif"
 
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
+
+var sarifRuleDefinitions = []struct {
+	id    string
+	title string
+}{
+	{"AS-001", "Prompt Injection"},
+	{"AS-002", "Permission and Capability Surface"},
+	{"AS-003", "Scope Mismatch"},
+	{"AS-004", "Supply Chain CVE"},
+	{"AS-005", "Privilege Escalation"},
+	{"AS-006", "Arbitrary Code Execution"},
+	{"AS-007", "Insufficient Tool Data"},
+	{"AS-008", "Known Compromised Package"},
+	{"AS-009", "Typosquatting"},
+	{"AS-010", "Secret Handling"},
+	{"AS-011", "DoS Resilience"},
+	{"AS-012", "Tool Drift"},
+	{"AS-013", "Tool Shadowing"},
+	{"AS-014", "Dependency Inventory Unavailable"},
+	{"AS-015", "Suspicious NPM Lifecycle Script"},
+	{"AS-016", "Suspicious NPM IOC Dependency"},
+	{"AS-017", "Suspicious Data Exfiltration Description"},
+	{"AS-018", "Embedded MCP Server Detected"},
+	{"AS-019", "Unauthenticated MCP Route Exposure"},
+}
 
 // writeSarifOutput converts the ScanReport to SARIF format and prints/writes it.
 func writeSarifOutput(opts scanOpts, report ScanReport) error {
@@ -19,15 +45,13 @@ func writeSarifOutput(opts scanOpts, report ScanReport) error {
 
 	run := sarif.NewRunWithInformationURI("ToolTrust Scanner", "https://github.com/AgentSafe-AI/tooltrust-scanner")
 
-	run.AddRule("AS-001").WithShortDescription(sarif.NewMultiformatMessageString("Prompt Injection")).WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
-	run.AddRule("AS-017").WithShortDescription(sarif.NewMultiformatMessageString("Suspicious Data Exfiltration Description")).WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
-	run.AddRule("AS-002").WithShortDescription(sarif.NewMultiformatMessageString("Dangerous Permission")).WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
-	run.AddRule("AS-003").WithShortDescription(sarif.NewMultiformatMessageString("Scope Mismatch")).WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
-	run.AddRule("AS-004").WithShortDescription(sarif.NewMultiformatMessageString("Supply Chain Risk")).WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
-	run.AddRule("AS-005").WithShortDescription(sarif.NewMultiformatMessageString("Privilege Escalation")).WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
-	run.AddRule("AS-006").WithShortDescription(sarif.NewMultiformatMessageString("Arbitrary Code Execution")).WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
-	run.AddRule("AS-010").WithShortDescription(sarif.NewMultiformatMessageString("Secret Handling")).WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
-	run.AddRule("AS-011").WithShortDescription(sarif.NewMultiformatMessageString("Missing Rate Limit")).WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
+	registeredRules := make(map[string]bool, len(sarifRuleDefinitions))
+	for _, rule := range sarifRuleDefinitions {
+		run.AddRule(rule.id).
+			WithShortDescription(sarif.NewMultiformatMessageString(rule.title)).
+			WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
+		registeredRules[rule.id] = true
+	}
 
 	sarifReport.AddRun(run)
 
@@ -48,9 +72,15 @@ func writeSarifOutput(opts scanOpts, report ScanReport) error {
 			if ruleId == "" {
 				ruleId = issue.Code // fallback if rule ID is missing
 			}
+			if ruleId != "" && !registeredRules[ruleId] {
+				run.AddRule(ruleId).
+					WithShortDescription(sarif.NewMultiformatMessageString(ruleId)).
+					WithHelpURI("https://github.com/AgentSafe-AI/tooltrust-scanner")
+				registeredRules[ruleId] = true
+			}
 
 			loc := sarif.NewLocationWithPhysicalLocation(sarif.NewPhysicalLocation().
-				WithArtifactLocation(sarif.NewSimpleArtifactLocation(policy.ToolName)))
+				WithArtifactLocation(sarif.NewSimpleArtifactLocation(sarifToolURI(policy.ToolName))))
 
 			result := sarif.NewRuleResult(ruleId).
 				WithMessage(sarif.NewTextMessage(issue.Description)).
@@ -70,11 +100,18 @@ func writeSarifOutput(opts scanOpts, report ScanReport) error {
 	}
 
 	if opts.outputFile != "" {
-		if writeErr := os.WriteFile(opts.outputFile, encoded, 0o644); writeErr != nil {
+		if writeErr := os.WriteFile(opts.outputFile, encoded, 0o600); writeErr != nil {
 			return fmt.Errorf("failed to write output file: %w", writeErr)
 		}
 	} else {
 		fmt.Println(string(encoded))
 	}
 	return nil
+}
+
+func sarifToolURI(toolName string) string {
+	if toolName == "" {
+		return "tooltrust://tool/unknown"
+	}
+	return "tooltrust://tool/" + url.PathEscape(toolName)
 }

@@ -22,6 +22,18 @@ func TestSchema_PropertyNames(t *testing.T) {
 	assert.ElementsMatch(t, []string{"path", "command"}, names)
 }
 
+func TestSchema_PropertyNames_Sorted(t *testing.T) {
+	s := jsonschema.Schema{
+		Properties: map[string]jsonschema.Property{
+			"zeta":  {Type: "string"},
+			"alpha": {Type: "string"},
+			"beta":  {Type: "string"},
+		},
+	}
+
+	assert.Equal(t, []string{"alpha", "beta", "zeta"}, s.PropertyNames())
+}
+
 func TestSchema_HasProperty(t *testing.T) {
 	s := jsonschema.Schema{
 		Properties: map[string]jsonschema.Property{

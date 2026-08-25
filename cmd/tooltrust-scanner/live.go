@@ -15,19 +15,20 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/pterm/pterm"
+	"gopkg.in/yaml.v3"
 
 	localmcp "github.com/AgentSafe-AI/tooltrust-scanner/pkg/adapter/mcp"
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
+var scanLiveServerFn = scanLiveServer
+
 func scanLiveServer(ctx context.Context, serverCmd string) ([]model.UnifiedTool, error) {
-	args, err := shellquote.Split(serverCmd)
+	command, env, args, err := splitServerCommand(serverCmd)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse server command: %w", err)
+		return nil, err
 	}
-	if len(args) == 0 {
-		return nil, fmt.Errorf("empty server command")
-	}
+	launchArgs := append([]string{command}, args...)
 
 	importTransport := true
 	_ = importTransport // To avoid unused variable issue during plan stage if I mess up imports
@@ -41,7 +42,7 @@ func scanLiveServer(ctx context.Context, serverCmd string) ([]model.UnifiedTool,
 	execCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	stdioTransport := transport.NewStdioWithOptions(args[0], nil, args[1:])
+	stdioTransport := transport.NewStdioWithOptions(command, env, args)
 	if startErr := stdioTransport.Start(execCtx); startErr != nil {
 		if execCtx.Err() == context.DeadlineExceeded {
 			spinner.Fail("Connection to MCP server timed out after 30 seconds.")
@@ -84,6 +85,10 @@ func scanLiveServer(ctx context.Context, serverCmd string) ([]model.UnifiedTool,
 		spinner.Fail("Failed to fetch tools")
 		return nil, fmt.Errorf("tools/list map failed: %w", err)
 	}
+	if resp == nil {
+		spinner.Fail("Failed to fetch tools")
+		return nil, fmt.Errorf("tools/list map failed: empty response")
+	}
 
 	spinner.Success("Connected and tools fetched!")
 
@@ -104,8 +109,50 @@ func scanLiveServer(ctx context.Context, serverCmd string) ([]model.UnifiedTool,
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse tools: %w", err)
 	}
-	tools = enrichLiveToolsWithLocalNodeDependencies(args, tools)
+	tools = enrichLiveToolsWithLocalNodeDependencies(launchArgs, tools)
 	return tools, nil
+}
+
+func splitServerCommand(serverCmd string) (command string, env, args []string, err error) {
+	parts, err := shellquote.Split(serverCmd)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("failed to parse server command: %w", err)
+	}
+	for len(parts) > 0 && isEnvAssignment(parts[0]) {
+		if strings.ContainsRune(parts[0], '\x00') {
+			return "", nil, nil, fmt.Errorf("invalid environment assignment %q", parts[0])
+		}
+		env = append(env, parts[0])
+		parts = parts[1:]
+	}
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+		return "", nil, nil, fmt.Errorf("empty server command")
+	}
+	if strings.ContainsRune(parts[0], '\x00') {
+		return "", nil, nil, fmt.Errorf("invalid server command %q", parts[0])
+	}
+	for _, arg := range parts[1:] {
+		if strings.ContainsRune(arg, '\x00') {
+			return "", nil, nil, fmt.Errorf("invalid command argument %q", arg)
+		}
+	}
+	return parts[0], env, parts[1:], nil
+}
+
+func isEnvAssignment(arg string) bool {
+	idx := strings.IndexByte(arg, '=')
+	if idx <= 0 {
+		return false
+	}
+	name := arg[:idx]
+	for i := 0; i < len(name); i++ {
+		ch := name[i]
+		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '_' || (i > 0 && ch >= '0' && ch <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func enrichLiveToolsWithLocalNodeDependencies(args []string, tools []model.UnifiedTool) []model.UnifiedTool {
@@ -113,7 +160,14 @@ func enrichLiveToolsWithLocalNodeDependencies(args []string, tools []model.Unifi
 	if root == "" {
 		for i := range tools {
 			ensureMetadata(&tools[i])
-			tools[i].Metadata["dependency_visibility_note"] = "No metadata.dependencies or repo_url were exposed by this MCP server, and no local project manifest could be inferred from the launch command."
+			hasDeps, depsParseFailed := dependencyMetadataStatus(tools[i].Metadata)
+			if !hasDeps && !hasRepoURL(tools[i].Metadata) {
+				if depsParseFailed {
+					tools[i].Metadata["dependency_visibility_note"] = "Tool exposed dependency metadata, but it could not be parsed, and no local project manifest could be inferred from the launch command."
+				} else {
+					tools[i].Metadata["dependency_visibility_note"] = "No metadata.dependencies or repo_url were exposed by this MCP server, and no local project manifest could be inferred from the launch command."
+				}
+			}
 		}
 		return tools
 	}
@@ -122,8 +176,13 @@ func enrichLiveToolsWithLocalNodeDependencies(args []string, tools []model.Unifi
 	if len(artifacts) == 0 {
 		for i := range tools {
 			ensureMetadata(&tools[i])
-			if !hasDependencyMetadata(tools[i].Metadata) && !hasRepoURL(tools[i].Metadata) {
-				tools[i].Metadata["dependency_visibility_note"] = fmt.Sprintf("Local project detected at %s, but no supported dependency artifact was found.", root)
+			hasDeps, depsParseFailed := dependencyMetadataStatus(tools[i].Metadata)
+			if !hasDeps && !hasRepoURL(tools[i].Metadata) {
+				if depsParseFailed {
+					tools[i].Metadata["dependency_visibility_note"] = fmt.Sprintf("Tool exposed dependency metadata, but it could not be parsed. Local project detected at %s, but no supported dependency artifact was found.", root)
+				} else {
+					tools[i].Metadata["dependency_visibility_note"] = fmt.Sprintf("Local project detected at %s, but no supported dependency artifact was found.", root)
+				}
 			}
 		}
 		return tools
@@ -142,8 +201,13 @@ func enrichLiveToolsWithLocalNodeDependencies(args []string, tools []model.Unifi
 	if len(merged) == 0 {
 		for i := range tools {
 			ensureMetadata(&tools[i])
-			if !hasDependencyMetadata(tools[i].Metadata) && !hasRepoURL(tools[i].Metadata) {
-				tools[i].Metadata["dependency_visibility_note"] = fmt.Sprintf("Local dependency artifacts were found under %s, but ToolTrust could not extract usable dependencies.", root)
+			hasDeps, depsParseFailed := dependencyMetadataStatus(tools[i].Metadata)
+			if !hasDeps && !hasRepoURL(tools[i].Metadata) {
+				if depsParseFailed {
+					tools[i].Metadata["dependency_visibility_note"] = fmt.Sprintf("Tool exposed dependency metadata, but it could not be parsed. Local dependency artifacts were found under %s, but ToolTrust could not extract usable dependencies.", root)
+				} else {
+					tools[i].Metadata["dependency_visibility_note"] = fmt.Sprintf("Local dependency artifacts were found under %s, but ToolTrust could not extract usable dependencies.", root)
+				}
 			}
 		}
 		return tools
@@ -163,20 +227,28 @@ func ensureMetadata(tool *model.UnifiedTool) {
 	}
 }
 
-func hasDependencyMetadata(meta map[string]any) bool {
+func dependencyMetadataStatus(meta map[string]any) (hasDeps, parseFailed bool) {
 	raw, ok := meta["dependencies"]
 	if !ok {
-		return false
+		return false, false
 	}
 	b, err := json.Marshal(raw)
 	if err != nil {
-		return false
+		return false, true
 	}
 	var deps []map[string]any
 	if err := json.Unmarshal(b, &deps); err != nil {
-		return false
+		return false, true
 	}
-	return len(deps) > 0
+	if deps == nil && bytes.Equal(bytes.TrimSpace(b), []byte("null")) {
+		return false, true
+	}
+	for _, dep := range deps {
+		if dep == nil {
+			return false, true
+		}
+	}
+	return len(deps) > 0, false
 }
 
 func hasRepoURL(meta map[string]any) bool {
@@ -185,44 +257,103 @@ func hasRepoURL(meta map[string]any) bool {
 }
 
 func mergeDependencies(tool *model.UnifiedTool, deps []nodeDependency) {
-	var existing []map[string]any
+	existing := []map[string]any{}
 	if raw, ok := tool.Metadata["dependencies"]; ok {
 		b, err := json.Marshal(raw)
 		if err == nil {
 			if err := json.Unmarshal(b, &existing); err != nil {
-				existing = nil
+				existing = []map[string]any{}
 			}
 		}
 	}
 
-	seen := map[string]bool{}
+	sanitized := make([]map[string]any, 0, len(existing))
 	for _, dep := range existing {
+		if dep == nil {
+			continue
+		}
+		name := strings.TrimSpace(stringMapValue(dep, "name"))
+		version := strings.TrimSpace(stringMapValue(dep, "version"))
+		ecosystem := strings.TrimSpace(stringMapValue(dep, "ecosystem"))
+		if name == "" || version == "" || ecosystem == "" {
+			continue
+		}
+		dep["name"] = name
+		dep["version"] = version
+		dep["ecosystem"] = ecosystem
+		sanitized = append(sanitized, dep)
+	}
+	existing = sanitized
+
+	index := map[string]int{}
+	existingByKey := make(map[string]map[string]any, len(existing))
+	for i, dep := range existing {
+		if dep == nil {
+			continue
+		}
 		name := stringMapValue(dep, "name")
 		version := stringMapValue(dep, "version")
 		ecosystem := stringMapValue(dep, "ecosystem")
-		seen[ecosystem+":"+name+"@"+version] = true
-		if dep["source"] == nil || dep["source"] == "" {
-			dep["source"] = "metadata"
+		key := dependencyMergeKey(ecosystem, name, version)
+		source := strings.TrimSpace(stringMapValue(dep, "source"))
+		if source == "" {
+			source = "metadata"
 		}
+		if idx, ok := index[key]; ok {
+			if sourceRank(source) > sourceRank(stringMapValue(existing[idx], "source")) {
+				existing[idx]["source"] = source
+				existingByKey[key] = existing[idx]
+			}
+			continue
+		}
+		index[key] = i
+		existing[i]["source"] = source
+		existingByKey[key] = existing[i]
 	}
 
 	for _, dep := range deps {
-		key := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
-		if seen[key] {
+		key := dependencyMergeKey(dep.Ecosystem, dep.Name, dep.Version)
+		source := strings.TrimSpace(dep.Source)
+		if source == "" {
+			source = "local_lockfile"
+		}
+		if current, ok := existingByKey[key]; ok {
+			if sourceRank(source) > sourceRank(stringMapValue(current, "source")) {
+				current["source"] = source
+			}
 			continue
 		}
-		seen[key] = true
-		existing = append(existing, map[string]any{
+		entry := map[string]any{
 			"name":      dep.Name,
 			"version":   dep.Version,
 			"ecosystem": dep.Ecosystem,
-			"source":    dep.Source,
-		})
+			"source":    source,
+		}
+		index[key] = len(existing)
+		existing = append(existing, entry)
+		existingByKey[key] = entry
 	}
 
 	if len(existing) > 0 {
 		tool.Metadata["dependencies"] = existing
 	}
+}
+
+func sourceRank(source string) int {
+	switch source {
+	case "local_lockfile":
+		return 3
+	case "lockfile":
+		return 2
+	case "metadata":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func dependencyMergeKey(ecosystem, name, version string) string {
+	return strings.ToLower(ecosystem) + ":" + strings.ToLower(name) + "@" + strings.ToLower(strings.TrimPrefix(version, "v"))
 }
 
 type nodeLockfile struct {
@@ -231,7 +362,9 @@ type nodeLockfile struct {
 }
 
 type nodeLockEntry struct {
-	Version string `json:"version"`
+	Name         string          `json:"name"`
+	Version      string          `json:"version"`
+	Dependencies json.RawMessage `json:"dependencies"`
 }
 
 type nodeDependency struct {
@@ -264,10 +397,21 @@ func parseDependencyArtifact(artifact dependencyArtifact) ([]nodeDependency, err
 }
 
 func parseNodeLockfile(path string) ([]nodeDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read node lockfile %s: %w", path, err)
 	}
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse node lockfile %s: %w", path, err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("parse node lockfile %s: top-level JSON value must be an object", path)
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
+		return nil, fmt.Errorf("parse node lockfile %s: top-level JSON value must be an object", path)
+	}
+
 	var lock nodeLockfile
 	if err := json.Unmarshal(data, &lock); err != nil {
 		return nil, fmt.Errorf("parse node lockfile %s: %w", path, err)
@@ -284,6 +428,9 @@ func parseNodeLockfile(path string) ([]nodeDependency, error) {
 			if idx := strings.LastIndex(key, "node_modules/"); idx >= 0 {
 				name = key[idx+len("node_modules/"):]
 			}
+			if entry.Name != "" {
+				name = entry.Name
+			}
 			if name == "" {
 				continue
 			}
@@ -298,17 +445,46 @@ func parseNodeLockfile(path string) ([]nodeDependency, error) {
 	}
 
 	for name, entry := range lock.Dependencies {
-		if name == "" || entry.Version == "" {
-			continue
-		}
-		k := name + "@" + entry.Version
-		if seen[k] {
-			continue
-		}
-		seen[k] = true
-		deps = append(deps, nodeDependency{Name: name, Version: entry.Version, Ecosystem: "npm", Source: "local_lockfile"})
+		appendNodeLockDependencyTree(name, entry, seen, &deps)
 	}
 	return deps, nil
+}
+
+func appendNodeLockDependencyTree(name string, entry nodeLockEntry, seen map[string]bool, deps *[]nodeDependency) {
+	if entry.Name != "" {
+		name = entry.Name
+	}
+	if aliasName, aliasVersion, ok := parseNPMAliasVersion(entry.Version); ok {
+		name = aliasName
+		entry.Version = aliasVersion
+	}
+	if name != "" && entry.Version != "" {
+		k := name + "@" + entry.Version
+		if !seen[k] {
+			seen[k] = true
+			*deps = append(*deps, nodeDependency{Name: name, Version: entry.Version, Ecosystem: "npm", Source: "local_lockfile"})
+		}
+	}
+	var nested map[string]nodeLockEntry
+	if err := json.Unmarshal(entry.Dependencies, &nested); err != nil {
+		return
+	}
+	for childName, child := range nested {
+		appendNodeLockDependencyTree(childName, child, seen, deps)
+	}
+}
+
+func parseNPMAliasVersion(version string) (name, resolvedVersion string, ok bool) {
+	const prefix = "npm:"
+	if !strings.HasPrefix(version, prefix) {
+		return "", "", false
+	}
+	spec := strings.TrimPrefix(version, prefix)
+	idx := strings.LastIndex(spec, "@")
+	if idx <= 0 || idx == len(spec)-1 {
+		return "", "", false
+	}
+	return spec[:idx], spec[idx+1:], true
 }
 
 func detectLocalProjectRoot(args []string) string {
@@ -320,7 +496,7 @@ func detectLocalProjectRoot(args []string) string {
 		if strings.Contains(arg, string(os.PathSeparator)) || strings.HasPrefix(arg, ".") {
 			candidates = append(candidates, arg)
 		}
-		if strings.HasSuffix(arg, ".js") || strings.HasSuffix(arg, ".mjs") || strings.HasSuffix(arg, ".cjs") || strings.HasSuffix(arg, ".ts") {
+		if hasLocalSourceFileExtension(arg) {
 			candidates = append(candidates, arg)
 		}
 	}
@@ -354,6 +530,15 @@ func detectLocalProjectRoot(args []string) string {
 	return ""
 }
 
+func hasLocalSourceFileExtension(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".js", ".mjs", ".cjs", ".ts", ".py", ".go":
+		return true
+	default:
+		return false
+	}
+}
+
 func findLocalDependencyArtifacts(root string) []dependencyArtifact {
 	specs := []dependencyArtifact{
 		{path: filepath.Join(root, "package-lock.json"), kind: "npm-lock"},
@@ -374,7 +559,7 @@ func findLocalDependencyArtifacts(root string) []dependencyArtifact {
 
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
+	return err == nil && info != nil && !info.IsDir()
 }
 
 func stringMapValue(m map[string]any, key string) string {
@@ -385,7 +570,7 @@ func stringMapValue(m map[string]any, key string) string {
 }
 
 func parseGoSumFile(path string) ([]nodeDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read go.sum %s: %w", path, err)
 	}
@@ -415,7 +600,7 @@ func parseGoSumFile(path string) ([]nodeDependency, error) {
 }
 
 func parseRequirementsFile(path string) ([]nodeDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read requirements.txt %s: %w", path, err)
 	}
@@ -426,12 +611,9 @@ func parseRequirementsFile(path string) ([]nodeDependency, error) {
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "-") {
 			continue
 		}
-		if i := strings.Index(line, "=="); i > 0 {
-			name := strings.TrimSpace(line[:i])
-			version := strings.TrimSpace(line[i+2:])
-			if name != "" && version != "" {
-				deps = append(deps, nodeDependency{Name: name, Version: version, Ecosystem: "PyPI", Source: "local_lockfile"})
-			}
+		name, version, ok := parsePinnedRequirement(line)
+		if ok {
+			deps = append(deps, nodeDependency{Name: name, Version: version, Ecosystem: "PyPI", Source: "local_lockfile"})
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -440,30 +622,65 @@ func parseRequirementsFile(path string) ([]nodeDependency, error) {
 	return deps, nil
 }
 
+func parsePinnedRequirement(line string) (name, version string, ok bool) {
+	separator := "=="
+	idx := strings.Index(line, "===")
+	if idx > 0 {
+		separator = "==="
+	} else {
+		idx = strings.Index(line, "==")
+	}
+	if idx <= 0 {
+		return "", "", false
+	}
+	name = normalizeRequirementName(line[:idx])
+	version = strings.TrimSpace(line[idx+len(separator):])
+	if marker := strings.IndexByte(version, ';'); marker >= 0 {
+		version = strings.TrimSpace(version[:marker])
+	}
+	if comment := strings.IndexByte(version, '#'); comment >= 0 {
+		version = strings.TrimSpace(version[:comment])
+	}
+	if fields := strings.Fields(version); len(fields) > 0 {
+		version = fields[0]
+	}
+	if name == "" || version == "" {
+		return "", "", false
+	}
+	return name, version, true
+}
+
+func normalizeRequirementName(raw string) string {
+	name := strings.TrimSpace(raw)
+	if idx := strings.IndexByte(name, '['); idx >= 0 {
+		name = strings.TrimSpace(name[:idx])
+	}
+	return name
+}
+
 func parsePNPMLockfile(path string) ([]nodeDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read pnpm lockfile %s: %w", path, err)
+	}
+	var topLevel any
+	if err := yaml.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse pnpm lockfile %s: %w", path, err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("parse pnpm lockfile %s: top-level YAML value must be a mapping", path)
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
+		return nil, fmt.Errorf("parse pnpm lockfile %s: top-level YAML value must be a mapping", path)
 	}
 	lines := strings.Split(string(data), "\n")
 	seen := map[string]bool{}
 	var deps []nodeDependency
 	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "/") && !strings.HasPrefix(trimmed, "'/") {
+		name, version, ok := parsePNPMLockKey(line)
+		if !ok {
 			continue
 		}
-		trimmed = strings.Trim(trimmed, "'")
-		trimmed = strings.TrimSuffix(trimmed, ":")
-		trimmed = strings.TrimPrefix(trimmed, "/")
-		if trimmed == "" {
-			continue
-		}
-		idx := strings.LastIndex(trimmed, "@")
-		if idx <= 0 || idx == len(trimmed)-1 {
-			continue
-		}
-		name, version := trimmed[:idx], trimmed[idx+1:]
 		k := name + "@" + version
 		if seen[k] {
 			continue
@@ -474,8 +691,38 @@ func parsePNPMLockfile(path string) ([]nodeDependency, error) {
 	return deps, nil
 }
 
+func parsePNPMLockKey(line string) (name, version string, ok bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasSuffix(trimmed, ":") {
+		return "", "", false
+	}
+	trimmed = strings.TrimSuffix(trimmed, ":")
+	trimmed = strings.Trim(trimmed, "'\"")
+	trimmed = strings.TrimPrefix(trimmed, "/")
+	if trimmed == "" {
+		return "", "", false
+	}
+	if fragmentIdx := strings.Index(trimmed, "#"); fragmentIdx >= 0 {
+		trimmed = trimmed[:fragmentIdx]
+	}
+	if patchIdx := strings.Index(trimmed, "@patch:"); patchIdx >= 0 {
+		return parsePNPMLockKey(trimmed[patchIdx+len("@patch:"):] + ":")
+	}
+	if idx := strings.Index(trimmed, "@npm:"); idx >= 0 {
+		trimmed = trimmed[idx+len("@npm:"):]
+	}
+	if idx := strings.Index(trimmed, "("); idx >= 0 {
+		trimmed = trimmed[:idx]
+	}
+	idx := strings.LastIndex(trimmed, "@")
+	if idx <= 0 || idx == len(trimmed)-1 {
+		return "", "", false
+	}
+	return trimmed[:idx], trimmed[idx+1:], true
+}
+
 func parseYarnLockfile(path string) ([]nodeDependency, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is a discovered local dependency artifact.
 	if err != nil {
 		return nil, fmt.Errorf("read yarn.lock %s: %w", path, err)
 	}
@@ -495,19 +742,17 @@ func parseYarnLockfile(path string) ([]nodeDependency, error) {
 			if next == "" {
 				break
 			}
-			if strings.HasPrefix(next, "version ") {
-				version := strings.Trim(next[len("version "):], "\"")
+			if version, ok := parseYarnVersionLine(next); ok {
 				specs := strings.Split(strings.TrimSuffix(line, ":"), ",")
 				for _, spec := range specs {
 					spec = strings.Trim(strings.TrimSpace(spec), "\"")
 					if spec == "" {
 						continue
 					}
-					idx := strings.LastIndex(spec, "@")
-					if idx <= 0 {
+					name, ok := yarnLockSpecPackageName(spec)
+					if !ok {
 						continue
 					}
-					name := spec[:idx]
 					k := name + "@" + version
 					if seen[k] {
 						continue
@@ -523,4 +768,41 @@ func parseYarnLockfile(path string) ([]nodeDependency, error) {
 		}
 	}
 	return deps, nil
+}
+
+func parseYarnVersionLine(line string) (string, bool) {
+	switch {
+	case strings.HasPrefix(line, "version "):
+		version := strings.TrimSpace(strings.Trim(line[len("version "):], "\""))
+		return version, version != ""
+	case strings.HasPrefix(line, "version:"):
+		version := strings.TrimSpace(strings.Trim(line[len("version:"):], "\""))
+		return version, version != ""
+	default:
+		return "", false
+	}
+}
+
+func yarnLockSpecPackageName(spec string) (string, bool) {
+	if fragmentIdx := strings.Index(spec, "#"); fragmentIdx >= 0 {
+		spec = spec[:fragmentIdx]
+	}
+	if patchIdx := strings.Index(spec, "@patch:"); patchIdx >= 0 {
+		return yarnLockSpecPackageName(spec[patchIdx+len("@patch:"):])
+	}
+	if aliasIdx := strings.Index(spec, "@npm:"); aliasIdx >= 0 {
+		after := spec[aliasIdx+len("@npm:"):]
+		if idx := strings.LastIndex(after, "@"); idx > 0 && idx < len(after)-1 {
+			return after[:idx], true
+		}
+		return spec[:aliasIdx], true
+	}
+	if encodedAliasIdx := strings.Index(spec, "@npm%3A"); encodedAliasIdx >= 0 {
+		return spec[:encodedAliasIdx], true
+	}
+	idx := strings.LastIndex(spec, "@")
+	if idx <= 0 || idx == len(spec)-1 {
+		return "", false
+	}
+	return spec[:idx], true
 }

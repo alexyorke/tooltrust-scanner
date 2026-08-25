@@ -84,6 +84,8 @@ func TestScanner_CancelledContext(t *testing.T) {
 // Dedup tests (Change 4)
 // ---------------------------------------------------------------------------
 
+var dedupeBenchSink []model.Issue
+
 func TestDedupeIssues_ExactDuplicatesCollapsedToOne(t *testing.T) {
 	// Two identical issues must collapse to one and be scored once.
 	dup := model.Issue{
@@ -131,4 +133,28 @@ func TestDedupeIssues_ScannedOnce(t *testing.T) {
 	}
 	deduped := analyzer.DedupeIssuesForTest(issues)
 	assert.Len(t, deduped, 1, "three identical issues must collapse to one")
+}
+
+func BenchmarkDedupeIssuesSmallNoDuplicates(b *testing.B) {
+	issues := []model.Issue{
+		{
+			RuleID:      "AS-001",
+			Code:        "TOOL_POISONING",
+			Location:    "description",
+			Description: "hidden instruction",
+			Severity:    model.SeverityHigh,
+		},
+		{
+			RuleID:      "AS-010",
+			Code:        "SECRET_HANDLING",
+			Location:    "input_schema.api_key",
+			Description: "secret parameter",
+			Severity:    model.SeverityMedium,
+		},
+	}
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		dedupeBenchSink = analyzer.DedupeIssuesForTest(issues)
+	}
 }

@@ -4,6 +4,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // FlexType is a JSON Schema "type" value that accepts either a plain string
@@ -14,8 +15,12 @@ type FlexType string
 
 // UnmarshalJSON implements json.Unmarshaler for FlexType.
 func (ft *FlexType) UnmarshalJSON(b []byte) error {
-	if len(b) == 0 || string(b) == "null" {
+	b = []byte(strings.TrimSpace(string(b)))
+	if len(b) == 0 {
 		return nil
+	}
+	if string(b) == "null" {
+		return fmt.Errorf("FlexType: null is not a valid schema type")
 	}
 	if b[0] == '"' {
 		var s string
@@ -36,10 +41,9 @@ func (ft *FlexType) UnmarshalJSON(b []byte) error {
 				return nil
 			}
 		}
-		*ft = "null"
-		return nil
+		return fmt.Errorf("FlexType: schema type array must contain at least one non-null type")
 	}
-	return nil
+	return fmt.Errorf("FlexType: unsupported JSON token %q", string(b))
 }
 
 // ListToolsResponse is the top-level MCP tools/list wire format.
@@ -75,10 +79,14 @@ type InputSchema struct {
 	Properties  map[string]SchemaProperty `json:"properties,omitempty"`
 	Required    []string                  `json:"required,omitempty"`
 	Description string                    `json:"description,omitempty"`
+	Items       *SchemaProperty           `json:"items,omitempty"`
 }
 
 // SchemaProperty describes a single property within an InputSchema.
 type SchemaProperty struct {
-	Type        FlexType `json:"type,omitempty"`
-	Description string   `json:"description,omitempty"`
+	Type        FlexType                  `json:"type,omitempty"`
+	Description string                    `json:"description,omitempty"`
+	Enum        []any                     `json:"enum,omitempty"`
+	Properties  map[string]SchemaProperty `json:"properties,omitempty"`
+	Items       *SchemaProperty           `json:"items,omitempty"`
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -126,6 +127,12 @@ func (c *httpOSVClient) Query(ctx context.Context, dep Dependency) ([]osvVuln, e
 	if err != nil {
 		return nil, fmt.Errorf("osv: http request: %w", err)
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("osv: empty response")
+	}
+	if resp.Body == nil {
+		return nil, fmt.Errorf("osv: empty response body")
+	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
 			_ = closeErr
@@ -139,6 +146,17 @@ func (c *httpOSVClient) Query(ctx context.Context, dep Dependency) ([]osvVuln, e
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("osv: read body: %w", err)
+	}
+
+	var topLevel any
+	if unmarshalErr := json.Unmarshal(data, &topLevel); unmarshalErr != nil {
+		return nil, fmt.Errorf("osv: unmarshal response: %w", unmarshalErr)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("osv: top-level JSON value must be an object")
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
+		return nil, fmt.Errorf("osv: top-level JSON value must be an object")
 	}
 
 	var result osvResponse
@@ -213,10 +231,23 @@ type packageLockJSON struct {
 }
 
 type packageLockEntry struct {
-	Version string `json:"version"`
+	Name         string          `json:"name"`
+	Version      string          `json:"version"`
+	Dependencies json.RawMessage `json:"dependencies"`
 }
 
 func parsePackageLockJSON(data []byte) ([]Dependency, error) {
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse package-lock.json: %w", err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("parse package-lock.json: top-level JSON value must be an object")
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
+		return nil, fmt.Errorf("parse package-lock.json: top-level JSON value must be an object")
+	}
+
 	var lock packageLockJSON
 	if err := json.Unmarshal(data, &lock); err != nil {
 		return nil, fmt.Errorf("parse package-lock.json: %w", err)
@@ -234,6 +265,9 @@ func parsePackageLockJSON(data []byte) ([]Dependency, error) {
 			if idx := strings.LastIndex(key, "node_modules/"); idx >= 0 {
 				name = key[idx+len("node_modules/"):]
 			}
+			if entry.Name != "" {
+				name = entry.Name
+			}
 			k := name + "@" + entry.Version
 			if name == "" || seen[k] {
 				continue
@@ -244,15 +278,47 @@ func parsePackageLockJSON(data []byte) ([]Dependency, error) {
 	} else {
 		// npm v1: flat "dependencies" map
 		for name, entry := range lock.Dependencies {
-			k := name + "@" + entry.Version
-			if entry.Version == "" || seen[k] {
-				continue
-			}
-			seen[k] = true
-			deps = append(deps, Dependency{Name: name, Version: entry.Version, Ecosystem: "npm"})
+			appendPackageLockDependencyTree(name, entry, seen, &deps)
 		}
 	}
 	return deps, nil
+}
+
+func appendPackageLockDependencyTree(name string, entry packageLockEntry, seen map[string]bool, deps *[]Dependency) {
+	if entry.Name != "" {
+		name = entry.Name
+	}
+	if aliasName, aliasVersion, ok := parseNPMAliasVersion(entry.Version); ok {
+		name = aliasName
+		entry.Version = aliasVersion
+	}
+	if name != "" && entry.Version != "" {
+		k := name + "@" + entry.Version
+		if !seen[k] {
+			seen[k] = true
+			*deps = append(*deps, Dependency{Name: name, Version: entry.Version, Ecosystem: "npm"})
+		}
+	}
+	var nested map[string]packageLockEntry
+	if err := json.Unmarshal(entry.Dependencies, &nested); err != nil {
+		return
+	}
+	for childName, child := range nested {
+		appendPackageLockDependencyTree(childName, child, seen, deps)
+	}
+}
+
+func parseNPMAliasVersion(version string) (name, resolvedVersion string, ok bool) {
+	const prefix = "npm:"
+	if !strings.HasPrefix(version, prefix) {
+		return "", "", false
+	}
+	spec := strings.TrimPrefix(version, prefix)
+	idx := strings.LastIndex(spec, "@")
+	if idx <= 0 || idx == len(spec)-1 {
+		return "", "", false
+	}
+	return spec[:idx], spec[idx+1:], true
 }
 
 func parseGoSum(data []byte) ([]Dependency, error) {
@@ -297,13 +363,9 @@ func parseRequirementsTxt(data []byte) ([]Dependency, error) {
 		if i := strings.IndexByte(line, ';'); i >= 0 {
 			line = strings.TrimSpace(line[:i])
 		}
-		// Only exact pins (==) are meaningful for CVE lookup
-		if idx := strings.Index(line, "=="); idx > 0 {
-			name := strings.TrimSpace(line[:idx])
-			version := strings.TrimSpace(line[idx+2:])
-			if name != "" && version != "" {
-				deps = append(deps, Dependency{Name: name, Version: version, Ecosystem: "PyPI"})
-			}
+		name, version, ok := parsePinnedRequirement(line)
+		if ok {
+			deps = append(deps, Dependency{Name: name, Version: version, Ecosystem: "PyPI"})
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -312,11 +374,52 @@ func parseRequirementsTxt(data []byte) ([]Dependency, error) {
 	return deps, nil
 }
 
+func parsePinnedRequirement(line string) (name, version string, ok bool) {
+	separator := "=="
+	idx := strings.Index(line, "===")
+	if idx > 0 {
+		separator = "==="
+	} else {
+		idx = strings.Index(line, "==")
+	}
+	if idx <= 0 {
+		return "", "", false
+	}
+	name = normalizeRequirementName(line[:idx])
+	version = strings.TrimSpace(line[idx+len(separator):])
+	if fields := strings.Fields(version); len(fields) > 0 {
+		version = fields[0]
+	}
+	if name == "" || version == "" {
+		return "", "", false
+	}
+	return name, version, true
+}
+
+func normalizeRequirementName(raw string) string {
+	name := strings.TrimSpace(raw)
+	if idx := strings.IndexByte(name, '['); idx >= 0 {
+		name = strings.TrimSpace(name[:idx])
+	}
+	return name
+}
+
 type pnpmLockfile struct {
 	Packages map[string]any `yaml:"packages"`
 }
 
 func parsePNPMLockYAML(data []byte) ([]Dependency, error) {
+	var topLevel any
+	if err := yaml.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("parse pnpm-lock.yaml: %w", err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("parse pnpm-lock.yaml: top-level YAML value must be a mapping")
+	}
+	if _, ok := topLevel.(map[string]any); !ok {
+		return nil, fmt.Errorf("parse pnpm-lock.yaml: top-level YAML value must be a mapping")
+	}
+
 	var lock pnpmLockfile
 	if err := yaml.Unmarshal(data, &lock); err != nil {
 		return nil, fmt.Errorf("parse pnpm-lock.yaml: %w", err)
@@ -344,6 +447,15 @@ func parsePNPMPackageKey(key string) (name, version string, ok bool) {
 	trimmed = strings.Trim(trimmed, "'\"")
 	if trimmed == "" {
 		return "", "", false
+	}
+	if fragmentIdx := strings.Index(trimmed, "#"); fragmentIdx >= 0 {
+		trimmed = trimmed[:fragmentIdx]
+	}
+	if patchIdx := strings.Index(trimmed, "@patch:"); patchIdx >= 0 {
+		return parsePNPMPackageKey(trimmed[patchIdx+len("@patch:"):])
+	}
+	if idx := strings.Index(trimmed, "@npm:"); idx >= 0 {
+		trimmed = trimmed[idx+len("@npm:"):]
 	}
 	if idx := strings.Index(trimmed, "("); idx >= 0 {
 		trimmed = trimmed[:idx]
@@ -375,19 +487,17 @@ func parseYarnLock(data []byte) ([]Dependency, error) {
 			if next == "" {
 				break
 			}
-			if strings.HasPrefix(next, "version ") {
-				version := strings.Trim(next[len("version "):], "\"")
+			if version, ok := parseYarnVersionLine(next); ok {
 				specs := strings.Split(strings.TrimSuffix(line, ":"), ",")
 				for _, spec := range specs {
 					spec = strings.Trim(strings.TrimSpace(spec), "\"")
 					if spec == "" {
 						continue
 					}
-					idx := strings.LastIndex(spec, "@")
-					if idx <= 0 || idx == len(spec)-1 {
+					name, ok := yarnSpecPackageName(spec)
+					if !ok {
 						continue
 					}
-					name := spec[:idx]
 					k := name + "@" + version
 					if seen[k] {
 						continue
@@ -404,6 +514,43 @@ func parseYarnLock(data []byte) ([]Dependency, error) {
 	}
 
 	return deps, nil
+}
+
+func parseYarnVersionLine(line string) (string, bool) {
+	switch {
+	case strings.HasPrefix(line, "version "):
+		version := strings.TrimSpace(strings.Trim(line[len("version "):], "\""))
+		return version, version != ""
+	case strings.HasPrefix(line, "version:"):
+		version := strings.TrimSpace(strings.Trim(line[len("version:"):], "\""))
+		return version, version != ""
+	default:
+		return "", false
+	}
+}
+
+func yarnSpecPackageName(spec string) (string, bool) {
+	if fragmentIdx := strings.Index(spec, "#"); fragmentIdx >= 0 {
+		spec = spec[:fragmentIdx]
+	}
+	if patchIdx := strings.Index(spec, "@patch:"); patchIdx >= 0 {
+		return yarnSpecPackageName(spec[patchIdx+len("@patch:"):])
+	}
+	if aliasIdx := strings.Index(spec, "@npm:"); aliasIdx >= 0 {
+		after := spec[aliasIdx+len("@npm:"):]
+		if idx := strings.LastIndex(after, "@"); idx > 0 && idx < len(after)-1 {
+			return after[:idx], true
+		}
+		return spec[:aliasIdx], true
+	}
+	if encodedAliasIdx := strings.Index(spec, "@npm%3A"); encodedAliasIdx >= 0 {
+		return spec[:encodedAliasIdx], true
+	}
+	idx := strings.LastIndex(spec, "@")
+	if idx <= 0 || idx == len(spec)-1 {
+		return "", false
+	}
+	return spec[:idx], true
 }
 
 // fetchLockfileDeps fetches and parses lockfiles from a GitHub repository URL.
@@ -427,19 +574,19 @@ func fetchLockfileDeps(repoURL string) []Dependency {
 				break
 			}
 			resp, err := client.Do(req)
-			if err != nil || resp.StatusCode != http.StatusOK {
-				if resp != nil {
+			if err != nil || resp == nil || resp.Body == nil || resp.StatusCode != http.StatusOK {
+				if resp != nil && resp.Body != nil {
 					if closeErr := resp.Body.Close(); closeErr != nil {
 						_ = closeErr
 					}
 				}
 				continue // try next branch
 			}
-			data, err := io.ReadAll(io.LimitReader(resp.Body, lockfileFetchLimit))
+			data, err := io.ReadAll(io.LimitReader(resp.Body, lockfileFetchLimit+1))
 			if closeErr := resp.Body.Close(); closeErr != nil {
 				_ = closeErr
 			}
-			if err != nil {
+			if err != nil || len(data) > lockfileFetchLimit {
 				continue
 			}
 			deps, err := spec.parse(data)
@@ -456,27 +603,29 @@ func fetchLockfileDeps(repoURL string) []Dependency {
 // rawGitHubURL converts a github.com URL to raw.githubusercontent.com for
 // the given branch and file path.  Returns ("", false) for non-GitHub URLs.
 func rawGitHubURL(repoURL, branch, filePath string) (string, bool) {
-	clean := strings.TrimSuffix(strings.TrimSpace(repoURL), ".git")
-	clean = strings.TrimPrefix(clean, "git+")
-	if !strings.Contains(clean, "github.com/") {
+	clean := strings.TrimPrefix(strings.TrimSpace(repoURL), "git+")
+	parsed, err := url.Parse(clean)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "https") ||
+		!strings.EqualFold(parsed.Hostname(), "github.com") || parsed.Port() != "" || parsed.User != nil {
 		return "", false
 	}
-	raw := strings.Replace(clean, "github.com/", "raw.githubusercontent.com/", 1)
-	return fmt.Sprintf("%s/%s/%s", raw, branch, filePath), true
-}
 
-// mergeDependencies merges two dep slices, deduplicating by ecosystem+name+version.
-func mergeDependencies(a, b []Dependency) []Dependency {
-	seen := make(map[string]bool, len(a)+len(b))
-	result := make([]Dependency, 0, len(a)+len(b))
-	for _, dep := range append(a, b...) {
-		k := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
-		if !seen[k] {
-			seen[k] = true
-			result = append(result, dep)
-		}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) != 2 {
+		return "", false
 	}
-	return result
+	owner := parts[0]
+	repo := strings.TrimSuffix(parts[1], ".git")
+	if owner == "" || repo == "" {
+		return "", false
+	}
+
+	raw := &url.URL{
+		Scheme: "https",
+		Host:   "raw.githubusercontent.com",
+		Path:   "/" + strings.Join([]string{owner, repo, branch, strings.TrimPrefix(filePath, "/")}, "/"),
+	}
+	return raw.String(), true
 }
 
 // ── SupplyChainChecker ────────────────────────────────────────────────────────
@@ -516,7 +665,7 @@ func newSupplyChainCheckerWithClient(c osvClient) *SupplyChainChecker {
 // Check queries OSV for all known dependencies and emits AS-004 findings.
 func (c *SupplyChainChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) {
 	deps, err := collectDependencies(tool)
-	if err != nil {
+	if err != nil && len(deps) == 0 {
 		return nil, nil
 	}
 	if len(deps) == 0 {
@@ -651,53 +800,85 @@ func extractDependencies(tool model.UnifiedTool) ([]Dependency, error) {
 	if err = json.Unmarshal(b, &deps); err != nil {
 		return nil, fmt.Errorf("supply_chain: unmarshal deps: %w", err)
 	}
+	if deps == nil && bytes.Equal(bytes.TrimSpace(b), []byte("null")) {
+		return nil, fmt.Errorf("supply_chain: dependencies metadata must be an array")
+	}
 	return deps, nil
 }
 
 func collectDependencies(tool model.UnifiedTool) ([]dependencyEvidence, error) {
 	metaDeps, err := extractDependencies(tool)
-	if err != nil {
-		return nil, err
+
+	index := make(map[string]int, len(metaDeps))
+	result := make([]dependencyEvidence, 0, len(metaDeps))
+	if err == nil {
+		for _, dep := range metaDeps {
+			name := strings.TrimSpace(dep.Name)
+			version := strings.TrimSpace(dep.Version)
+			ecosystem := strings.TrimSpace(dep.Ecosystem)
+			if name == "" || version == "" || ecosystem == "" {
+				continue
+			}
+			dep.Name = name
+			dep.Version = version
+			dep.Ecosystem = ecosystem
+			k := strings.ToLower(dep.Ecosystem) + ":" + strings.ToLower(dep.Name) + "@" + normaliseVersion(dep.Version)
+			source := strings.TrimSpace(dep.Source)
+			if source == "" {
+				source = "metadata"
+			}
+			if idx, ok := index[k]; ok {
+				if sourceRank(source) > sourceRank(result[idx].Source) {
+					result[idx].Source = source
+				}
+				continue
+			}
+			index[k] = len(result)
+			result = append(result, dependencyEvidence{
+				Dependency: dep,
+				Source:     source,
+			})
+		}
 	}
 
-	seen := make(map[string]bool, len(metaDeps))
-	result := make([]dependencyEvidence, 0, len(metaDeps))
-	for _, dep := range metaDeps {
-		k := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
-		if seen[k] {
+	if tool.Metadata == nil {
+		return result, err
+	}
+	repoURL, ok := tool.Metadata["repo_url"].(string)
+	repoURL = strings.TrimSpace(repoURL)
+	if !ok || repoURL == "" {
+		return result, err
+	}
+
+	for _, dep := range lockfileDepsFetcher(repoURL) {
+		k := strings.ToLower(dep.Ecosystem) + ":" + strings.ToLower(dep.Name) + "@" + normaliseVersion(dep.Version)
+		source := "lockfile"
+		if idx, ok := index[k]; ok {
+			if sourceRank(source) > sourceRank(result[idx].Source) {
+				result[idx].Source = source
+			}
 			continue
 		}
-		seen[k] = true
-		source := dep.Source
-		if source == "" {
-			source = "metadata"
-		}
+		index[k] = len(result)
 		result = append(result, dependencyEvidence{
 			Dependency: dep,
 			Source:     source,
 		})
 	}
+	return result, err
+}
 
-	if tool.Metadata == nil {
-		return result, nil
+func sourceRank(source string) int {
+	switch source {
+	case "local_lockfile":
+		return 3
+	case "metadata":
+		return 2
+	case "lockfile":
+		return 1
+	default:
+		return 0
 	}
-	repoURL, ok := tool.Metadata["repo_url"].(string)
-	if !ok || repoURL == "" {
-		return result, nil
-	}
-
-	for _, dep := range lockfileDepsFetcher(repoURL) {
-		k := dep.Ecosystem + ":" + dep.Name + "@" + dep.Version
-		if seen[k] {
-			continue
-		}
-		seen[k] = true
-		result = append(result, dependencyEvidence{
-			Dependency: dep,
-			Source:     "lockfile",
-		})
-	}
-	return result, nil
 }
 
 // ── Severity helpers ──────────────────────────────────────────────────────────

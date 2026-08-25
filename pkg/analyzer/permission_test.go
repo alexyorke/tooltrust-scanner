@@ -149,3 +149,26 @@ func TestPermissionChecker_LargeSchemaOnly_NoPermissions(t *testing.T) {
 	assert.Equal(t, "LARGE_INPUT_SURFACE", issues[0].Code)
 	assert.Equal(t, model.SeverityLow, issues[0].Severity)
 }
+
+func TestPermissionChecker_NestedLargeSchemaCountsLeafProperties(t *testing.T) {
+	nested := make(map[string]jsonschema.Property)
+	for i := range 12 {
+		nested[string(rune('a'+i))] = jsonschema.Property{Type: "string"}
+	}
+	tool := model.UnifiedTool{
+		InputSchema: jsonschema.Schema{
+			Properties: map[string]jsonschema.Property{
+				"payload": {
+					Type:       "object",
+					Properties: nested,
+				},
+			},
+		},
+	}
+
+	issues, err := analyzer.NewPermissionChecker().Check(tool)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	assert.Equal(t, "LARGE_INPUT_SURFACE", issues[0].Code)
+	assert.Contains(t, issues[0].Description, "12 properties")
+}

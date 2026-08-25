@@ -41,6 +41,15 @@ func TestShadowingChecker_UniqueName_NoFinding(t *testing.T) {
 	assert.Empty(t, issues, "distinct tool names must not trigger AS-013")
 }
 
+func TestShadowingChecker_ZeroValue_NoPanic(t *testing.T) {
+	var checker ShadowingChecker
+
+	issues, err := checker.Check(model.UnifiedTool{Name: "read_file"})
+
+	assert.NoError(t, err)
+	assert.Empty(t, issues)
+}
+
 func TestShadowingChecker_DifferentScanEngines_NoCrossContamination(t *testing.T) {
 	// Each engine (and thus each ShadowingChecker) has its own seen set.
 	eng1, _ := NewEngine(false, "")

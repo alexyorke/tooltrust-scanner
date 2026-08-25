@@ -8,6 +8,29 @@ import (
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
+func TestLevenshteinWithin(t *testing.T) {
+	cases := []struct {
+		name        string
+		a           string
+		b           string
+		maxDistance int
+		want        int
+	}{
+		{name: "exact", a: "readfile", b: "readfile", maxDistance: 2, want: 0},
+		{name: "distance one", a: "readfle", b: "readfile", maxDistance: 2, want: 1},
+		{name: "distance two", a: "naviage", b: "navigate", maxDistance: 2, want: 2},
+		{name: "same length substitutions", a: "abcd", b: "abxy", maxDistance: 2, want: 2},
+		{name: "beyond threshold", a: "lstfls", b: "listfiles", maxDistance: 2, want: 3},
+		{name: "asymmetric input lengths", a: "playwrightnavigate", b: "playwrightnaviage", maxDistance: 2, want: 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, levenshteinWithin(tc.a, tc.b, tc.maxDistance))
+			assert.Equal(t, tc.want, levenshteinWithin(tc.b, tc.a, tc.maxDistance))
+		})
+	}
+}
+
 func TestTyposquattingChecker_ExactMatch_NoFinding(t *testing.T) {
 	// Exact popular tool names must not trigger — they ARE the canonical tool.
 	for _, name := range []string{"list_files", "read_file", "brave_web_search"} {
@@ -26,6 +49,7 @@ func TestTyposquattingChecker_EditDistance1_Triggers(t *testing.T) {
 	}{
 		{"list_fles", "list_files"},               // dropped 'i'
 		{"read_fle", "read_file"},                 // dropped 'i'
+		{"read_file2", "read_file"},               // appended digit
 		{"brave_web_searrch", "brave_web_search"}, // double 'r'
 	}
 	for _, tc := range cases {

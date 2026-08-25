@@ -53,10 +53,10 @@ github.com/AgentSafe-AI/tooltrust-scanner
 
 ```bash
 make test           # race detector + all packages — required before every commit
-make lint           # golangci-lint (v2)
+make lint           # go vet ./...
 make fmt            # go fmt ./...
-make build          # compile dist/tooltrust-scanner + dist/tooltrust-scanner-mcp
-make scan           # self-scan testdata/tools.json (integration check)
+make build          # compile tooltrust-scanner + tooltrust-mcp
+make scan-test      # self-scan the MCP memory server (integration check)
 ```
 
 ## TDD workflow

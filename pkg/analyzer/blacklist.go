@@ -4,7 +4,10 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
+	"unicode"
 
 	"golang.org/x/mod/semver"
 
@@ -31,6 +34,17 @@ type blacklistIndex map[string][]blacklistEntry
 
 // buildBlacklistIndex parses the embedded JSON and returns a lookup index.
 func buildBlacklistIndex(data []byte) (blacklistIndex, error) {
+	var topLevel any
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		return nil, fmt.Errorf("blacklist: unmarshal: %w", err)
+	}
+	if topLevel == nil {
+		return nil, fmt.Errorf("blacklist: top-level JSON value must be an array")
+	}
+	if _, ok := topLevel.([]any); !ok {
+		return nil, fmt.Errorf("blacklist: top-level JSON value must be an array")
+	}
+
 	var entries []blacklistEntry
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, fmt.Errorf("blacklist: unmarshal: %w", err)
@@ -88,8 +102,7 @@ func ensureV(v string) string {
 func semverLT(version, bound string) bool {
 	v, b := ensureV(version), ensureV(bound)
 	if !semver.IsValid(v) || !semver.IsValid(b) {
-		// Fall back to string comparison for non-semver (e.g. PyPI date versions)
-		return normaliseVersion(version) < normaliseVersion(bound)
+		return compareLooseVersion(normaliseVersion(version), normaliseVersion(bound)) < 0
 	}
 	return semver.Compare(v, b) < 0
 }
@@ -97,9 +110,189 @@ func semverLT(version, bound string) bool {
 func semverLE(version, bound string) bool {
 	v, b := ensureV(version), ensureV(bound)
 	if !semver.IsValid(v) || !semver.IsValid(b) {
-		return normaliseVersion(version) <= normaliseVersion(bound)
+		return compareLooseVersion(normaliseVersion(version), normaliseVersion(bound)) <= 0
 	}
 	return semver.Compare(v, b) <= 0
+}
+
+func compareLooseVersion(a, b string) int {
+	aEpoch, aRelease := splitLooseVersionEpoch(a)
+	bEpoch, bRelease := splitLooseVersionEpoch(b)
+	if aEpoch < bEpoch {
+		return -1
+	}
+	if aEpoch > bEpoch {
+		return 1
+	}
+
+	at := normalizeLooseReleasePadding(splitVersionTokens(aRelease))
+	bt := normalizeLooseReleasePadding(splitVersionTokens(bRelease))
+	for i := 0; i < len(at) && i < len(bt); i++ {
+		ai, aNum := atoiToken(at[i])
+		bi, bNum := atoiToken(bt[i])
+		switch {
+		case aNum && bNum:
+			if ai < bi {
+				return -1
+			}
+			if ai > bi {
+				return 1
+			}
+		case aNum != bNum:
+			if aNum {
+				return -1
+			}
+			return 1
+		default:
+			if aPhase, aKnown := looseVersionPhase(at[i]); aKnown {
+				if bPhase, bKnown := looseVersionPhase(bt[i]); bKnown {
+					if aPhase < bPhase {
+						return -1
+					}
+					if aPhase > bPhase {
+						return 1
+					}
+					continue
+				}
+			}
+			al := strings.ToLower(at[i])
+			bl := strings.ToLower(bt[i])
+			if al < bl {
+				return -1
+			}
+			if al > bl {
+				return 1
+			}
+		}
+	}
+	switch {
+	case len(at) > len(bt):
+		if hasPreReleaseToken(at[len(bt):]) {
+			return -1
+		}
+		return 1
+	case len(at) < len(bt):
+		if hasPreReleaseToken(bt[len(at):]) {
+			return 1
+		}
+		return -1
+	default:
+		return 0
+	}
+}
+
+func splitLooseVersionEpoch(version string) (int, string) {
+	epochText, release, hasEpoch := strings.Cut(version, "!")
+	if !hasEpoch {
+		return 0, version
+	}
+	epoch, numeric := atoiToken(epochText)
+	if !numeric {
+		return 0, version
+	}
+	return epoch, release
+}
+
+func normalizeLooseReleasePadding(tokens []string) []string {
+	if len(tokens) == 0 {
+		return tokens
+	}
+
+	releaseEnd := 0
+	for releaseEnd < len(tokens) {
+		if _, numeric := atoiToken(tokens[releaseEnd]); !numeric {
+			break
+		}
+		releaseEnd++
+	}
+
+	trimEnd := releaseEnd
+	for trimEnd > 1 {
+		value, numeric := atoiToken(tokens[trimEnd-1])
+		if !numeric || value != 0 {
+			break
+		}
+		trimEnd--
+	}
+	if trimEnd == releaseEnd {
+		return tokens
+	}
+
+	normalized := make([]string, 0, len(tokens)-(releaseEnd-trimEnd))
+	normalized = append(normalized, tokens[:trimEnd]...)
+	normalized = append(normalized, tokens[releaseEnd:]...)
+	return normalized
+}
+
+const looseVersionFinalPhase = 4
+
+func looseVersionPhase(token string) (int, bool) {
+	switch strings.ToLower(token) {
+	case "dev":
+		return 0, true
+	case "a", "alpha":
+		return 1, true
+	case "b", "beta":
+		return 2, true
+	case "rc", "c", "pre", "preview":
+		return 3, true
+	case "post", "rev", "r":
+		return 5, true
+	default:
+		return 0, false
+	}
+}
+
+func hasPreReleaseToken(tokens []string) bool {
+	for _, token := range tokens {
+		if phase, known := looseVersionPhase(token); known && phase < looseVersionFinalPhase {
+			return true
+		}
+	}
+	return false
+}
+
+func splitVersionTokens(v string) []string {
+	var tokens []string
+	var current strings.Builder
+	var currentKind rune
+	flush := func() {
+		if current.Len() > 0 {
+			tokens = append(tokens, current.String())
+			current.Reset()
+		}
+		currentKind = 0
+	}
+	for _, r := range v {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			flush()
+			continue
+		}
+		kind := rune('l')
+		if unicode.IsDigit(r) {
+			kind = 'd'
+		}
+		if currentKind != 0 && currentKind != kind {
+			flush()
+		}
+		current.WriteRune(r)
+		currentKind = kind
+	}
+	flush()
+	return tokens
+}
+
+func atoiToken(token string) (int, bool) {
+	for _, r := range token {
+		if !unicode.IsDigit(r) {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(token)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // ── BlacklistChecker ──────────────────────────────────────────────────────────
@@ -113,15 +306,26 @@ type BlacklistChecker struct {
 	index blacklistIndex
 }
 
+var (
+	embeddedBlacklistIndexOnce sync.Once
+	embeddedBlacklistIndex     blacklistIndex
+)
+
+func loadEmbeddedBlacklistIndex() blacklistIndex {
+	embeddedBlacklistIndexOnce.Do(func() {
+		idx, err := buildBlacklistIndex(blacklistJSON)
+		if err != nil {
+			embeddedBlacklistIndex = blacklistIndex{}
+			return
+		}
+		embeddedBlacklistIndex = idx
+	})
+	return embeddedBlacklistIndex
+}
+
 // NewBlacklistChecker returns a BlacklistChecker with the embedded blacklist.
 func NewBlacklistChecker() *BlacklistChecker {
-	idx, err := buildBlacklistIndex(blacklistJSON)
-	if err != nil {
-		// The JSON is embedded at compile time and cannot be corrupt in production;
-		// return an empty checker so the scanner still starts cleanly.
-		return &BlacklistChecker{index: blacklistIndex{}}
-	}
-	return &BlacklistChecker{index: idx}
+	return &BlacklistChecker{index: loadEmbeddedBlacklistIndex()}
 }
 
 // newBlacklistCheckerWithData constructs a BlacklistChecker from a custom JSON

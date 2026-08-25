@@ -1,6 +1,7 @@
 package model_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,6 +67,17 @@ func TestRiskScore_IsClean(t *testing.T) {
 	assert.False(t, dirty.IsClean())
 }
 
+func TestRiskScore_JSONUsesEmptyFindingsArray(t *testing.T) {
+	raw, err := json.Marshal(model.NewRiskScore(0, nil))
+	assert.NoError(t, err)
+
+	var payload map[string]any
+	assert.NoError(t, json.Unmarshal(raw, &payload))
+	findings, ok := payload["findings"].([]any)
+	assert.True(t, ok)
+	assert.Empty(t, findings)
+}
+
 // --- GatewayPolicy / Action ---
 
 func TestActionFromGrade(t *testing.T) {
@@ -103,4 +115,21 @@ func TestGatewayPolicy_CarriesToolContext(t *testing.T) {
 
 	assert.Equal(t, []string{"uses_network", "reads_files"}, policy.Behavior)
 	assert.Equal(t, []string{"dynamic URL input (url)"}, policy.Destinations)
+}
+
+func TestGatewayPolicy_JSONIncludesRateLimitKey(t *testing.T) {
+	policy := model.NewGatewayPolicy("search_files", model.NewRiskScore(10, nil), nil)
+
+	raw, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	value, ok := got["rate_limit"]
+	assert.True(t, ok)
+	assert.Nil(t, value)
 }

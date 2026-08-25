@@ -65,6 +65,9 @@ type RiskScore struct {
 
 // NewRiskScore constructs a RiskScore, automatically deriving the Grade.
 func NewRiskScore(score int, issues []Issue) RiskScore {
+	if issues == nil {
+		issues = []Issue{}
+	}
 	return RiskScore{
 		Score:  score,
 		Grade:  GradeFromScore(score),

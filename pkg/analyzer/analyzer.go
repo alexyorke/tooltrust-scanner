@@ -33,6 +33,10 @@ type checker interface {
 	Meta() RuleMeta
 }
 
+type sessionResetter interface {
+	ResetSession()
+}
+
 // Scanner orchestrates all registered checkers and aggregates their output
 // into a single RiskScore.
 type Scanner struct {
@@ -82,6 +86,18 @@ func (s *Scanner) Rules() []RuleMeta {
 	return rules
 }
 
+// ResetSession clears any per-scan-session checker state so the scanner can be
+// reused for an independent one-tool scan without leaking cross-call findings.
+func (s *Scanner) ResetSession() {
+	for _, c := range s.checkers {
+		resetter, ok := c.(sessionResetter)
+		if !ok {
+			continue
+		}
+		resetter.ResetSession()
+	}
+}
+
 // Scan runs all checkers against the tool and returns the aggregated RiskScore.
 // It respects ctx cancellation.
 func (s *Scanner) Scan(ctx context.Context, tool model.UnifiedTool) (model.RiskScore, error) {
@@ -112,19 +128,75 @@ func (s *Scanner) Scan(ctx context.Context, tool model.UnifiedTool) (model.RiskS
 	return model.NewRiskScore(totalScore, allIssues), nil
 }
 
+const smallDedupeIssueLimit = 16
+
+type issueKey struct {
+	ruleID      string
+	code        string
+	location    string
+	description string
+}
+
+func keyForIssue(is model.Issue) issueKey {
+	return issueKey{
+		ruleID:      is.RuleID,
+		code:        is.Code,
+		location:    is.Location,
+		description: is.Description,
+	}
+}
+
 // dedupeIssues removes exact-duplicate findings so a repeated issue is counted
 // once in the risk score.  The key includes Description so distinct CVEs on the
 // same package are preserved.
 func dedupeIssues(issues []model.Issue) []model.Issue {
-	seen := make(map[string]bool, len(issues))
+	if len(issues) < 2 {
+		return issues
+	}
+	if len(issues) <= smallDedupeIssueLimit {
+		return dedupeIssuesSmall(issues)
+	}
+
+	seen := make(map[issueKey]struct{}, len(issues))
 	out := make([]model.Issue, 0, len(issues))
 	for _, is := range issues {
-		key := is.RuleID + "|" + is.Code + "|" + is.Location + "|" + is.Description
-		if seen[key] {
+		key := keyForIssue(is)
+		if _, ok := seen[key]; ok {
 			continue
 		}
-		seen[key] = true
+		seen[key] = struct{}{}
 		out = append(out, is)
+	}
+	return out
+}
+
+func dedupeIssuesSmall(issues []model.Issue) []model.Issue {
+	for i := 1; i < len(issues); i++ {
+		key := keyForIssue(issues[i])
+		for j := 0; j < i; j++ {
+			if key == keyForIssue(issues[j]) {
+				return dedupeIssuesSmallWithDuplicate(issues, i)
+			}
+		}
+	}
+	return issues
+}
+
+func dedupeIssuesSmallWithDuplicate(issues []model.Issue, duplicateAt int) []model.Issue {
+	out := make([]model.Issue, 0, len(issues)-1)
+	out = append(out, issues[:duplicateAt]...)
+	for _, is := range issues[duplicateAt:] {
+		key := keyForIssue(is)
+		duplicate := false
+		for _, existing := range out {
+			if key == keyForIssue(existing) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			out = append(out, is)
+		}
 	}
 	return out
 }

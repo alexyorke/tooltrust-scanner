@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,6 +53,46 @@ func TestRun_PromotesNPMIOC(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(dir, "pkg", "analyzer", "data", "npm_iocs.json"))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "plain-crypto-js")
+}
+
+func TestReadNPMIOCs_RejectsTopLevelNull(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "npm_iocs.json")
+	require.NoError(t, os.WriteFile(path, []byte("null"), 0o644))
+
+	_, err := readNPMIOCs(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse npm_iocs.json: top-level JSON value must be an array")
+}
+
+func TestReadNPMIOCs_RejectsTopLevelObject(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "npm_iocs.json")
+	require.NoError(t, os.WriteFile(path, []byte("{}"), 0o644))
+
+	_, err := readNPMIOCs(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse npm_iocs.json: top-level JSON value must be an array")
+}
+
+func TestReadBlacklist_RejectsTopLevelNull(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "blacklist.json")
+	require.NoError(t, os.WriteFile(path, []byte("null"), 0o644))
+
+	_, err := readBlacklist(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse blacklist.json: top-level JSON value must be an array")
+}
+
+func TestReadBlacklist_RejectsTopLevelObject(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "blacklist.json")
+	require.NoError(t, os.WriteFile(path, []byte("{}"), 0o644))
+
+	_, err := readBlacklist(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse blacklist.json: top-level JSON value must be an array")
 }
 
 func TestRun_PromotesDomainIOC(t *testing.T) {
@@ -148,4 +189,212 @@ func TestRun_PromotesBlacklistEntry(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "AXIOS-NPM-COMPROMISE-2026-03-31")
 	assert.Contains(t, string(data), "\"affected_versions\": [")
+}
+
+func TestRun_SkipsExistingPackageIOCWithImplicitExactMatch(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pkg", "analyzer", "data"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "npm_iocs.json"),
+		[]byte(`[{"ecosystem":"npm","ioc_type":"package_name","name":"plain-crypto-js","reason":"Known IOC"}]`+"\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "blacklist.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "candidate.json"),
+		[]byte(`[{
+  "ecosystem": "npm",
+  "ioc_type": "package_name",
+  "value": "plain-crypto-js",
+  "confidence": "high",
+  "reason": "Known IOC linked to an npm compromise",
+  "source": "https://example.com/post",
+  "first_seen": "2026-03-31",
+  "suggested_action": "flag",
+  "promote_to": "npm_iocs"
+}]`),
+		0o644,
+	))
+
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() {
+		_ = os.Chdir(orig)
+	})
+
+	require.NoError(t, run([]string{"candidate.json"}))
+
+	data, err := os.ReadFile(filepath.Join(dir, "pkg", "analyzer", "data", "npm_iocs.json"))
+	require.NoError(t, err)
+	var entries []npmIOCEntry
+	require.NoError(t, json.Unmarshal(data, &entries))
+	require.Len(t, entries, 1)
+	assert.Equal(t, "plain-crypto-js", entries[0].Name)
+}
+
+func TestRun_SkipsExistingBlacklistEntryWithReorderedAffectedVersions(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pkg", "analyzer", "data"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "npm_iocs.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "blacklist.json"),
+		[]byte(`[{
+  "id": "AXIOS-NPM-COMPROMISE-2026-03-31",
+  "component": "axios",
+  "ecosystem": "npm",
+  "affected_versions": ["1.14.1", "0.30.4"],
+  "action": "BLOCK",
+  "severity": "CRITICAL",
+  "reason": "Confirmed malicious publish",
+  "link": "https://example.com/post"
+}]`+"\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "candidate.json"),
+		[]byte(`[{
+  "ecosystem": "npm",
+  "ioc_type": "package_name",
+  "value": "axios",
+  "confidence": "high",
+  "reason": "Confirmed malicious publish",
+  "source": "https://example.com/post",
+  "first_seen": "2026-03-31",
+  "suggested_action": "block",
+  "promote_to": "blacklist",
+  "blacklist_id": "AXIOS-NPM-COMPROMISE-2026-03-31",
+  "affected_versions": ["0.30.4", "1.14.1"],
+  "action": "BLOCK",
+  "severity": "CRITICAL"
+}]`),
+		0o644,
+	))
+
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() {
+		_ = os.Chdir(orig)
+	})
+
+	require.NoError(t, run([]string{"candidate.json"}))
+
+	data, err := os.ReadFile(filepath.Join(dir, "pkg", "analyzer", "data", "blacklist.json"))
+	require.NoError(t, err)
+	var entries []blacklistEntry
+	require.NoError(t, json.Unmarshal(data, &entries))
+	require.Len(t, entries, 1)
+	assert.Equal(t, "axios", entries[0].Component)
+}
+
+func TestRun_RejectsUnknownPromoteTarget(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pkg", "analyzer", "data"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "npm_iocs.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "blacklist.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "candidate.json"),
+		[]byte(`[{
+  "ecosystem": "npm",
+  "ioc_type": "package_name",
+  "value": "plain-crypto-js",
+  "confidence": "high",
+  "reason": "Known IOC linked to an npm compromise",
+  "source": "https://example.com/post",
+  "first_seen": "2026-03-31",
+  "suggested_action": "flag",
+  "promote_to": "unknown_target"
+}]`),
+		0o644,
+	))
+
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() {
+		_ = os.Chdir(orig)
+	})
+
+	err = run([]string{"candidate.json"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown promote_to")
+}
+
+func TestRun_RejectsTopLevelNullCandidateFile(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pkg", "analyzer", "data"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "npm_iocs.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "blacklist.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "candidate.json"),
+		[]byte("null"),
+		0o644,
+	))
+
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() {
+		_ = os.Chdir(orig)
+	})
+
+	err = run([]string{"candidate.json"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse candidate file: top-level JSON value must be an array")
+}
+
+func TestRun_RejectsTopLevelObjectCandidateFile(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pkg", "analyzer", "data"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "npm_iocs.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "pkg", "analyzer", "data", "blacklist.json"),
+		[]byte("[]\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "candidate.json"),
+		[]byte("{}"),
+		0o644,
+	))
+
+	orig, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() {
+		_ = os.Chdir(orig)
+	})
+
+	err = run([]string{"candidate.json"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse candidate file: top-level JSON value must be an array")
 }

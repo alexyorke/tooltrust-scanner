@@ -1,5 +1,11 @@
 package analyzer
 
+import (
+	"context"
+	"fmt"
+	"time"
+)
+
 // SetLockfileDepsFetcherForTest overrides the lockfile dependency fetcher.
 // Intended for tests only.
 func SetLockfileDepsFetcherForTest(fn func(string) []Dependency) {
@@ -46,4 +52,41 @@ func BuildNPMIOCIndexForRuntimeTest(data []byte) (npmIOCIndex, error) {
 func NewNPMIOCCheckerWithIndexForTest(checker *NPMIOCChecker, index npmIOCIndex) *NPMIOCChecker {
 	checker.index = index
 	return checker
+}
+
+// NPMRegistryClientForTest exposes the npm registry client contract to tests.
+type NPMRegistryClientForTest interface {
+	FetchVersion(context.Context, string, string) (NPMVersionResponseForTest, error)
+}
+
+type npmRegistryClientTestAdapter struct {
+	client NPMRegistryClientForTest
+}
+
+func (a npmRegistryClientTestAdapter) FetchVersion(ctx context.Context, pkg, version string) (npmVersionResponse, error) {
+	resp, err := a.client.FetchVersion(ctx, pkg, version)
+	if err != nil {
+		return npmVersionResponse{}, fmt.Errorf("npm test client fetch: %w", err)
+	}
+	return resp, nil
+}
+
+// NewNPMLifecycleScriptCheckerWithClientForTest overrides the registry client for tests.
+func NewNPMLifecycleScriptCheckerWithClientForTest(client NPMRegistryClientForTest) *NPMLifecycleScriptChecker {
+	return &NPMLifecycleScriptChecker{client: npmRegistryClientTestAdapter{client: client}}
+}
+
+// NewNPMIOCCheckerWithClientForTest overrides the registry client for tests.
+func NewNPMIOCCheckerWithClientForTest(client NPMRegistryClientForTest) *NPMIOCChecker {
+	return &NPMIOCChecker{client: npmRegistryClientTestAdapter{client: client}, index: loadEmbeddedNPMIOCIndex()}
+}
+
+// SetNPMQueryTimeoutForTest overrides the shared NPM registry timeout.
+func SetNPMQueryTimeoutForTest(d time.Duration) {
+	npmQueryTimeout = d
+}
+
+// NPMQueryTimeoutForTest returns the current NPM registry timeout.
+func NPMQueryTimeoutForTest() time.Duration {
+	return npmQueryTimeout
 }

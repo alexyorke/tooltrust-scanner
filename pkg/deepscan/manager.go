@@ -156,7 +156,7 @@ func EnsureModels(ctx context.Context) (modelPath, tokenizerPath string, err err
 	}
 
 	modelDir := filepath.Join(home, ".tooltrust", "models")
-	if mkdirErr := os.MkdirAll(modelDir, 0o755); mkdirErr != nil {
+	if mkdirErr := os.MkdirAll(modelDir, 0o700); mkdirErr != nil {
 		return "", "", fmt.Errorf("failed to create models directory %s: %w", modelDir, mkdirErr)
 	}
 

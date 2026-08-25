@@ -14,20 +14,6 @@ type patternRule struct {
 	severity model.Severity
 }
 
-// legitimateDataMovementTools lists tool-name keywords that indicate sending
-// or forwarding data is the tool's intended purpose — not an injection signal.
-var legitimateDataMovementTools = []string{
-	"email", "mail", "reply", "forward", "draft", "message",
-	"send", "notification", "webhook", "publish", "broadcast",
-}
-
-// suspiciousNameTerms cancels the data-movement skip when found in a tool
-// name: a name like "send_to_url" or "forward_to_remote_host" is itself a
-// red flag, so the data-exfiltration patterns must still run.
-var suspiciousNameTerms = []string{
-	"external", "remote", "http", "url", "attacker", "exfil",
-}
-
 // jailbreakPattern is the single-keyword "jailbreak" rule. It is the only
 // AS-001 pattern broad enough that a defensive security tool ("scan input
 // for jailbreak attempts", "block jailbreak prompts") trips it without
@@ -47,10 +33,6 @@ var jailbreakPattern = regexp.MustCompile(`(?i)jailbreak`)
 // "respects .gitignore rules".
 var injectionRules = []patternRule{
 	// ── High-confidence: explicit injection markers ──────────────────────────
-	{
-		regexp.MustCompile(`(?i)\b(ignore|disregard|bypass)\s+(?:\w+\s+){0,3}(instructions?|prompts?|context|rules?|guidelines?|restrictions?|filters?)`),
-		model.SeverityCritical,
-	},
 	{regexp.MustCompile(`(?im)^\s*system\s*:`), model.SeverityCritical},
 	{regexp.MustCompile(`(?i)<\s*INST\s*>`), model.SeverityCritical},
 	{regexp.MustCompile(`(?i)\[INST\]`), model.SeverityCritical},
@@ -70,6 +52,31 @@ var injectionRules = []patternRule{
 	{regexp.MustCompile(`(?i)(developer|unrestricted)\s+mode`), model.SeverityCritical},
 	{regexp.MustCompile(`(?i)full\s+system\s+access`), model.SeverityCritical},
 	{jailbreakPattern, model.SeverityCritical},
+}
+
+var injectionRuleHints = []string{
+	"ignore",
+	"disregard",
+	"bypass",
+	"system",
+	"<inst",
+	"[inst]",
+	"act as",
+	"forget",
+	"you are now",
+	"must now",
+	"will now",
+	"exfiltrate",
+	"developer",
+	"unrestricted",
+	"full system access",
+	"jailbreak",
+}
+
+var instructionOverrideTriggerHints = []string{
+	"ignore",
+	"disregard",
+	"bypass",
 }
 
 // defensiveJailbreakContexts are substrings whose presence (anywhere in the
@@ -126,28 +133,47 @@ func (c *PoisoningChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 
 	descLower := strings.ToLower(desc)
 	defensiveJailbreak := describesDefensiveJailbreakUse(descLower)
+	hasInjectionHint := containsAny(descLower, injectionRuleHints...)
 
 	var issues []model.Issue
-	for _, rule := range injectionRules {
-		if rule.pattern == jailbreakPattern && defensiveJailbreak {
-			continue
-		}
-		if rule.pattern.MatchString(desc) {
-			matched := rule.pattern.FindString(desc)
+	if hasInjectionHint && containsAny(descLower, instructionOverrideTriggerHints...) {
+		if matched, ok := matchInstructionOverridePhrase(desc, descLower); ok {
 			issues = append(issues, model.Issue{
 				RuleID:      "AS-001",
 				ToolName:    tool.Name,
-				Severity:    rule.severity,
+				Severity:    model.SeverityCritical,
 				Code:        "TOOL_POISONING",
-				Description: "possible prompt injection detected in tool description: pattern matched: " + rule.pattern.String(),
+				Description: "possible prompt injection detected in tool description: instruction override phrase matched",
 				Location:    "description",
 				Evidence: []model.Evidence{
-					{Kind: "description_pattern", Value: rule.pattern.String()},
+					{Kind: "description_pattern", Value: "instruction_override_phrase"},
 					{Kind: "description_match", Value: matched},
 				},
 			})
-			// One finding per tool is sufficient for a poisoning verdict.
-			break
+		}
+	}
+
+	if len(issues) == 0 && hasInjectionHint {
+		for _, rule := range injectionRules {
+			if rule.pattern == jailbreakPattern && defensiveJailbreak {
+				continue
+			}
+			if matched := rule.pattern.FindString(desc); matched != "" {
+				issues = append(issues, model.Issue{
+					RuleID:      "AS-001",
+					ToolName:    tool.Name,
+					Severity:    rule.severity,
+					Code:        "TOOL_POISONING",
+					Description: "possible prompt injection detected in tool description: pattern matched: " + rule.pattern.String(),
+					Location:    "description",
+					Evidence: []model.Evidence{
+						{Kind: "description_pattern", Value: rule.pattern.String()},
+						{Kind: "description_match", Value: matched},
+					},
+				})
+				// One finding per tool is sufficient for a poisoning verdict.
+				break
+			}
 		}
 	}
 
@@ -170,22 +196,82 @@ func (c *PoisoningChecker) Check(tool model.UnifiedTool) ([]model.Issue, error) 
 	return issues, nil
 }
 
-// isDataMovementTool returns true when the tool name contains a data-movement
-// keyword (email/reply/forward/…) but does NOT also contain an
-// external-destination term (url/remote/external/…) that would itself be a
-// red flag.  The dual check prevents a malicious tool named "send_to_url"
-// or "forward_to_remote_host" from bypassing the data-exfiltration patterns.
-func isDataMovementTool(name string) bool {
-	nameLower := strings.ToLower(name)
-	for _, s := range suspiciousNameTerms {
-		if strings.Contains(nameLower, s) {
-			return false
+type wordSpan struct {
+	start int
+	end   int
+}
+
+func matchInstructionOverridePhrase(desc, descLower string) (string, bool) {
+	spans := asciiWordSpans(desc)
+	if len(spans) == 0 {
+		return "", false
+	}
+
+	for i := 0; i < len(spans); i++ {
+		trigger := descLower[spans[i].start:spans[i].end]
+		if !isInstructionOverrideTrigger(trigger) {
+			continue
+		}
+
+		limit := i + 6
+		if limit >= len(spans) {
+			limit = len(spans) - 1
+		}
+		for j := i + 1; j <= limit; j++ {
+			target := descLower[spans[j].start:spans[j].end]
+			if isInstructionOverrideTarget(target) {
+				return desc[spans[i].start:spans[j].end], true
+			}
 		}
 	}
-	for _, kw := range legitimateDataMovementTools {
-		if strings.Contains(nameLower, kw) {
-			return true
+
+	return "", false
+}
+
+func asciiWordSpans(s string) []wordSpan {
+	spans := make([]wordSpan, 0, 8)
+	inWord := false
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if isASCIIWordByte(s[i]) {
+			if !inWord {
+				start = i
+				inWord = true
+			}
+			continue
+		}
+		if inWord {
+			spans = append(spans, wordSpan{start: start, end: i})
+			inWord = false
 		}
 	}
-	return false
+	if inWord {
+		spans = append(spans, wordSpan{start: start, end: len(s)})
+	}
+	return spans
+}
+
+func isASCIIWordByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9') ||
+		b == '_'
+}
+
+func isInstructionOverrideTrigger(word string) bool {
+	switch word {
+	case "ignore", "disregard", "bypass":
+		return true
+	default:
+		return false
+	}
+}
+
+func isInstructionOverrideTarget(word string) bool {
+	switch word {
+	case "instruction", "instructions", "prompt", "prompts", "context", "rule", "rules", "guideline", "guidelines", "restriction", "restrictions", "filter", "filters":
+		return true
+	default:
+		return false
+	}
 }

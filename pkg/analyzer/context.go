@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/AgentSafe-AI/tooltrust-scanner/internal/jsonschema"
 	"github.com/AgentSafe-AI/tooltrust-scanner/pkg/model"
 )
 
@@ -16,10 +17,6 @@ var (
 
 var dynamicURLPropertyHints = []string{
 	"url", "uri", "endpoint", "host", "webhook", "callback", "attachmenturl", "attachment_url",
-}
-
-var dynamicEmailPropertyHints = []string{
-	"email", "recipient", "to", "bcc", "cc",
 }
 
 var readFileSignals = []string{
@@ -44,9 +41,10 @@ func SummarizeToolContext(tool model.UnifiedTool) (behavior, destinations []stri
 	behaviorSet := map[string]bool{}
 	destinationSet := map[string]bool{}
 
+	rawSource := string(tool.RawSource)
 	nameLower := strings.ToLower(tool.Name)
 	descLower := strings.ToLower(tool.Description)
-	rawLower := strings.ToLower(string(tool.RawSource))
+	rawLower := strings.ToLower(rawSource)
 
 	if tool.HasPermission(model.PermissionNetwork) || tool.HasPermission(model.PermissionHTTP) {
 		behaviorSet["uses_network"] = true
@@ -65,34 +63,63 @@ func SummarizeToolContext(tool model.UnifiedTool) (behavior, destinations []stri
 		}
 	}
 
-	for propName := range tool.InputSchema.Properties {
+	walkSchemaPropertyPaths(tool.InputSchema, func(propName string) bool {
 		if label := classifyDynamicDestination(propName); label != "" {
 			destinationSet[label] = true
 		}
-	}
+		return true
+	})
 
-	for _, match := range hardcodedURLPattern.FindAllString(string(tool.RawSource), -1) {
-		addHardcodedDestination(destinationSet, match)
-	}
-	for _, match := range hardcodedURLPattern.FindAllString(tool.Description, -1) {
-		addHardcodedDestination(destinationSet, match)
-	}
-	for _, match := range hardcodedHostPattern.FindAllString(string(tool.RawSource), -1) {
-		addHardcodedDestination(destinationSet, match)
-	}
-	for _, match := range hardcodedHostPattern.FindAllString(tool.Description, -1) {
-		addHardcodedDestination(destinationSet, match)
-	}
-	for _, match := range hardcodedEmailPattern.FindAllString(string(tool.RawSource), -1) {
-		addHardcodedEmailRecipient(destinationSet, match)
-	}
-	for _, match := range hardcodedEmailPattern.FindAllString(tool.Description, -1) {
-		addHardcodedEmailRecipient(destinationSet, match)
-	}
+	addHardcodedMatches(destinationSet, rawSource)
+	addHardcodedMatches(destinationSet, tool.Description)
 
 	behavior = sortedKeys(behaviorSet)
 	destinations = sortedKeys(destinationSet)
 	return behavior, destinations
+}
+
+func addHardcodedMatches(destinations map[string]bool, text string) {
+	if text == "" {
+		return
+	}
+
+	if strings.Contains(text, "https://") || strings.Contains(text, "http://") {
+		for _, match := range hardcodedURLPattern.FindAllString(text, -1) {
+			addHardcodedDestination(destinations, match)
+		}
+	}
+
+	if mayContainHostLikeToken(text) {
+		for _, match := range hardcodedHostPattern.FindAllString(text, -1) {
+			addHardcodedDestination(destinations, match)
+		}
+	}
+
+	if strings.Contains(text, "@") {
+		for _, match := range hardcodedEmailPattern.FindAllString(text, -1) {
+			addHardcodedEmailRecipient(destinations, match)
+		}
+	}
+}
+
+func mayContainHostLikeToken(text string) bool {
+	for i := 1; i < len(text)-1; i++ {
+		if text[i] != '.' {
+			continue
+		}
+		if isHostTokenByte(text[i-1]) && isHostTokenByte(text[i+1]) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isHostTokenByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9') ||
+		b == '-'
 }
 
 func addHardcodedDestination(destinations map[string]bool, match string) {
@@ -116,7 +143,7 @@ func addHardcodedDestination(destinations map[string]bool, match string) {
 func classifyDynamicDestination(propName string) string {
 	propLower := strings.ToLower(propName)
 
-	if containsAny(propLower, dynamicEmailPropertyHints...) {
+	if isEmailRecipientProperty(propLower) {
 		return "dynamic email recipient (" + propName + ")"
 	}
 	if strings.Contains(propLower, "webhook") {
@@ -132,6 +159,115 @@ func classifyDynamicDestination(propName string) string {
 		return "dynamic URL input (" + propName + ")"
 	}
 	return ""
+}
+
+func isEmailRecipientProperty(propLower string) bool {
+	if strings.Contains(propLower, "email") || strings.Contains(propLower, "recipient") {
+		return true
+	}
+	for _, token := range splitIdentifier(propLower) {
+		switch token {
+		case "to", "cc", "bcc":
+			return true
+		}
+	}
+	return false
+}
+
+func walkSchemaPropertyPaths(schema jsonschema.Schema, visit func(string) bool) bool {
+	for name, prop := range schema.Properties {
+		if !walkPropertyPaths(name, prop, visit) {
+			return false
+		}
+	}
+	if schema.Items != nil {
+		if !walkPropertyPaths("[]", *schema.Items, visit) {
+			return false
+		}
+	}
+	return true
+}
+
+func walkPropertyPaths(path string, prop jsonschema.Property, visit func(string) bool) bool {
+	if !visit(path) {
+		return false
+	}
+	for name, nested := range prop.Properties {
+		if !walkPropertyPaths(path+"."+name, nested, visit) {
+			return false
+		}
+	}
+	if prop.Items != nil {
+		for name, nested := range prop.Items.Properties {
+			if !walkPropertyPaths(path+"[]."+name, nested, visit) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func walkSchemaLeafPropertyPaths(schema jsonschema.Schema, visit func(string) bool) bool {
+	for name, prop := range schema.Properties {
+		if !walkLeafPropertyPaths(name, prop, visit) {
+			return false
+		}
+	}
+	if schema.Items != nil {
+		if !walkLeafPropertyPaths("[]", *schema.Items, visit) {
+			return false
+		}
+	}
+	return true
+}
+
+func countSchemaLeafProperties(schema jsonschema.Schema) int {
+	count := 0
+	walkSchemaLeafPropertyPaths(schema, func(string) bool {
+		count++
+		return true
+	})
+	return count
+}
+
+func schemaHasLeafPropertyMatching(schema jsonschema.Schema, match func(string) bool) bool {
+	return !walkSchemaLeafPropertyPaths(schema, func(path string) bool {
+		return !match(path)
+	})
+}
+
+func schemaHasPropertyMatching(schema jsonschema.Schema, match func(string) bool) bool {
+	return !walkSchemaPropertyPaths(schema, func(path string) bool {
+		return !match(path)
+	})
+}
+
+func walkLeafPropertyPaths(path string, prop jsonschema.Property, visit func(string) bool) bool {
+	visitedChild := false
+	for name, nested := range prop.Properties {
+		visitedChild = true
+		if !walkLeafPropertyPaths(path+"."+name, nested, visit) {
+			return false
+		}
+	}
+	if prop.Items != nil {
+		for name, nested := range prop.Items.Properties {
+			visitedChild = true
+			if !walkLeafPropertyPaths(path+"[]."+name, nested, visit) {
+				return false
+			}
+		}
+	}
+	if !visitedChild {
+		return visit(path)
+	}
+	return true
+}
+
+func splitIdentifier(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	})
 }
 
 func addHardcodedEmailRecipient(destinations map[string]bool, match string) {
@@ -150,7 +286,7 @@ func normalizeHost(match string) string {
 	host := strings.TrimSpace(match)
 	host = strings.TrimPrefix(host, "https://")
 	host = strings.TrimPrefix(host, "http://")
-	host = strings.SplitN(host, "/", 2)[0]
+	host, _, _ = strings.Cut(host, "/")
 	host = strings.TrimSuffix(host, ".")
 	return host
 }

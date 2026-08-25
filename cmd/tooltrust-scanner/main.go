@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -33,7 +34,7 @@ func newRootCmd() *cobra.Command {
 		Short: "Scan MCP servers for security risks before your AI agent trusts them",
 		Long: "ToolTrust Scanner checks MCP tool definitions for prompt injection, " +
 			"data exfiltration, privilege escalation, and supply-chain attacks. " +
-			"Each tool gets a trust grade (A–F) and a gateway policy (ALLOW / REQUIRE_APPROVAL / BLOCK).\n\n" +
+			"Each tool gets a trust grade (A-F) and a gateway policy (ALLOW / REQUIRE_APPROVAL / BLOCK).\n\n" +
 			"Quick start:\n" +
 			"  tooltrust-scanner scan --server \"npx -y @modelcontextprotocol/server-filesystem /tmp\"\n\n" +
 			"Learn more: https://github.com/AgentSafe-AI/tooltrust-scanner",
@@ -49,6 +50,7 @@ func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the ToolTrust Scanner version",
+		Args:  cobra.NoArgs,
 		Run: func(_ *cobra.Command, _ []string) {
 			fmt.Println("tooltrust-scanner", version)
 		},
@@ -104,6 +106,7 @@ func newScanCmd() *cobra.Command {
   tooltrust-scanner scan --input tools.json --output json --file report.json
   tooltrust-scanner scan --input tools.json --fail-on block
   tooltrust-scanner scan --input tools.json --db scans.db`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runScan(cmd.Context(), scanOpts{
 				inputFile:  inputFile,
@@ -122,8 +125,8 @@ func newScanCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&inputFile, "input", "i", "", "path to tool definition file")
 	cmd.Flags().StringVarP(&serverCmd, "server", "s", "", "live MCP server to scan (e.g. 'npx @modelcontextprotocol/server-filesystem /tmp')")
-	cmd.Flags().StringVarP(&protocol, "protocol", "p", "mcp", "protocol format: mcp | openai | skills")
-	cmd.Flags().StringVarP(&output, "output", "o", "text", "output format: text (default) | json")
+	cmd.Flags().StringVarP(&protocol, "protocol", "p", "mcp", "protocol format: mcp")
+	cmd.Flags().StringVarP(&output, "output", "o", "text", "output format: text (default) | json | sarif")
 	cmd.Flags().StringVar(&outputFile, "file", "", "write output to file instead of stdout")
 	cmd.Flags().StringVar(&failOn, "fail-on", "", "exit non-zero if any tool reaches this action: allow | approval | block")
 	cmd.Flags().StringVar(&dbPath, "db", "", "persist scan results to SQLite database at this path")
@@ -149,15 +152,36 @@ type scanOpts struct {
 }
 
 func runScan(ctx context.Context, opts scanOpts) error {
+	opts.inputFile = strings.TrimSpace(opts.inputFile)
+	opts.serverCmd = strings.TrimSpace(opts.serverCmd)
+	if trimmed := strings.TrimSpace(opts.protocol); trimmed == "" {
+		opts.protocol = "mcp"
+	} else {
+		opts.protocol = strings.ToLower(trimmed)
+	}
+	opts.output = normalizeOutput(opts.output)
+	opts.failOn = normalizeFailOn(opts.failOn)
+
 	// Validate --output flag early.
 	switch opts.output {
 	case "text", "json", "sarif":
 	default:
 		return fmt.Errorf("invalid --output value %q (use: text | json | sarif)", opts.output)
 	}
+	if err := validateFailOn(opts.failOn); err != nil {
+		return err
+	}
 
 	if opts.output == "json" || opts.output == "sarif" {
+		prevPtermOutput := pterm.Output
 		pterm.DisableOutput()
+		defer func() {
+			if prevPtermOutput {
+				pterm.EnableOutput()
+				return
+			}
+			pterm.DisableOutput()
+		}()
 	}
 
 	if (opts.inputFile == "") == (opts.serverCmd == "") {
@@ -183,7 +207,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 		liveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
-		tools, err = scanLiveServer(liveCtx, opts.serverCmd)
+		tools, err = scanLiveServerFn(liveCtx, opts.serverCmd)
 		if err != nil {
 			return fmt.Errorf("live server scan failed (or timed out): %w", err)
 		}
@@ -209,7 +233,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize scanner: %w", err)
 	}
-	var policies []model.GatewayPolicy
+	policies := make([]model.GatewayPolicy, 0, len(tools))
 	summary := ScanSummary{Total: len(tools), ScannedAt: time.Now().UTC()}
 
 	for i := range tools {
@@ -222,7 +246,6 @@ func runScan(ctx context.Context, opts scanOpts) error {
 			return fmt.Errorf("gateway evaluation failed for tool %q: %w", tools[i].Name, evalErr)
 		}
 		policy.Behavior, policy.Destinations = analyzer.SummarizeToolContext(tools[i])
-		policy.DependencyVisibility, policy.DependencyNote = dependencyVisibilityForTool(tools[i])
 		policies = append(policies, policy)
 
 		if opts.verbose {
@@ -251,7 +274,7 @@ func runScan(ctx context.Context, opts scanOpts) error {
 
 	if opts.dbPath != "" {
 		if persistErr := persistResults(ctx, opts.dbPath, tools, policies); persistErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to persist results: %v\n", persistErr)
+			return persistErr
 		}
 	}
 
@@ -270,10 +293,12 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 			return fmt.Errorf("failed to encode report: %w", err)
 		}
 		if opts.outputFile != "" {
-			if writeErr := os.WriteFile(opts.outputFile, encoded, 0o644); writeErr != nil {
+			if writeErr := os.WriteFile(opts.outputFile, encoded, 0o600); writeErr != nil {
 				return fmt.Errorf("failed to write output file: %w", writeErr)
 			}
-			fmt.Fprintf(os.Stderr, "report written to %s\n", opts.outputFile)
+			if shouldPrintWriteNotice(os.Stderr) {
+				fmt.Fprintf(os.Stderr, "report written to %s\n", opts.outputFile)
+			}
 		} else {
 			fmt.Println(string(encoded))
 		}
@@ -284,7 +309,11 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 		return writeSarifOutput(opts, report)
 	}
 
-	// Default: text mode — render with pterm.
+	if opts.outputFile != "" {
+		return writeTextOutputFile(opts.outputFile, report)
+	}
+
+	// Default: text mode - render with pterm.
 	if err := printPtermUI(report); err != nil {
 		return err
 	}
@@ -292,12 +321,48 @@ func writeOutput(opts scanOpts, report ScanReport) error {
 	return nil
 }
 
+func writeTextOutputFile(path string, report ScanReport) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- path is the explicit --file output destination.
+	if err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	if err := printPtermUITo(f, report); err != nil {
+		if closeErr := f.Close(); closeErr != nil {
+			return fmt.Errorf("render report: %w; close output file: %v", err, closeErr)
+		}
+		return err
+	}
+	printStarPromptTo(f)
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("failed to close output file: %w", err)
+	}
+	return nil
+}
+
+func shouldPrintWriteNotice(f *os.File) bool {
+	if f == nil {
+		return false
+	}
+
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+
+	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
 // printPtermUI renders the scan report as a pterm tree + summary box.
 func printPtermUI(report ScanReport) error {
-	// ── Emergency alert for AS-008 BLOCK findings ─────────────────────────────
-	printSupplyChainAlert(report.Policies)
+	return printPtermUITo(nil, report)
+}
 
-	// ── Build the tree ────────────────────────────────────────────────────────
+func printPtermUITo(w io.Writer, report ScanReport) error {
+	// Emergency alert for AS-008 BLOCK findings.
+	printSupplyChainAlertTo(w, report.Policies)
+
+	// Build the tree.
 	var rootChildren []pterm.TreeNode
 
 	for i := range report.Policies {
@@ -305,21 +370,11 @@ func printPtermUI(report ScanReport) error {
 		// Tool header label, coloured by action.
 		toolLabel := formatToolLabel(policy)
 
-		// Children: one per finding, or a green ✅ Pass.
+		// Children: one per finding, or a green OK Pass.
 		var children []pterm.TreeNode
 		if len(policy.Score.Issues) == 0 {
-			if line, note := dependencyVisibilityLines(policy); line != "" {
-				children = append(children, pterm.TreeNode{
-					Text: pterm.FgGray.Sprint(line),
-				})
-				if note != "" {
-					children = append(children, pterm.TreeNode{
-						Text: pterm.FgGray.Sprint(note),
-					})
-				}
-			}
 			children = append(children, pterm.TreeNode{
-				Text: pterm.FgGreen.Sprint("✅ Pass"),
+				Text: pterm.FgGreen.Sprint("OK Pass"),
 			})
 		} else {
 			if reason := summarizeToolReason(policy); reason != "" {
@@ -331,16 +386,6 @@ func printPtermUI(report ScanReport) error {
 				children = append(children, pterm.TreeNode{
 					Text: pterm.FgGray.Sprint(line),
 				})
-			}
-			if line, note := dependencyVisibilityLines(policy); line != "" {
-				children = append(children, pterm.TreeNode{
-					Text: pterm.FgGray.Sprint(line),
-				})
-				if note != "" {
-					children = append(children, pterm.TreeNode{
-						Text: pterm.FgGray.Sprint(note),
-					})
-				}
 			}
 			shownHints := map[string]bool{}
 			for _, issue := range policy.Score.Issues {
@@ -361,23 +406,26 @@ func printPtermUI(report ScanReport) error {
 		})
 	}
 
-	pterm.Println() // blank line before tree
-	if err := pterm.DefaultTree.WithRoot(pterm.TreeNode{
+	ptermPrintln(w) // blank line before tree
+	tree := pterm.DefaultTree.WithRoot(pterm.TreeNode{
 		Text:     pterm.Bold.Sprint("Scan Results"),
 		Children: rootChildren,
-	}).Render(); err != nil {
+	})
+	if w != nil {
+		tree = tree.WithWriter(w)
+	}
+	if err := tree.Render(); err != nil {
 		return fmt.Errorf("render tree: %w", err)
 	}
 
-	// ── Summary box ───────────────────────────────────────────────────────────
+	// Summary box.
 	s := report.Summary
 	riskLine := buildRiskLine(report.Policies)
-	avgScore, avgGrade := avgRiskScore(report.Policies)
 	summaryContent := fmt.Sprintf(
 		"Total Scanned    : %d\n"+
-			"  ✅ Allowed       : %d\n"+
-			"  ⚠️  Req Approval : %d\n"+
-			"  🚫 Blocked       : %d\n"+
+			"  OK Allowed       : %d\n"+
+			"  !! Req Approval : %d\n"+
+			"  XX Blocked       : %d\n"+
 			"Avg Risk Score   : %d (grade %s)\n"+
 			"Grade Breakdown  : %s\n"+
 			"Scanned At       : %s",
@@ -385,34 +433,43 @@ func printPtermUI(report ScanReport) error {
 		s.Allowed,
 		s.RequireApproval,
 		s.Blocked,
-		avgScore, avgGrade,
+		s.AvgScore, s.AvgGrade,
 		riskLine,
 		s.ScannedAt.Format("2006-01-02 15:04:05 UTC"),
 	)
-	pterm.DefaultBox.
+	box := pterm.DefaultBox.
 		WithTitle(pterm.Bold.Sprint("Scan Summary")).
-		WithTitleTopCenter().
-		Println(summaryContent)
+		WithTitleTopCenter()
+	if w != nil {
+		box = box.WithWriter(w)
+	}
+	box.Println(summaryContent)
 
-	// ── Per-grade action guide ─────────────────────────────────────────────
-	printGradeGuide(worstGrade(report.Policies))
+	// Per-grade action guide.
+	printGradeGuideTo(w, worstGrade(report.Policies))
 
 	return nil
 }
 
 func printStarPrompt() {
-	pterm.Println()
-	pterm.Info.Println("If ToolTrust helped, star us: github.com/AgentSafe-AI/tooltrust-scanner")
+	printStarPromptTo(nil)
 }
 
-func dependencyVisibilityLines(policy model.GatewayPolicy) (line, note string) {
-	if policy.DependencyVisibility == "" {
-		return "", ""
+func printStarPromptTo(w io.Writer) {
+	ptermPrintln(w)
+	if w == nil {
+		pterm.Info.Println("If ToolTrust helped, star us: github.com/AgentSafe-AI/tooltrust-scanner")
+		return
 	}
-	if policy.Action == model.ActionAllow && policy.Score.Grade == model.GradeA && policy.DependencyVisibility == "No dependency data" {
-		return "", ""
+	pterm.Info.WithWriter(w).Println("If ToolTrust helped, star us: github.com/AgentSafe-AI/tooltrust-scanner")
+}
+
+func ptermPrintln(w io.Writer, a ...any) {
+	if w == nil {
+		pterm.Println(a...)
+		return
 	}
-	return "Dependency visibility: " + policy.DependencyVisibility, policy.DependencyNote
+	pterm.Fprintln(w, a...)
 }
 
 func toolContextLines(policy model.GatewayPolicy) []string {
@@ -456,13 +513,13 @@ func printSupplyChainAlert(policies []model.GatewayPolicy) {
 	red := pterm.NewStyle(pterm.FgRed)
 
 	pterm.Println()
-	redBold.Println("╔══════════════════════════════════════════════════════════════╗")
-	redBold.Println("║  🚨  SUPPLY CHAIN ATTACK DETECTED — IMMEDIATE ACTION NEEDED  ║")
-	redBold.Println("╚══════════════════════════════════════════════════════════════╝")
+	redBold.Println("============================================================")
+	redBold.Println("  SUPPLY CHAIN ATTACK DETECTED - IMMEDIATE ACTION NEEDED")
+	redBold.Println("============================================================")
 	pterm.Println()
 
 	for _, a := range alerts {
-		redBold.Printf("  ✗  %s\n", a.pkg)
+		redBold.Printf("  XX  %s\n", a.pkg)
 		red.Printf("     %s\n", a.desc)
 		pterm.Println()
 	}
@@ -471,8 +528,24 @@ func printSupplyChainAlert(policies []model.GatewayPolicy) {
 	red.Println("  1. Remove the package from your environment immediately.")
 	red.Println("  2. Rotate ALL credentials (SSH keys, AWS/GCP tokens, API keys, .env).")
 	red.Println("  3. Check for persistence: ~/.config/sysmon/ and systemd user services.")
-	red.Println("  4. Audit recent agent actions — your environment may be compromised.")
+	red.Println("  4. Audit recent agent actions - your environment may be compromised.")
 	pterm.Println()
+}
+func printSupplyChainAlertTo(w io.Writer, policies []model.GatewayPolicy) {
+	if w == nil {
+		printSupplyChainAlert(policies)
+		return
+	}
+	for i := range policies {
+		policy := policies[i]
+		for _, issue := range policy.Score.Issues {
+			if issue.RuleID == "AS-008" && issue.Code == "SUPPLY_CHAIN_BLOCK" {
+				ptermPrintln(w)
+				ptermPrintln(w, pterm.FgRed.Sprintf("SUPPLY CHAIN ATTACK DETECTED: %s", issue.Location))
+				ptermPrintln(w, pterm.FgRed.Sprint(issue.Description))
+			}
+		}
+	}
 }
 
 // worstGrade returns the highest-risk grade across all policies.
@@ -506,18 +579,18 @@ func printGradeGuide(grade model.Grade) {
 	guides := map[model.Grade]guide{
 		model.GradeA: {
 			title: "All tools passed",
-			icon:  "✅",
+			icon:  "OK",
 			steps: []string{
-				"No action required — all tools are within safe thresholds.",
+				"No action required - all tools are within safe thresholds.",
 				"Re-run after updates: tooltrust-scanner scan --server \"...\"",
 			},
 			color: pterm.FgGreen,
 		},
 		model.GradeB: {
 			title: "Low-risk findings detected",
-			icon:  "ℹ️ ",
+			icon:  "i",
 			steps: []string{
-				"1. Review the flagged tools above — Grade B is allowed but monitored.",
+				"1. Review the flagged tools above - Grade B is allowed but monitored.",
 				"2. Check whether the declared permissions match actual usage.",
 				"3. Re-scan after each upstream release to catch regressions.",
 				"4. Consider reporting findings to the tool author (see GitHub Issues).",
@@ -526,7 +599,7 @@ func printGradeGuide(grade model.Grade) {
 		},
 		model.GradeC: {
 			title: "Some tools need human approval",
-			icon:  "⚠️ ",
+			icon:  "!!",
 			steps: []string{
 				"1. Review every APPROVAL tool listed above.",
 				"2. In your MCP config set  approval_required: true  for those tools.",
@@ -537,8 +610,8 @@ func printGradeGuide(grade model.Grade) {
 			color: pterm.FgYellow,
 		},
 		model.GradeD: {
-			title: "High-risk tools — action required",
-			icon:  "🔴",
+			title: "High-risk tools - action required",
+			icon:  "!!",
 			steps: []string{
 				"1. Do NOT run APPROVAL or BLOCK tools unattended.",
 				"2. Remove any BLOCK tools from your MCP config immediately.",
@@ -550,12 +623,12 @@ func printGradeGuide(grade model.Grade) {
 			color: pterm.FgLightRed,
 		},
 		model.GradeF: {
-			title: "Critical risk — remove these tools",
-			icon:  "🚨",
+			title: "Critical risk - remove these tools",
+			icon:  "XX",
 			steps: []string{
 				"1. Remove ALL BLOCK tools from your agent config NOW.",
 				"2. Do not use these tools even with approval_required.",
-				"3. Audit your agent's recent actions — it may have already been compromised.",
+				"3. Audit your agent's recent actions - it may have already been compromised.",
 				"4. Report to the tool author and the ToolTrust Directory:",
 				"   https://github.com/AgentSafe-AI/tooltrust-directory/issues/new?template=SCAN_REQUEST.md",
 				"5. Find safer alternatives: https://github.com/AgentSafe-AI/tooltrust-directory",
@@ -584,6 +657,21 @@ func printGradeGuide(grade model.Grade) {
 		WithTitle(pterm.NewStyle(g.color, pterm.Bold).Sprintf("%s  What to do with Grade %s", g.icon, grade)).
 		WithTitleTopLeft().
 		Println(pterm.NewStyle(g.color).Sprint(content))
+}
+
+func printGradeGuideTo(w io.Writer, grade model.Grade) {
+	if w == nil {
+		printGradeGuide(grade)
+		return
+	}
+	switch grade {
+	case model.GradeA:
+		ptermPrintln(w)
+		ptermPrintln(w, pterm.FgGreen.Sprint("No action required - all tools are within safe thresholds."))
+	case model.GradeB, model.GradeC, model.GradeD, model.GradeF:
+		ptermPrintln(w)
+		ptermPrintln(w, pterm.NewStyle(pterm.FgYellow, pterm.Bold).Sprintf("Review guidance for grade %s in the findings above.", grade))
+	}
 }
 
 func summarizeToolReason(policy model.GatewayPolicy) string {
@@ -625,7 +713,7 @@ func summarizeIssueReason(issue model.Issue) string {
 	switch issue.RuleID {
 	case "AS-002":
 		// New capability-surface summary: return the description as-is (it already
-		// contains "declared capabilities: …"). Legacy per-permission findings
+		// contains "declared capabilities: ..."). Legacy per-permission findings
 		// (Code=HIGH_RISK_PERMISSION) fall through to the evidence loop below.
 		if issue.Code == "CAPABILITY_SURFACE" {
 			return strings.TrimPrefix(issue.Description, "declared capabilities: ")
@@ -654,85 +742,6 @@ func summarizeIssueReason(issue model.Issue) string {
 	return desc
 }
 
-func dependencyVisibilityForTool(tool model.UnifiedTool) (visibility, note string) {
-	if tool.Metadata == nil {
-		return "No dependency data", "No metadata.dependencies or repo_url were exposed by this MCP server."
-	}
-
-	sources := dependencySourcesFromMetadata(tool.Metadata)
-	if len(sources) == 0 {
-		note = metadataString(tool.Metadata, "dependency_visibility_note")
-		if note == "" {
-			note = "No metadata.dependencies or repo_url were exposed by this MCP server."
-		}
-		return "No dependency data", note
-	}
-	return formatDependencyVisibility(sources), visibilityNote(tool.Metadata, sources)
-}
-
-func dependencySourcesFromMetadata(meta map[string]any) []string {
-	seen := map[string]bool{}
-	var sources []string
-
-	if raw, ok := meta["dependencies"]; ok {
-		b, err := json.Marshal(raw)
-		if err == nil {
-			var deps []struct {
-				Source string `json:"source"`
-			}
-			if err := json.Unmarshal(b, &deps); err == nil {
-				for _, dep := range deps {
-					source := dep.Source
-					if source == "" {
-						source = "metadata"
-					}
-					if !seen[source] {
-						seen[source] = true
-						sources = append(sources, source)
-					}
-				}
-			}
-		}
-	}
-
-	if repoURL, ok := meta["repo_url"].(string); ok && strings.TrimSpace(repoURL) != "" {
-		if !seen["repo_url"] {
-			sources = append(sources, "repo_url")
-		}
-	}
-
-	return sources
-}
-
-func visibilityNote(meta map[string]any, sources []string) string {
-	if note := metadataString(meta, "dependency_visibility_note"); note != "" {
-		return note
-	}
-	if len(sources) == 1 && sources[0] == "repo_url" {
-		return "repo_url is available, so ToolTrust can try to inspect remote lockfiles for dependency evidence."
-	}
-	return ""
-}
-
-func formatDependencyVisibility(sources []string) string {
-	labels := make([]string, 0, len(sources))
-	for _, source := range sources {
-		switch source {
-		case "metadata":
-			labels = append(labels, "Declared by MCP metadata")
-		case "local_lockfile":
-			labels = append(labels, "Verified from local lockfile")
-		case "lockfile":
-			labels = append(labels, "Verified from remote lockfile")
-		case "repo_url":
-			labels = append(labels, "Repo URL available")
-		default:
-			labels = append(labels, source)
-		}
-	}
-	return strings.Join(labels, " + ")
-}
-
 // formatToolLabel returns a coloured "Tool: <name>  [ACTION]" label.
 func formatToolLabel(policy model.GatewayPolicy) string {
 	name := fmt.Sprintf("Tool: %s", policy.ToolName)
@@ -754,23 +763,23 @@ func formatToolLabel(policy model.GatewayPolicy) string {
 
 // ruleHint returns a short, specific fix hint for each rule ID.
 var ruleHint = map[string]string{
-	"AS-001": "→ Remove adversarial instructions from the tool description before registering it.",
-	"AS-002": "→ Tool requests broad permissions (exec/fs/network). Validate input parameters using Enums where possible, and restrict file system operations to explicit allowed directories.",
-	"AS-003": "→ Rename the tool or fix its permission declarations so name and capabilities match.",
-	"AS-004": "→ Upgrade or replace the vulnerable dependency. Enable Dependabot on the repo.",
-	"AS-005": "→ Narrow OAuth scopes. Remove admin/:write wildcards and sudo-style escalation.",
-	"AS-006": "→ This tool can execute arbitrary code. If not strictly needed, remove it. If required, you MUST set approval_required: true in your MCP client config to ensure human-in-the-loop confirmation.",
-	"AS-007": "→ Ask the tool author to add a description and input schema to this tool.",
-	"AS-008": "→ REMOVE THIS PACKAGE IMMEDIATELY. This version is confirmed malware/compromised. Rotate all credentials on affected machines.",
-	"AS-009": "→ Rename the tool to a unique name. Typosquatting suggests impersonation of a well-known MCP tool.",
-	"AS-010": "→ Never pass raw credentials as tool inputs. Use a secret manager instead.",
-	"AS-011": "→ Add explicit timeout and rate-limit config to the tool before use in production.",
-	"AS-013": "→ Use a unique namespace prefix per server (e.g. github__search_repos) to prevent tool name collisions.",
-	"AS-015": "→ Review the install-time script before use. Prefer a version without lifecycle scripts, or install with --ignore-scripts in CI/sandboxed environments.",
-	"AS-016": "→ Treat this package version as a likely compromise. Remove it, rotate exposed credentials, and inspect the dependency tree for the IOC package before reinstalling.",
-	"AS-017": "→ Review whether the tool description is instructing external data forwarding. If intentional, require approval and narrow the destination scope.",
-	"AS-018": "→ Run a sandboxed live scan when possible, or add a tools manifest so the embedded MCP implementation can be reviewed without executing the server.",
-	"AS-019": "→ Apply equivalent authentication middleware to every MCP HTTP route, and avoid fail-open allowlist defaults on alternate endpoints such as /mcp_message.",
+	"AS-001": "-> Remove adversarial instructions from the tool description before registering it.",
+	"AS-002": "-> Tool requests broad permissions (exec/fs/network). Validate input parameters using Enums where possible, and restrict file system operations to explicit allowed directories.",
+	"AS-003": "-> Rename the tool or fix its permission declarations so name and capabilities match.",
+	"AS-004": "-> Upgrade or replace the vulnerable dependency. Enable Dependabot on the repo.",
+	"AS-005": "-> Narrow OAuth scopes. Remove admin/:write wildcards and sudo-style escalation.",
+	"AS-006": "-> This tool can execute arbitrary code. If not strictly needed, remove it. If required, you MUST set approval_required: true in your MCP client config to ensure human-in-the-loop confirmation.",
+	"AS-007": "-> Ask the tool author to add a description and input schema to this tool.",
+	"AS-008": "-> REMOVE THIS PACKAGE IMMEDIATELY. This version is confirmed malware/compromised. Rotate all credentials on affected machines.",
+	"AS-009": "-> Rename the tool to a unique name. Typosquatting suggests impersonation of a well-known MCP tool.",
+	"AS-010": "-> Never pass raw credentials as tool inputs. Use a secret manager instead.",
+	"AS-011": "-> Add explicit timeout and rate-limit config to the tool before use in production.",
+	"AS-013": "-> Use a unique namespace prefix per server (e.g. github__search_repos) to prevent tool name collisions.",
+	"AS-015": "-> Review the install-time script before use. Prefer a version without lifecycle scripts, or install with --ignore-scripts in CI/sandboxed environments.",
+	"AS-016": "-> Treat this package version as a likely compromise. Remove it, rotate exposed credentials, and inspect the dependency tree for the IOC package before reinstalling.",
+	"AS-017": "-> Review whether the tool description is instructing external data forwarding. If intentional, require approval and narrow the destination scope.",
+	"AS-018": "-> Run a sandboxed live scan when possible, or add a tools manifest so the embedded MCP implementation can be reviewed without executing the server.",
+	"AS-019": "-> Apply equivalent authentication middleware to every MCP HTTP route, and avoid fail-open allowlist defaults on alternate endpoints such as /mcp_message.",
 }
 
 // formatIssueLabel returns a coloured finding line with optional evidence and fix hint.
@@ -779,7 +788,7 @@ func formatIssueLabel(issue model.Issue, policy model.GatewayPolicy, showHint bo
 		return ""
 	}
 
-	main := fmt.Sprintf("• [%s] %s: %s", issue.RuleID, issue.Severity, issue.Description)
+	main := fmt.Sprintf("* [%s] %s: %s", issue.RuleID, issue.Severity, issue.Description)
 	hint := ""
 	if showHint {
 		hint = ruleHint[issue.RuleID]
@@ -812,7 +821,7 @@ func issueEvidenceLines(issue model.Issue) []string {
 	for i, evidence := range issue.Evidence {
 		if i >= maxEvidence {
 			remaining := len(issue.Evidence) - maxEvidence
-			lines = append(lines, pterm.FgGray.Sprint(fmt.Sprintf("… %d more evidence item(s)", remaining)))
+			lines = append(lines, pterm.FgGray.Sprint(fmt.Sprintf("... %d more evidence item(s)", remaining)))
 			break
 		}
 		lines = append(lines, pterm.FgGray.Sprint(fmt.Sprintf("Evidence: %s=%s", evidence.Kind, evidence.Value)))
@@ -839,7 +848,7 @@ func isRedundantPermissionEvidence(issue model.Issue) bool {
 		return false
 	}
 	// New capability-surface summary: evidence lists raw permission names that are
-	// already spelled out in the human-readable description — always redundant.
+	// already spelled out in the human-readable description - always redundant.
 	if issue.Code == "CAPABILITY_SURFACE" {
 		return true
 	}
@@ -869,7 +878,7 @@ func joinIssueDetailLines(main string, groups ...[]string) string {
 	return strings.Join(lines, "\n")
 }
 
-// buildRiskLine builds a compact risk summary string e.g. "A×3  B×1  F×1".
+// buildRiskLine builds a compact risk summary string e.g. "A x 3  B x 1  F x 1".
 func buildRiskLine(policies []model.GatewayPolicy) string {
 	counts := map[model.Grade]int{}
 	for i := range policies {
@@ -880,11 +889,11 @@ func buildRiskLine(policies []model.GatewayPolicy) string {
 	var parts []string
 	for _, g := range grades {
 		if n := counts[g]; n > 0 {
-			parts = append(parts, fmt.Sprintf("%s×%d", g, n))
+			parts = append(parts, fmt.Sprintf("%s x %d", g, n))
 		}
 	}
 	if len(parts) == 0 {
-		return "—"
+		return "-"
 	}
 	return strings.Join(parts, "  ")
 }
@@ -903,17 +912,10 @@ func avgRiskScore(policies []model.GatewayPolicy) (int, model.Grade) {
 	return avg, model.GradeFromScore(avg)
 }
 
-func metadataString(meta map[string]any, key string) string {
-	if value, ok := meta[key].(string); ok {
-		return value
-	}
-	return ""
-}
-
 // printScanPtree writes a tree view of the scan process to w (stderr) during verbose scan.
 func printScanPtree(w *os.File, tool model.UnifiedTool, score model.RiskScore, policy model.GatewayPolicy) {
-	const tree, branch, last = "│  ", "├─ ", "└─ "
-	fmt.Fprintf(w, "\n┌─ %s\n", tool.Name) //nolint:errcheck // stderr write in verbose debug path
+	const tree, branch, last = "|  ", "|- ", "`- "
+	fmt.Fprintf(w, "\n+- %s\n", tool.Name) //nolint:errcheck // stderr write in verbose debug path
 	var lines []string
 	if len(tool.Permissions) > 0 {
 		lines = append(lines, fmt.Sprintf("Permissions: %v", tool.Permissions))
@@ -925,7 +927,7 @@ func printScanPtree(w *os.File, tool model.UnifiedTool, score model.RiskScore, p
 		wt := severityWeight[iss.Severity]
 		lines = append(lines, fmt.Sprintf("%s %s (+%d): %s [%s]", iss.RuleID, iss.Severity, wt, iss.Description, iss.Location))
 	}
-	lines = append(lines, fmt.Sprintf("Score: %d → Grade %s → %s", score.Score, score.Grade, policy.Action))
+	lines = append(lines, fmt.Sprintf("Score: %d -> Grade %s -> %s", score.Score, score.Grade, policy.Action))
 	for i, ln := range lines {
 		sep := branch
 		if i == len(lines)-1 {
@@ -933,14 +935,17 @@ func printScanPtree(w *os.File, tool model.UnifiedTool, score model.RiskScore, p
 		}
 		fmt.Fprintf(w, "%s%s%s\n", tree, sep, ln) //nolint:errcheck // stderr write in verbose debug path
 	}
-	fmt.Fprintf(w, "└─\n") //nolint:errcheck // stderr write in verbose debug path
+	fmt.Fprintf(w, "`-\n") //nolint:errcheck // stderr write in verbose debug path
 }
 
 func checkFailOn(failOn string, summary ScanSummary) error {
-	if failOn == "" {
-		return nil
+	failOn = normalizeFailOn(failOn)
+	if err := validateFailOn(failOn); err != nil {
+		return err
 	}
 	switch failOn {
+	case "":
+		return nil
 	case "block":
 		if summary.Blocked > 0 {
 			return fmt.Errorf("scan failed: %d tool(s) BLOCKED", summary.Blocked)
@@ -953,10 +958,26 @@ func checkFailOn(failOn string, summary ScanSummary) error {
 		if summary.RequireApproval > 0 || summary.Blocked > 0 {
 			return fmt.Errorf("scan failed: only %d of %d tool(s) are fully allowed", summary.Allowed, summary.Total)
 		}
+	}
+	return nil
+}
+
+func normalizeFailOn(failOn string) string {
+	return strings.ToLower(strings.TrimSpace(failOn))
+}
+
+func normalizeOutput(output string) string {
+	return strings.ToLower(strings.TrimSpace(output))
+}
+
+func validateFailOn(failOn string) error {
+	failOn = normalizeFailOn(failOn)
+	switch failOn {
+	case "", "allow", "approval", "block":
+		return nil
 	default:
 		return fmt.Errorf("invalid --fail-on value %q (use: allow | approval | block)", failOn)
 	}
-	return nil
 }
 
 func persistResults(ctx context.Context, dbPath string, tools []model.UnifiedTool, policies []model.GatewayPolicy) error {

@@ -69,6 +69,30 @@ func TestScopeChecker_WriteNameWithNoWritePermission(t *testing.T) {
 	assert.NotEmpty(t, issues)
 }
 
+func TestScopeChecker_RemoteWriteAPIWithNetworkOnly_NoMismatch(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "create_github_issue",
+		Description: "Create an issue in GitHub.",
+		Permissions: []model.Permission{model.PermissionNetwork},
+	}
+
+	issues, err := analyzer.NewScopeChecker().Check(tool)
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+}
+
+func TestScopeChecker_GenericHTTPWriteAPI_NoMismatch(t *testing.T) {
+	tool := model.UnifiedTool{
+		Name:        "create_ticket",
+		Description: "Create a ticket through the configured remote API.",
+		Permissions: []model.Permission{model.PermissionHTTP},
+	}
+
+	issues, err := analyzer.NewScopeChecker().Check(tool)
+	require.NoError(t, err)
+	assert.Empty(t, issues)
+}
+
 func TestScopeChecker_CloudAPIExecExemption(t *testing.T) {
 	for _, tc := range []struct {
 		name string

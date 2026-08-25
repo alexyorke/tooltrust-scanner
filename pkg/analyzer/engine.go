@@ -66,6 +66,7 @@ func NewEngine(enableDeepScan bool, rulesDir string) (*Engine, error) {
 // checker failure — which the built-in checkers never trigger.  In the
 // unlikely event of a failure, a zero ScanReport is returned.
 func (e *Engine) Scan(tool model.UnifiedTool) ScanReport {
+	e.scanner.ResetSession()
 	score, err := e.scanner.Scan(context.Background(), tool)
 	if err != nil {
 		return ScanReport{ToolName: tool.Name}
